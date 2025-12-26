@@ -28,15 +28,16 @@ const handleCreateSubmit = async () => {
             <input v-model="store.createTitle" type="text" placeholder="例如 周末 Game Jam" required />
           </label>
 
-          <label class="field">
-            <span>开始时间</span>
-            <input v-model="store.createStartTime" type="datetime-local" />
-          </label>
-
-          <label class="field">
-            <span>结束时间</span>
-            <input v-model="store.createEndTime" type="datetime-local" />
-          </label>
+                <div class="field-row">
+                  <label class="field">
+                    <span>活动开始时间</span>
+                    <input v-model="createStartTime" type="datetime-local" />
+                  </label>
+                  <label class="field">
+                    <span>活动结束时间</span>
+                    <input v-model="createEndTime" type="datetime-local" />
+                  </label>
+                </div>
 
           <label class="field">
             <span>地点</span>

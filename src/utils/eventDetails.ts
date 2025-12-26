@@ -18,6 +18,8 @@ export type FormOption = {
   label: string
 }
 
+export type ProfileField = 'username' | 'phone' | 'qq' | 'roles'
+
 export type RegistrationQuestion = {
   id: string
   type: FormQuestionType
@@ -26,6 +28,7 @@ export type RegistrationQuestion = {
   allowOther?: boolean
   options?: FormOption[]
   dependsOn?: QuestionDependency | null
+  linkedProfileField?: ProfileField | null
 }
 
 export type RegistrationForm = {
@@ -158,6 +161,14 @@ const normalizeQuestions = (value: unknown, fallback: RegistrationQuestion[]) =>
       const allowOther = type === 'select' ? Boolean(record.allowOther) : false
       const options = type === 'text' ? [] : normalizeOptions(record.options)
       const dependsOn = normalizeDependency(record.dependsOn)
+      const linkedProfileField =
+        record.linkedProfileField === 'username' ||
+        record.linkedProfileField === 'phone' ||
+        record.linkedProfileField === 'qq' ||
+        record.linkedProfileField === 'roles'
+          ? record.linkedProfileField
+          : null
+
       if (!id && !title) return null
       return {
         id: id || generateId(),
@@ -167,6 +178,7 @@ const normalizeQuestions = (value: unknown, fallback: RegistrationQuestion[]) =>
         allowOther,
         options,
         dependsOn,
+        linkedProfileField,
       }
     })
     .filter((item): item is NonNullable<typeof item> => !!item)

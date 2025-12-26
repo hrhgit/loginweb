@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { Link2 } from 'lucide-vue-next'
 import { RouterLink, onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { useAppStore, type EventStatus } from '../store/appStore'
 import {
@@ -45,6 +46,7 @@ const dependencyModalOpen = ref(false)
 const dependencyTargetId = ref<string | null>(null)
 const dependencyQuestionId = ref('')
 const dependencyOptionId = ref('')
+const activeLinkMenuQuestionId = ref<string | null>(null)
 
 const editTitle = ref('')
 const editStartTime = ref('')
@@ -230,6 +232,17 @@ const removeOption = (question: RegistrationQuestion, optionIndex: number) => {
 }
 
 const handleQuestionTypeChange = (question: RegistrationQuestion) => {
+  // Reset linked profile field if incompatible
+  if (question.type === 'text') {
+    if (question.linkedProfileField === 'roles') {
+      question.linkedProfileField = null
+    }
+  } else {
+    if (['phone', 'qq', 'username'].includes(question.linkedProfileField ?? '')) {
+      question.linkedProfileField = null
+    }
+  }
+
   if (question.type === 'text') {
     question.options = []
     question.allowOther = false
@@ -247,6 +260,30 @@ const handleQuestionTypeChange = (question: RegistrationQuestion) => {
   } else if (question.type !== 'select') {
     question.allowOther = false
   }
+}
+
+const toggleLinkMenu = (id: string) => {
+  if (activeLinkMenuQuestionId.value === id) {
+    activeLinkMenuQuestionId.value = null
+  } else {
+    activeLinkMenuQuestionId.value = id
+  }
+}
+
+const selectLinkField = (question: RegistrationQuestion, field: string | null) => {
+  question.linkedProfileField = field as any
+  activeLinkMenuQuestionId.value = null
+}
+
+const getLinkFieldLabel = (field: string | null | undefined) => {
+  if (!field) return ''
+  const map: Record<string, string> = {
+    phone: '手机',
+    qq: 'QQ',
+    username: '昵称',
+    roles: '职能',
+  }
+  return map[field] || field
 }
 
 const getDependencyLabel = (question: RegistrationQuestion) => {
@@ -443,15 +480,15 @@ const validateFields = (): boolean => {
   const startDate = editStartTime.value ? new Date(editStartTime.value) : null
   const endDate = editEndTime.value ? new Date(editEndTime.value) : null
   if (startDate && Number.isNaN(startDate.getTime())) {
-    fieldErrors.startTime = '开始时间无效。'
+    fieldErrors.startTime = '活动开始时间无效。'
     isValid = false
   }
   if (endDate && Number.isNaN(endDate.getTime())) {
-    fieldErrors.endTime = '结束时间无效。'
+    fieldErrors.endTime = '活动结束时间无效。'
     isValid = false
   }
   if (startDate && endDate && startDate.getTime() > endDate.getTime()) {
-    fieldErrors.endTime = '开始时间不能晚于结束时间。'
+    fieldErrors.endTime = '活动开始时间不能晚于活动结束时间。'
     isValid = false
   }
 
@@ -709,12 +746,18 @@ onBeforeRouteLeave(() => {
   return window.confirm('当前修改尚未保存，确定要离开吗？')
 })
 
+const closeLinkMenu = () => {
+  activeLinkMenuQuestionId.value = null
+}
+
 onMounted(() => {
   window.addEventListener('beforeunload', handleBeforeUnload)
+  document.addEventListener('click', closeLinkMenu)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('beforeunload', handleBeforeUnload)
+  document.removeEventListener('click', closeLinkMenu)
 })
 </script>
 
@@ -866,13 +909,13 @@ onBeforeUnmount(() => {
 
                 <div class="field-row">
                   <label class="field" :class="{ 'field--error': fieldErrors.startTime }">
-                    <span>开始时间</span>
+                    <span>活动开始时间</span>
                     <input v-model="editStartTime" type="datetime-local" />
                     <p v-if="fieldErrors.startTime" class="help-text error-text">{{ fieldErrors.startTime }}</p>
                   </label>
 
                   <label class="field" :class="{ 'field--error': fieldErrors.endTime }">
-                    <span>结束时间</span>
+                    <span>活动结束时间</span>
                     <input v-model="editEndTime" type="datetime-local" />
                     <p v-if="fieldErrors.endTime" class="help-text error-text">{{ fieldErrors.endTime }}</p>
                   </label>
@@ -955,6 +998,66 @@ onBeforeUnmount(() => {
                         <option value="select">下拉选择</option>
                         <option value="text">填空题</option>
                       </select>
+                      
+                      <div class="link-menu-wrapper">
+                        <button
+                          type="button"
+                          class="btn-link-trigger"
+                          :class="{ 'btn-link-trigger--active': !!question.linkedProfileField }"
+                          @click.stop="toggleLinkMenu(question.id)"
+                          title="关联用户信息"
+                        >
+                          <Link2 :size="16" />
+                          <span v-if="question.linkedProfileField">{{
+                            getLinkFieldLabel(question.linkedProfileField)
+                          }}</span>
+                        </button>
+
+                        <div
+                          v-if="activeLinkMenuQuestionId === question.id"
+                          class="link-menu-dropdown"
+                        >
+                          <button
+                            type="button"
+                            class="link-menu-item muted"
+                            @click="selectLinkField(question, null)"
+                          >
+                            不关联
+                          </button>
+                          <template v-if="question.type === 'text'">
+                            <button
+                              type="button"
+                              class="link-menu-item"
+                              @click="selectLinkField(question, 'phone')"
+                            >
+                              关联手机号
+                            </button>
+                            <button
+                              type="button"
+                              class="link-menu-item"
+                              @click="selectLinkField(question, 'qq')"
+                            >
+                              关联QQ号
+                            </button>
+                            <button
+                              type="button"
+                              class="link-menu-item"
+                              @click="selectLinkField(question, 'username')"
+                            >
+                              关联昵称
+                            </button>
+                          </template>
+                          <template v-else>
+                            <button
+                              type="button"
+                              class="link-menu-item"
+                              @click="selectLinkField(question, 'roles')"
+                            >
+                              关联职能
+                            </button>
+                          </template>
+                        </div>
+                      </div>
                     </div>
                       <button
                         class="icon-btn icon-btn--small icon-btn--danger"
@@ -1341,3 +1444,5 @@ onBeforeUnmount(() => {
     </div>
   </teleport>
 </template>
+
+

@@ -458,15 +458,15 @@ const submitCreate = async () => {
   const startDate = createStartTime.value ? new Date(createStartTime.value) : null
   const endDate = createEndTime.value ? new Date(createEndTime.value) : null
   if (startDate && Number.isNaN(startDate.getTime())) {
-    createError.value = '开始时间无效。'
+    createError.value = '活动开始时间无效。'
     return null
   }
   if (endDate && Number.isNaN(endDate.getTime())) {
-    createError.value = '结束时间无效。'
+    createError.value = '活动结束时间无效。'
     return null
   }
   if (startDate && endDate && startDate.getTime() > endDate.getTime()) {
-    createError.value = '开始时间不能晚于结束时间。'
+    createError.value = '活动开始时间不能晚于活动结束时间。'
     return null
   }
 

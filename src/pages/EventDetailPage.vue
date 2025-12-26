@@ -131,6 +131,47 @@ const restoreFormSnapshot = () => {
 
 const openRegistrationForm = () => {
   resetRegistrationForm()
+
+  // Auto-fill form based on linked profile fields
+  if (store.user) {
+    visibleRegistrationQuestions.value.forEach((q) => {
+      if (!q.linkedProfileField) return
+
+      if (q.type === 'text') {
+        if (q.linkedProfileField === 'username' && store.profile?.username) {
+          registrationAnswers.value[q.id] = store.profile.username
+        } else if (q.linkedProfileField === 'phone' && store.contacts?.phone) {
+          registrationAnswers.value[q.id] = store.contacts.phone
+        } else if (q.linkedProfileField === 'qq' && store.contacts?.qq) {
+          registrationAnswers.value[q.id] = store.contacts.qq
+        }
+      } else if (q.linkedProfileField === 'roles' && store.profile?.roles?.length) {
+        const ROLE_MAP: Record<string, string> = {
+          programmer: '程序',
+          planner: '策划',
+          artist: '美术',
+          audio: '音乐音效',
+        }
+        const userLabels = store.profile.roles.map((r) => ROLE_MAP[r]).filter(Boolean)
+
+        if (q.type === 'multi') {
+          const matches =
+            q.options?.filter((o) => userLabels.includes(o.label)).map((o) => o.id) || []
+          if (matches.length) {
+            registrationAnswers.value[q.id] = matches
+          }
+        } else {
+          // single or select
+          const firstLabel = userLabels[0]
+          const match = q.options?.find((o) => o.label === firstLabel)
+          if (match) {
+            registrationAnswers.value[q.id] = match.id
+          }
+        }
+      }
+    })
+  }
+
   registrationModalOpen.value = true
 }
 
@@ -990,3 +1031,5 @@ watch(isRegistered, async (value) => {
     </div>
   </teleport>
 </template>
+
+

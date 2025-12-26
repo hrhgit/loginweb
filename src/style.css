@@ -1,4 +1,4 @@
-@import "https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&family=Work+Sans:wght@400;500;600&display=swap";
+@import "./fonts.css";
 :root {
   color: #1f2421;
   background-color: #f7f3ec;
@@ -1817,7 +1817,8 @@ img {
 /* Global Fix for Tab Auto-fill */
 .editor-tabs--wide {
   display: flex !important;
-  width: 100%;
+  width: calc(100% + 36px) !important;
+  margin: -18px -18px 24px !important;
 }
 
 .editor-tab {
@@ -1839,4 +1840,76 @@ img {
   display: flex !important;
   justify-content: center !important;
   align-items: center !important;
+}
+
+/* Link Menu Styles */
+.link-menu-wrapper {
+  position: relative;
+  display: inline-block;
+}
+
+.btn-link-trigger {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(18, 33, 30, 0.14);
+  background: #ffffffeb;
+  font-size: 0.85rem;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-link-trigger:hover {
+  background: #f1f5f9;
+  color: var(--primary);
+  border-color: var(--primary);
+}
+
+.btn-link-trigger--active {
+  background: var(--primary-light);
+  color: var(--primary);
+  border-color: var(--primary);
+  font-weight: 500;
+}
+
+.link-menu-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 6px;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  border: 1px solid var(--border);
+  z-index: 100;
+  min-width: 140px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.link-menu-item {
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 8px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  color: var(--ink);
+  transition: background 0.2s;
+  width: 100%;
+}
+
+.link-menu-item:hover {
+  background: var(--surface);
+  color: var(--primary);
+}
+
+.link-menu-item.muted {
+  color: var(--muted);
 }
