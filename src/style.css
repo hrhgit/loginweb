@@ -1813,3 +1813,30 @@ img {
   color: var(--muted);
   font-size: 0.9rem;
 }
+
+/* Global Fix for Tab Auto-fill */
+.editor-tabs--wide {
+  display: flex !important;
+  width: 100%;
+}
+
+.editor-tab {
+  flex: 1 !important;
+  text-align: center !important;
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+}
+
+.detail-tabs__bar {
+  display: flex !important;
+  width: 100%;
+}
+
+.detail-tabs__btn {
+  flex: 1 !important;
+  text-align: center !important;
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+}
