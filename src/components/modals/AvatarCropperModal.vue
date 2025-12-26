@@ -2,6 +2,10 @@
 import { ref, onMounted, onUnmounted, watch, computed } from 'vue';
 import { Upload, Save, X, RotateCcw } from 'lucide-vue-next';
 
+const props = defineProps<{
+  initialImage?: string;
+}>();
+
 const emit = defineEmits<{
   (e: 'close'): void;
   (e: 'save', dataUrl: string): void;
