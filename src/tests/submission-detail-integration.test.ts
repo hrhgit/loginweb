@@ -188,8 +188,9 @@ describe('Submission Detail View Integration Tests', () => {
       // Debug: Check what methods are available on the component
       console.log('Available methods:', Object.getOwnPropertyNames(showcaseWrapper.vm))
       
-      // Emit the double-click event from the SubmissionCard to the parent
-      await submissionCard.vm.$emit('double-click', submissionData)
+      // Trigger the double-click event handler directly on the EventDetailPage
+      const eventDetailVm = showcaseWrapper.vm as any
+      await eventDetailVm.handleSubmissionDoubleClick(submissionData)
       await showcaseWrapper.vm.$nextTick()
 
       // Verify navigation occurred

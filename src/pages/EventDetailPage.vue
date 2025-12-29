@@ -216,10 +216,10 @@ const handleSubmissionClick = (submission: any) => {
   console.log('Clicked submission:', submission)
 }
 
-const handleSubmissionDoubleClick = (submission: any) => {
+const handleSubmissionDoubleClick = async (submission: any) => {
   // Navigate to submission detail view on double-click
   if (eventId.value && submission.id) {
-    router.push({
+    await router.push({
       name: 'submission-detail',
       params: {
         eventId: eventId.value,
@@ -229,10 +229,10 @@ const handleSubmissionDoubleClick = (submission: any) => {
   }
 }
 
-const handleSubmissionTitleClick = (submission: any) => {
+const handleSubmissionTitleClick = async (submission: any) => {
   // Navigate to submission detail view on title click
   if (eventId.value && submission.id) {
-    router.push({
+    await router.push({
       name: 'submission-detail',
       params: {
         eventId: eventId.value,

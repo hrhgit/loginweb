@@ -93,7 +93,7 @@
             :href="sanitizedVideoLink" 
             target="_blank" 
             rel="noopener noreferrer"
-            class="btn btn--secondary btn--block"
+            class="btn btn--secondary btn--block action-secondary"
           >
             <Video :size="18" />
             观看演示视频
@@ -119,10 +119,10 @@
                   :href="sanitizedSubmissionUrl" 
                   target="_blank" 
                   rel="noopener noreferrer" 
-                  class="btn btn--primary btn--large btn--block"
+                  class="btn btn--primary btn--large btn--block action-main"
                 >
                   <LinkIcon :size="20" />
-                  作品链接
+                  访问作品链接
                 </a>
                 
                 <!-- Password Display -->
@@ -146,7 +146,7 @@
               <div v-if="hasValidSubmissionContent" class="action-content">
                 <button 
                   v-if="submission.submission_storage_path"
-                  class="btn btn--primary btn--large btn--block"
+                  class="btn btn--primary btn--large btn--block action-main"
                   @click="handleCustomDownload"
                 >
                   <Download :size="20" />
@@ -285,7 +285,12 @@ const coverUrl = computed(() => {
 const formatSubmissionTime = computed(() => {
   if (!submission.value?.created_at) return '未知时间'
   try {
-    return new Date(submission.value.created_at).toLocaleString('zh-CN', {
+    const date = new Date(submission.value.created_at)
+    // Check if the date is valid
+    if (isNaN(date.getTime())) {
+      return '错误'
+    }
+    return date.toLocaleString('zh-CN', {
       year: 'numeric',
       month: 'long',
       day: 'numeric',
@@ -293,7 +298,7 @@ const formatSubmissionTime = computed(() => {
       minute: '2-digit'
     })
   } catch {
-    return '时间格式错误'
+    return '错误'
   }
 })
 

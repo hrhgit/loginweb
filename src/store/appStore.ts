@@ -1170,9 +1170,9 @@ const loadSubmissions = async (eventId: string) => {
           // 如果是数组，取第一个
           teamData = { id: item.teams[0].id, name: item.teams[0].name }
           console.log('Team data from array:', teamData)
-        } else if (typeof item.teams === 'object' && item.teams.id) {
+        } else if (typeof item.teams === 'object' && !Array.isArray(item.teams) && 'id' in item.teams) {
           // 如果是单个对象
-          teamData = { id: item.teams.id, name: item.teams.name }
+          teamData = { id: (item.teams as any).id, name: (item.teams as any).name }
           console.log('Team data from object:', teamData)
         }
       }
@@ -1910,7 +1910,7 @@ const submitRegistration = async (event: DisplayEvent, formResponse: Record<stri
     .insert({
       event_id: event.id,
       user_id: user.value.id,
-      status: 'pending',
+      status: 'registered',
       form_response: formResponse,
     })
     .select('id,event_id')

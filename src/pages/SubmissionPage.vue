@@ -746,10 +746,12 @@ onUnmounted(() => {
 
         <div class="field" ref="teamField" :class="{ 'field--error': fieldErrors.teamId }">
           <label>选择队伍 <span class="required">*</span></label>
-          <select v-model="teamId">
-            <option v-for="team in teamOptions" :key="team.id" :value="team.id">{{ team.name }}</option>
-            <option v-if="!teamOptions.length" value="" disabled>暂无可选队伍</option>
-          </select>
+          <div class="form-question__field">
+            <select v-model="teamId">
+              <option v-for="team in teamOptions" :key="team.id" :value="team.id">{{ team.name }}</option>
+              <option v-if="!teamOptions.length" value="" disabled>暂无可选队伍</option>
+            </select>
+          </div>
           <p v-if="fieldErrors.teamId" class="help-text error-text">{{ fieldErrors.teamId }}</p>
         </div>
 
@@ -1044,13 +1046,15 @@ onUnmounted(() => {
   color: var(--ink);
 }
 
+/* 提交表单的输入框样式 */
 .submission-form .field input,
-.submission-form .field textarea,
-.submission-form .field select {
+.submission-form .field textarea {
   font-size: 1.05rem;
   padding: 16px 18px;
-  border-radius: 16px;
+  border-radius: 16px !important;
   min-height: 56px;
+  border: 1px solid rgba(18, 33, 30, 0.14) !important;
+  background: #ffffffeb !important;
 }
 
 .submission-form .field textarea {
