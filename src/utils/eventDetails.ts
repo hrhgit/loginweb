@@ -11,7 +11,7 @@ export type TeamLobbyCard = {
   vibe: string
 }
 
-export type FormQuestionType = 'single' | 'multi' | 'text' | 'select'
+export type FormQuestionType = 'single' | 'multi' | 'text' | 'textarea' | 'select' | 'autocomplete'
 
 export type FormOption = {
   id: string
@@ -64,9 +64,9 @@ export const generateId = () => {
 
 export const createDefaultEventDetails = (): EventDetailContent => ({
   introductionBlocks: [
-    '这是一次以创意驱动的 Game Jam，主题在开场时公布，团队需在限定时间内完成可玩的原型。',
-    '我们鼓励跨学科组合：策划、程序、设计、音效与叙事共同完成作品。',
-    '现场将提供创作空间与节奏管理，帮助团队更顺畅地完成迭代与展示。',
+    '这是一次以创意驱动的 Game Jam，主题在开场时公布，团队需在限定时间内完成可玩的原型',
+    '我们鼓励跨学科组合：策划、程序、设计、音效与叙事共同完成作品',
+    '现场将提供创作空间与节奏管理，帮助团队更顺畅地完成迭代与展示',
   ],
   highlightItems: [
     '主题当天公布，限制时间内完成核心玩法',
@@ -74,11 +74,11 @@ export const createDefaultEventDetails = (): EventDetailContent => ({
     'Demo 展示 + 点评，优秀作品推荐后续孵化',
   ],
   registrationSteps: [
-    { time: 'T-7', title: '报名登记', desc: '填写报名信息，选择个人报名或加入队伍。' },
-    { time: 'T-3', title: '组队匹配', desc: '进入组队大厅，补齐角色或加入其他团队。' },
-    { time: 'D0', title: '主题公布', desc: '开场公布主题与评分维度，团队进入创作。' },
-    { time: 'D2', title: '作品提交', desc: '上传构建包、演示视频与说明文档。' },
-    { time: 'D2', title: '终局展示', desc: '现场 Demo 与评委点评，公布获奖名单。' },
+    { time: 'T-7', title: '报名登记', desc: '填写报名信息，选择个人报名或加入队伍' },
+    { time: 'T-3', title: '组队匹配', desc: '进入组队大厅，补齐角色或加入其他团队' },
+    { time: 'D0', title: '主题公布', desc: '开场公布主题与评分维度，团队进入创作' },
+    { time: 'D2', title: '作品提交', desc: '上传构建包、演示视频与说明文档' },
+    { time: 'D2', title: '终局展示', desc: '现场 Demo 与评委点评，公布获奖名单' },
   ],
   registrationForm: {
     questions: [],
@@ -94,7 +94,7 @@ export const createDefaultEventDetails = (): EventDetailContent => ({
     '团队介绍与分工说明',
     '核心玩法与创意说明',
   ],
-  submissionNote: '提交窗口将在活动后半段开放，确保所有团队公平冲刺。',
+  submissionNote: '提交窗口将在活动后半段开放，确保所有团队公平冲刺',
 })
 
 const normalizeTextArray = (value: unknown, fallback: string[]) => {
@@ -153,13 +153,18 @@ const normalizeQuestions = (value: unknown, fallback: RegistrationQuestion[]) =>
       const record = item as Partial<RegistrationQuestion>
       const id = typeof record.id === 'string' ? record.id.trim() : ''
       const type =
-        record.type === 'single' || record.type === 'multi' || record.type === 'text' || record.type === 'select'
+        record.type === 'single' ||
+        record.type === 'multi' ||
+        record.type === 'text' ||
+        record.type === 'textarea' ||
+        record.type === 'select' ||
+        record.type === 'autocomplete'
           ? record.type
           : 'text'
       const title = typeof record.title === 'string' ? record.title.trim() : ''
       const required = Boolean(record.required)
       const allowOther = type === 'select' ? Boolean(record.allowOther) : false
-      const options = type === 'text' ? [] : normalizeOptions(record.options)
+      const options = type === 'text' || type === 'textarea' ? [] : normalizeOptions(record.options)
       const dependsOn = normalizeDependency(record.dependsOn)
       const linkedProfileField =
         record.linkedProfileField === 'username' ||

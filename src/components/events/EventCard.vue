@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
+import { Clock } from 'lucide-vue-next'
 import type { DisplayEvent } from '../../store/models'
 import { statusClass, statusLabel } from '../../utils/eventFormat'
 
@@ -21,7 +22,10 @@ const handleDblClick = (event: MouseEvent) => {
 <template>
   <article class="activity-card" @dblclick="handleDblClick">
     <header class="activity-card__top">
-      <p class="activity-card__time">{{ props.timeLabel }}</p>
+      <p class="activity-card__time">
+        <Clock :size="14" />
+        <span>{{ props.timeLabel }}</span>
+      </p>
       <div class="activity-card__badges">
         <span v-if="props.event.status" class="pill-badge" :class="statusClass(props.event.status)">
           {{ statusLabel(props.event.status) }}
@@ -47,3 +51,11 @@ const handleDblClick = (event: MouseEvent) => {
     </footer>
   </article>
 </template>
+
+<style scoped>
+.activity-card__time {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+</style>

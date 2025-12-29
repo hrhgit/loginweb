@@ -1,10 +1,27 @@
 import { computed, proxyRefs, ref } from 'vue'
 import type { Subscription, User } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
-import { buildEventDescription, createDefaultEventDetails } from '../utils/eventDetails'
+import { buildEventDescription, createDefaultEventDetails, generateId } from '../utils/eventDetails'
 import { demoEvents } from './demoEvents'
 import { EVENT_SELECT } from './eventSchema'
-import type { AuthView, DisplayEvent, Event, EventStatus, Profile, UserContacts } from './models'
+import type {
+  AuthView,
+  DisplayEvent,
+  Event,
+  EventStatus,
+  Profile,
+  TeamJoinRequest,
+  TeamJoinRequestRecord,
+  TeamInvite,
+  TeamLobbyTeam,
+  TeamSeeker,
+  TeamMember,
+  UserContacts,
+  MyTeamEntry,
+  MyTeamRequest,
+  MyTeamInvite,
+  SubmissionWithTeam,
+} from './models'
 
 export type { AuthView, DisplayEvent, Event, EventStatus } from './models'
 
@@ -12,6 +29,15 @@ type RegistrationRow = {
   id: string
   event_id: string
   status: string | null
+}
+
+type NotificationItem = {
+  id: string
+  title: string
+  body: string
+  created_at: string
+  read: boolean
+  link?: string
 }
 
 const user = ref<User | null>(null)
@@ -73,6 +99,66 @@ const contacts = ref<UserContacts | null>(null)
 const contactsLoading = ref(false)
 const contactsError = ref('')
 
+const notifications = ref<NotificationItem[]>([])
+const notificationsLoaded = ref(false)
+const unreadNotifications = computed(() => notifications.value.filter((item) => !item.read).length)
+
+const pendingRequestsCount = ref(0)
+const pendingInvitesCount = ref(0)
+const isProfileIncomplete = computed(() => {
+  if (!user.value) return false
+  // Consider incomplete if contacts not loaded yet (but only if not loading), or if phone/qq is missing
+  if (!contacts.value && !contactsLoading.value) return true
+  if (contacts.value) {
+    return !contacts.value.phone?.trim() || !contacts.value.qq?.trim()
+  }
+  return false
+})
+
+const hasAnyNotification = computed(() => {
+  return (
+    unreadNotifications.value > 0 ||
+    pendingRequestsCount.value > 0 ||
+    pendingInvitesCount.value > 0 ||
+    isProfileIncomplete.value
+  )
+})
+
+const loadMyPendingTeamActions = async () => {
+  if (!user.value) {
+    pendingRequestsCount.value = 0
+    pendingInvitesCount.value = 0
+    return
+  }
+
+  const { count: requestCount } = await supabase
+    .from('team_join_requests')
+    .select('*', { count: 'exact', head: true })
+    .eq('user_id', user.value.id)
+    .eq('status', 'pending')
+
+  const { count: inviteCount } = await supabase
+    .from('team_invites')
+    .select('*', { count: 'exact', head: true })
+    .eq('user_id', user.value.id)
+    .eq('status', 'pending')
+
+  pendingRequestsCount.value = requestCount ?? 0
+  pendingInvitesCount.value = inviteCount ?? 0
+}
+
+const teamsByEventId = ref<Record<string, TeamLobbyTeam[]>>({})
+const teamMembersByTeamId = ref<Record<string, TeamMember[]>>({})
+const teamMembershipByTeamId = ref<Record<string, boolean>>({})
+const teamRequestStatusByTeamId = ref<Record<string, string>>({})
+const teamJoinRequestsByTeamId = ref<Record<string, TeamJoinRequestRecord[]>>({})
+const teamSeekersByEventId = ref<Record<string, TeamSeeker[]>>({})
+const myTeamInviteByTeamId = ref<Record<string, TeamInvite | null>>({})
+
+const submissionsByEventId = ref<Record<string, SubmissionWithTeam[]>>({})
+const submissionsLoading = ref(false)
+const submissionsError = ref('')
+
 const displayName = computed(() => {
   return profile.value?.username || user.value?.user_metadata?.full_name || '用户'
 })
@@ -103,12 +189,1063 @@ const clearBanners = () => {
   eventsError.value = ''
 }
 
+const notificationStorageKey = () => {
+  if (!user.value) return ''
+  return `notifications:${user.value.id}`
+}
+
+const loadNotifications = () => {
+  if (!user.value) {
+    notifications.value = []
+    notificationsLoaded.value = false
+    return
+  }
+  const key = notificationStorageKey()
+  if (!key) return
+  const raw = window.localStorage.getItem(key)
+  if (!raw) {
+    notifications.value = []
+    notificationsLoaded.value = true
+    return
+  }
+  try {
+    const parsed = JSON.parse(raw)
+    notifications.value = Array.isArray(parsed) ? (parsed as NotificationItem[]) : []
+  } catch {
+    notifications.value = []
+  }
+  notificationsLoaded.value = true
+}
+
+const persistNotifications = () => {
+  if (!user.value) return
+  const key = notificationStorageKey()
+  if (!key) return
+  window.localStorage.setItem(key, JSON.stringify(notifications.value))
+}
+
+const pushNotification = (item: NotificationItem) => {
+  if (notifications.value.some((existing) => existing.id === item.id)) return false
+  notifications.value = [item, ...notifications.value].slice(0, 200)
+  persistNotifications()
+  return true
+}
+
+const markNotificationRead = (id: string) => {
+  const next = notifications.value.map((item) => (item.id === id ? { ...item, read: true } : item))
+  notifications.value = next
+  persistNotifications()
+}
+
+const markAllNotificationsRead = () => {
+  notifications.value = notifications.value.map((item) => ({ ...item, read: true }))
+  persistNotifications()
+}
+
+const deleteReadNotifications = () => {
+  const next = notifications.value.filter((item) => !item.read)
+  if (next.length === notifications.value.length) return
+  notifications.value = next
+  persistNotifications()
+}
+
+const normalizeTeamNeeds = (value: unknown) => {
+  if (Array.isArray(value)) {
+    return value.map((item) => `${item ?? ''}`.trim()).filter(Boolean)
+  }
+  if (typeof value === 'string') {
+    return value
+      .split(/[,，、\n]/)
+      .map((item) => item.trim())
+      .filter(Boolean)
+  }
+  return []
+}
+
+const normalizeTeamRow = (team: any, eventId: string, members = 1): TeamLobbyTeam | null => {
+  if (!team || typeof team !== 'object') return null
+  const name = typeof team.name === 'string' ? team.name.trim() : ''
+  if (!name) return null
+  const leaderId = typeof team.leader_id === 'string' ? team.leader_id : ''
+  return {
+    id: typeof team.id === 'string' && team.id ? team.id : generateId(),
+    event_id: typeof team.event_id === 'string' && team.event_id ? team.event_id : eventId,
+    leader_id: leaderId,
+    name,
+    leader_qq: typeof team.leader_qq === 'string' ? team.leader_qq.trim() : '',
+    intro: typeof team.intro === 'string' ? team.intro.trim() : '',
+    needs: normalizeTeamNeeds(team.needs),
+    extra: typeof team.extra === 'string' ? team.extra.trim() : '',
+    members: Number.isFinite(members) ? Number(members) : 1,
+    is_closed: Boolean((team as { is_closed?: boolean }).is_closed),
+    created_at: typeof team.created_at === 'string' ? team.created_at : new Date().toISOString(),
+  }
+}
+
+const normalizeTeamSeekerRow = (row: any, eventId: string): TeamSeeker | null => {
+  if (!row || typeof row !== 'object') return null
+  const userId = typeof row.user_id === 'string' ? row.user_id : ''
+  if (!userId) return null
+  const normalizeRoles = (value: unknown): string[] => {
+    if (Array.isArray(value)) {
+      return value.map((item) => `${item ?? ''}`.trim()).filter(Boolean)
+    }
+    if (typeof value === 'string') {
+      return value
+        .split(/[,，、\s\n]+/)
+        .map((item) => item.trim())
+        .filter(Boolean)
+    }
+    return []
+  }
+  return {
+    id: typeof row.id === 'string' && row.id ? row.id : generateId(),
+    event_id: typeof row.event_id === 'string' && row.event_id ? row.event_id : eventId,
+    user_id: userId,
+    intro: typeof row.intro === 'string' ? row.intro.trim() : '',
+    qq: typeof row.qq === 'string' ? row.qq.trim() : '',
+    roles: normalizeRoles(row.roles ?? row.role),
+    created_at: typeof row.created_at === 'string' ? row.created_at : new Date().toISOString(),
+    updated_at: typeof row.updated_at === 'string' ? row.updated_at : null,
+    profile: row.profile ?? null,
+  }
+}
+
+const getTeamsForEvent = (eventId: string) => {
+  return teamsByEventId.value[eventId] ?? []
+}
+
+const getTeamMembers = (teamId: string) => {
+  return teamMembersByTeamId.value[teamId] ?? []
+}
+
+const getTeamRequestStatus = (teamId: string) => {
+  return teamRequestStatusByTeamId.value[teamId] ?? ''
+}
+
+const getTeamJoinRequests = (teamId: string) => {
+  return teamJoinRequestsByTeamId.value[teamId] ?? []
+}
+
+const getMyTeamInvite = (teamId: string) => {
+  return myTeamInviteByTeamId.value[teamId] ?? null
+}
+
+const getTeamSeekersForEvent = (eventId: string) => {
+  return teamSeekersByEventId.value[eventId] ?? []
+}
+
+const getMyTeamSeeker = (eventId: string) => {
+  if (!user.value) return null
+  return getTeamSeekersForEvent(eventId).find((item) => item.user_id === user.value?.id) ?? null
+}
+
+const isTeamMember = (teamId: string) => {
+  return Boolean(teamMembershipByTeamId.value[teamId])
+}
+
+const loadTeamMemberCounts = async (teamIds: string[]) => {
+  const counts: Record<string, number> = {}
+  if (teamIds.length === 0) return counts
+
+  const { data, error } = await supabase
+    .from('team_members')
+    .select('team_id,user_id')
+    .in('team_id', teamIds)
+
+  if (error) {
+    setBanner('error', error.message)
+    return counts
+  }
+
+  for (const row of data ?? []) {
+    const teamId = (row as { team_id?: string }).team_id
+    if (!teamId) continue
+    counts[teamId] = (counts[teamId] ?? 0) + 1
+  }
+
+  return counts
+}
+
+const loadMyTeamMemberships = async (teamIds: string[]) => {
+  if (!user.value || teamIds.length === 0) return
+  const next: Record<string, boolean> = {}
+  for (const id of teamIds) next[id] = false
+
+  const { data, error } = await supabase
+    .from('team_members')
+    .select('team_id')
+    .eq('user_id', user.value.id)
+    .in('team_id', teamIds)
+
+  if (error) {
+    setBanner('error', error.message)
+    return
+  }
+
+  for (const row of data ?? []) {
+    const teamId = (row as { team_id?: string }).team_id
+    if (teamId) next[teamId] = true
+  }
+
+  teamMembershipByTeamId.value = { ...teamMembershipByTeamId.value, ...next }
+}
+
+const loadMyTeamRequests = async (teamIds: string[]) => {
+  if (!user.value || teamIds.length === 0) return
+  const next: Record<string, string> = {}
+  for (const id of teamIds) next[id] = ''
+
+  const { data, error } = await supabase
+    .from('team_join_requests')
+    .select('id,team_id,status,message,created_at,updated_at')
+    .eq('user_id', user.value.id)
+    .in('team_id', teamIds)
+
+  if (error) {
+    setBanner('error', error.message)
+    return
+  }
+
+  for (const row of data ?? []) {
+    const typed = row as TeamJoinRequest
+    if (typed.team_id) {
+      next[typed.team_id] = typed.status
+    }
+  }
+
+  teamRequestStatusByTeamId.value = { ...teamRequestStatusByTeamId.value, ...next }
+}
+
+const loadMyTeamInvite = async (teamId: string) => {
+  if (!user.value || !teamId) return null
+  const { data, error } = await supabase
+    .from('team_invites')
+    .select('id,team_id,user_id,invited_by,message,status,created_at,updated_at')
+    .eq('team_id', teamId)
+    .eq('user_id', user.value.id)
+    .maybeSingle()
+
+  if (error) {
+    // If the table isn't deployed yet, avoid breaking the whole UI.
+    if (error.code === '42P01' || /team_invites/i.test(error.message)) {
+      myTeamInviteByTeamId.value = { ...myTeamInviteByTeamId.value, [teamId]: null }
+      return null
+    }
+    setBanner('error', error.message)
+    return null
+  }
+
+  const record = (data ?? null) as TeamInvite | null
+  myTeamInviteByTeamId.value = { ...myTeamInviteByTeamId.value, [teamId]: record }
+  return record
+}
+
+const loadTeams = async (eventId: string) => {
+  if (!eventId) return []
+  const cached = teamsByEventId.value[eventId] ?? []
+  const { data, error } = await supabase
+    .from('teams')
+    .select('*')
+    .eq('event_id', eventId)
+    .order('created_at', { ascending: false })
+
+  if (error) {
+    setBanner('error', error.message)
+    return cached
+  }
+
+  const rows = Array.isArray(data) ? data : []
+  const teamIds = rows.map((row) => row.id).filter(Boolean)
+  const counts = await loadTeamMemberCounts(teamIds)
+  const nextTeams = rows
+    .map((row) => normalizeTeamRow(row, eventId, Math.max(1, counts[row.id] ?? 0)))
+    .filter((team): team is TeamLobbyTeam => Boolean(team))
+
+  teamsByEventId.value = { ...teamsByEventId.value, [eventId]: nextTeams }
+
+  if (user.value) {
+    await loadMyTeamMemberships(teamIds)
+    await loadMyTeamRequests(teamIds)
+  } else if (teamIds.length) {
+    // 确保未登录或切换账户时，队伍成员标记不会沿用旧用户的状态
+    const reset: Record<string, boolean> = {}
+    for (const id of teamIds) reset[id] = false
+    teamMembershipByTeamId.value = { ...teamMembershipByTeamId.value, ...reset }
+  }
+
+  return nextTeams
+}
+
+const loadTeamSeekers = async (eventId: string) => {
+  if (!eventId) return []
+  const { data, error } = await supabase
+    .from('team_seekers')
+    .select('id,event_id,user_id,intro,qq,roles,created_at,updated_at,profiles(id,username,avatar_url,roles)')
+    .eq('event_id', eventId)
+    .order('created_at', { ascending: false })
+
+  if (error) {
+    setBanner('error', error.message)
+    teamSeekersByEventId.value = { ...teamSeekersByEventId.value, [eventId]: [] }
+    return []
+  }
+
+  const nextSeekers = (data ?? []).map((row) => {
+    const record = row as unknown as TeamSeeker & { profiles?: TeamSeeker['profile'] }
+    return {
+      id: record.id,
+      event_id: record.event_id ?? eventId,
+      user_id: record.user_id,
+      intro: record.intro ?? '',
+      qq: record.qq ?? '',
+      roles: Array.isArray(record.roles)
+        ? record.roles.filter((item) => typeof item === 'string')
+        : typeof (record as any).role === 'string'
+          ? [(record as any).role]
+          : [],
+      created_at: record.created_at,
+      updated_at: record.updated_at ?? null,
+      profile: record.profiles
+        ? {
+            id: record.profiles.id,
+            username: record.profiles.username ?? null,
+            avatar_url: record.profiles.avatar_url ?? null,
+            roles: Array.isArray(record.profiles.roles) ? record.profiles.roles : null,
+          }
+        : null,
+    }
+  })
+
+  teamSeekersByEventId.value = { ...teamSeekersByEventId.value, [eventId]: nextSeekers }
+  return nextSeekers
+}
+
+const saveTeamSeeker = async (
+  eventId: string,
+  payload: { intro: string; qq: string; roles: string[] },
+) => {
+  if (!user.value) return { error: '请先登录。', seeker: null as TeamSeeker | null }
+  if (!eventId) return { error: '活动ID缺失。', seeker: null as TeamSeeker | null }
+
+  const { data, error } = await supabase
+    .from('team_seekers')
+    .upsert(
+      {
+        event_id: eventId,
+        user_id: user.value.id,
+        intro: payload.intro,
+        qq: payload.qq,
+        roles: payload.roles ?? [],
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'event_id,user_id' },
+    )
+    .select('id,event_id,user_id,intro,qq,roles,created_at,updated_at')
+    .single()
+
+  if (error) {
+    return { error: error.message, seeker: null as TeamSeeker | null }
+  }
+
+  const seeker = normalizeTeamSeekerRow(data, eventId)
+  await loadTeamSeekers(eventId)
+  return { error: '', seeker }
+}
+
+const deleteTeamSeeker = async (eventId: string, seekerId: string) => {
+  if (!user.value) return { error: '请先登录' }
+  if (!eventId || !seekerId) return { error: '求组队卡片不存在' }
+
+  const { error } = await supabase.from('team_seekers').delete().eq('id', seekerId)
+  if (error) {
+    return { error: error.message }
+  }
+
+  const current = teamSeekersByEventId.value[eventId] ?? []
+  teamSeekersByEventId.value = {
+    ...teamSeekersByEventId.value,
+    [eventId]: current.filter((item) => item.id !== seekerId),
+  }
+
+  return { error: '' }
+}
+
+const loadTeamMembers = async (teamId: string) => {
+  if (!teamId) return []
+
+  const { data, error } = await supabase
+    .from('team_members')
+    .select('id,team_id,user_id,joined_at,profiles(id,username,avatar_url,roles)')
+    .eq('team_id', teamId)
+    .order('joined_at', { ascending: true })
+
+  if (error) {
+    if (!user.value) {
+      const { data: fallback, error: fallbackError } = await supabase
+        .from('team_members')
+        .select('id,team_id,user_id,joined_at')
+        .eq('team_id', teamId)
+        .order('joined_at', { ascending: true })
+      if (fallbackError) {
+        setBanner('error', fallbackError.message)
+        teamMembersByTeamId.value = { ...teamMembersByTeamId.value, [teamId]: [] }
+        return []
+      }
+      const nextMembers = (fallback ?? []).map((row) => {
+        const record = row as { id: string; team_id: string; user_id: string; joined_at: string }
+        return {
+          id: record.id,
+          team_id: record.team_id,
+          user_id: record.user_id,
+          joined_at: record.joined_at,
+          profile: null,
+        }
+      })
+      teamMembersByTeamId.value = { ...teamMembersByTeamId.value, [teamId]: nextMembers }
+      return nextMembers
+    }
+    setBanner('error', error.message)
+    teamMembersByTeamId.value = { ...teamMembersByTeamId.value, [teamId]: [] }
+    return []
+  }
+
+  const nextMembers = (data ?? []).map((row) => {
+    const record = row as unknown as {
+      id: string
+      team_id: string
+      user_id: string
+      joined_at: string
+      profiles: {
+        id: string
+        username: string | null
+        avatar_url: string | null
+        roles: string[] | null
+      } | null
+    }
+    return {
+      id: record.id,
+      team_id: record.team_id,
+      user_id: record.user_id,
+      joined_at: record.joined_at,
+      profile: record.profiles
+        ? {
+            id: record.profiles.id,
+            username: record.profiles.username ?? null,
+            avatar_url: record.profiles.avatar_url ?? null,
+            roles: Array.isArray(record.profiles.roles) ? record.profiles.roles : null,
+          }
+        : null,
+    }
+  })
+
+  teamMembersByTeamId.value = { ...teamMembersByTeamId.value, [teamId]: nextMembers }
+  if (user.value) {
+    teamMembershipByTeamId.value = {
+      ...teamMembershipByTeamId.value,
+      [teamId]: nextMembers.some((member) => member.user_id === user.value?.id),
+    }
+  }
+  return nextMembers
+}
+
+const loadTeamJoinRequests = async (teamId: string) => {
+  if (!teamId) return []
+  const { data, error } = await supabase
+    .from('team_join_requests')
+    .select('id,team_id,user_id,status,message,created_at,updated_at,profiles(id,username,avatar_url,roles)')
+    .eq('team_id', teamId)
+    .eq('status', 'pending')
+    .order('created_at', { ascending: true })
+
+  if (error) {
+    teamJoinRequestsByTeamId.value = { ...teamJoinRequestsByTeamId.value, [teamId]: [] }
+    return []
+  }
+
+  const nextRequests = (data ?? []).map((row) => {
+    const record = row as unknown as TeamJoinRequestRecord & { profiles?: TeamJoinRequestRecord['profile'] }
+    return {
+      id: record.id,
+      team_id: record.team_id,
+      user_id: record.user_id,
+      status: record.status,
+      message: record.message ?? null,
+      created_at: record.created_at,
+      updated_at: record.updated_at ?? null,
+      profile: record.profiles
+        ? {
+            id: record.profiles.id,
+            username: record.profiles.username ?? null,
+            avatar_url: record.profiles.avatar_url ?? null,
+            roles: Array.isArray(record.profiles.roles) ? record.profiles.roles : null,
+          }
+        : null,
+    }
+  })
+
+  teamJoinRequestsByTeamId.value = { ...teamJoinRequestsByTeamId.value, [teamId]: nextRequests }
+  return nextRequests
+}
+
+const updateTeamJoinRequestStatus = async (
+  requestId: string,
+  status: 'approved' | 'rejected',
+) => {
+  if (!user.value) return { error: '请先登录' }
+  const { error } = await supabase
+    .from('team_join_requests')
+    .update({ status, updated_at: new Date().toISOString() })
+    .eq('id', requestId)
+  if (error) {
+    return { error: error.message }
+  }
+  return { error: '' }
+}
+
+const createTeam = async (
+  eventId: string,
+  payload: Pick<TeamLobbyTeam, 'name' | 'leader_qq' | 'intro' | 'needs' | 'extra'>,
+) => {
+  if (!user.value) return { error: '请先登录', team: null as TeamLobbyTeam | null }
+  if (!eventId) return { error: '活动不存在', team: null as TeamLobbyTeam | null }
+
+  const { data, error } = await supabase
+    .from('teams')
+    .insert({
+      event_id: eventId,
+      leader_id: user.value.id,
+      name: payload.name,
+      leader_qq: payload.leader_qq,
+      intro: payload.intro,
+      needs: normalizeTeamNeeds(payload.needs),
+      extra: payload.extra,
+    })
+    .select('id,event_id,leader_id,name,intro,extra,leader_qq,needs,created_at,updated_at')
+    .single()
+
+  if (error) {
+    return { error: error.message, team: null as TeamLobbyTeam | null }
+  }
+
+  const team = normalizeTeamRow(data, eventId, 1)
+  await loadTeams(eventId)
+  return { error: '', team }
+}
+
+const updateTeam = async (
+  eventId: string,
+  teamId: string,
+  payload: Pick<TeamLobbyTeam, 'name' | 'leader_qq' | 'intro' | 'needs' | 'extra'>,
+) => {
+  if (!user.value) return { error: '请先登录', team: null as TeamLobbyTeam | null }
+  if (!eventId) return { error: '活动不存在', team: null as TeamLobbyTeam | null }
+  if (!teamId) return { error: '队伍不存在', team: null as TeamLobbyTeam | null }
+
+  const { data, error } = await supabase
+    .from('teams')
+    .update({
+      name: payload.name,
+      leader_qq: payload.leader_qq,
+      intro: payload.intro,
+      needs: normalizeTeamNeeds(payload.needs),
+      extra: payload.extra,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', teamId)
+    .select('id,event_id,leader_id,name,intro,extra,leader_qq,needs,created_at,updated_at')
+    .single()
+
+  if (error) {
+    return { error: error.message, team: null as TeamLobbyTeam | null }
+  }
+
+  const team = normalizeTeamRow(data, eventId)
+  await loadTeams(eventId)
+  return { error: '', team }
+}
+
+const deleteTeam = async (eventId: string, teamId: string) => {
+  if (!user.value) return { error: '请先登录' }
+  if (!eventId || !teamId) return { error: '队伍不存在' }
+
+  const { error } = await supabase.from('teams').delete().eq('id', teamId)
+  if (error) {
+    return { error: error.message }
+  }
+
+  const current = teamsByEventId.value[eventId] ?? []
+  const nextTeams = current.filter((team) => team.id !== teamId)
+  teamsByEventId.value = { ...teamsByEventId.value, [eventId]: nextTeams }
+
+  const nextMembers = { ...teamMembersByTeamId.value }
+  const nextMembership = { ...teamMembershipByTeamId.value }
+  const nextRequests = { ...teamRequestStatusByTeamId.value }
+  const nextJoinRequests = { ...teamJoinRequestsByTeamId.value }
+  delete nextMembers[teamId]
+  delete nextMembership[teamId]
+  delete nextRequests[teamId]
+  delete nextJoinRequests[teamId]
+  teamMembersByTeamId.value = nextMembers
+  teamMembershipByTeamId.value = nextMembership
+  teamRequestStatusByTeamId.value = nextRequests
+  teamJoinRequestsByTeamId.value = nextJoinRequests
+
+  return { error: '' }
+}
+
+const closeTeam = async (teamId: string) => {
+  if (!user.value) return { error: '请先登录' }
+  if (!teamId) return { error: '队伍不存在' }
+
+  const { error } = await supabase
+    .from('teams')
+    .update({ is_closed: true, updated_at: new Date().toISOString() })
+    .eq('id', teamId)
+    .eq('leader_id', user.value.id)
+
+  if (error) {
+    return { error: error.message }
+  }
+
+  // 更新本地缓存
+  const nextByEvent: Record<string, TeamLobbyTeam[]> = { ...teamsByEventId.value }
+  for (const [eventId, list] of Object.entries(nextByEvent)) {
+    nextByEvent[eventId] = list.map((team) =>
+      team.id === teamId ? { ...team, is_closed: true } : team,
+    )
+  }
+  teamsByEventId.value = nextByEvent
+  return { error: '' }
+}
+
+const removeTeamMember = async (teamId: string, memberId: string) => {
+  if (!user.value) return { error: '请先登录' }
+  if (!teamId || !memberId) return { error: '队伍不存在' }
+
+  const { data, error } = await supabase
+    .from('team_members')
+    .delete()
+    .eq('team_id', teamId)
+    .eq('user_id', memberId)
+    .select('id')
+
+  if (error) {
+    return { error: error.message }
+  }
+
+  if (!data || data.length === 0) {
+    return { error: '未能移除队员，请检查权限或成员是否存在' }
+  }
+
+  const current = teamMembersByTeamId.value[teamId] ?? []
+  if (current.length) {
+    teamMembersByTeamId.value = {
+      ...teamMembersByTeamId.value,
+      [teamId]: current.filter((member) => member.user_id !== memberId),
+    }
+  }
+
+  if (user.value?.id === memberId) {
+    teamMembershipByTeamId.value = { ...teamMembershipByTeamId.value, [teamId]: false }
+  }
+
+  return { error: '' }
+}
+
+const requestJoinTeam = async (teamId: string, message?: string) => {
+  if (!user.value) return { error: '请先登录' }
+  if (!teamId) return { error: '队伍不存在' }
+
+  const { data: existing, error: existingError } = await supabase
+    .from('team_join_requests')
+    .select('id,status')
+    .eq('team_id', teamId)
+    .eq('user_id', user.value.id)
+    .maybeSingle()
+
+  if (existingError) {
+    return { error: existingError.message }
+  }
+
+  if (existing) {
+    if (existing.status === 'pending') {
+      teamRequestStatusByTeamId.value = { ...teamRequestStatusByTeamId.value, [teamId]: 'pending' }
+      return { error: '' }
+    }
+    if (existing.status === 'approved') {
+      teamRequestStatusByTeamId.value = { ...teamRequestStatusByTeamId.value, [teamId]: 'approved' }
+      return { error: '' }
+    }
+    const { data, error } = await supabase
+      .from('team_join_requests')
+      .update({
+        status: 'pending',
+        message: message ?? null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', existing.id)
+      .select('status')
+      .single()
+
+    if (error) {
+      return { error: error.message }
+    }
+    teamRequestStatusByTeamId.value = {
+      ...teamRequestStatusByTeamId.value,
+      [teamId]: data.status ?? 'pending',
+    }
+    return { error: '' }
+  }
+
+  const { data, error } = await supabase
+    .from('team_join_requests')
+    .insert({
+      team_id: teamId,
+      user_id: user.value.id,
+      status: 'pending',
+      message: message ?? null,
+    })
+    .select('status')
+    .single()
+
+  if (error) {
+    return { error: error.message }
+  }
+
+  teamRequestStatusByTeamId.value = {
+    ...teamRequestStatusByTeamId.value,
+    [teamId]: data.status ?? 'pending',
+  }
+  return { error: '' }
+}
+
+const cancelTeamJoinRequest = async (requestId: string) => {
+  if (!user.value) return { error: '请先登录' }
+  if (!requestId) return { error: '申请不存在' }
+
+  const { data, error } = await supabase
+    .from('team_join_requests')
+    .delete()
+    .eq('id', requestId)
+    .eq('user_id', user.value.id)
+    .eq('status', 'pending')
+    .select('team_id')
+
+  if (error) {
+    return { error: error.message }
+  }
+
+  if (!data || data.length === 0) {
+    return { error: '申请不存在或已处理' }
+  }
+
+  const teamId = (data[0] as { team_id?: string }).team_id
+  if (teamId) {
+    const next = { ...teamRequestStatusByTeamId.value }
+    delete next[teamId]
+    teamRequestStatusByTeamId.value = next
+  }
+
+  return { error: '' }
+}
+
+const acceptTeamInvite = async (inviteId: string, teamId?: string) => {
+  if (!user.value) return { error: '请先登录' }
+  if (!inviteId || !teamId) return { error: '邀请不存在' }
+
+  const { error: joinError } = await supabase
+    .from('team_members')
+    .insert({ team_id: teamId, user_id: user.value.id })
+
+  if (joinError) {
+    // Unique violation: already a member, treat as ok.
+    if (joinError.code !== '23505') {
+      return { error: joinError.message }
+    }
+  }
+
+  const { error: inviteError } = await supabase
+    .from('team_invites')
+    .update({ status: 'accepted', updated_at: new Date().toISOString() })
+    .eq('id', inviteId)
+
+  if (inviteError) {
+    // Membership succeeded; keep this a soft error.
+    console.warn('failed to update invite status', inviteError.message)
+  }
+
+  teamMembershipByTeamId.value = { ...teamMembershipByTeamId.value, [teamId]: true }
+  myTeamInviteByTeamId.value = { ...myTeamInviteByTeamId.value, [teamId]: null }
+  return { error: '' }
+}
+
+const rejectTeamInvite = async (inviteId: string, teamId?: string) => {
+  if (!user.value) return { error: '请先登录' }
+  if (!inviteId) return { error: '邀请不存在' }
+
+  const { error } = await supabase
+    .from('team_invites')
+    .update({ status: 'rejected', updated_at: new Date().toISOString() })
+    .eq('id', inviteId)
+    .eq('user_id', user.value.id)
+    .eq('status', 'pending')
+
+  if (error) {
+    return { error: error.message }
+  }
+
+  if (teamId) {
+    myTeamInviteByTeamId.value = { ...myTeamInviteByTeamId.value, [teamId]: null }
+  }
+
+  return { error: '' }
+}
+
+const sendTeamInvite = async (teamId: string, userId: string, message?: string) => {
+  if (!user.value) return { error: '请先登录' }
+  if (!teamId || !userId) return { error: '邀请信息不完整' }
+  if (userId === user.value.id) return { error: '不能邀请自己' }
+
+  const { data: existing, error: existingError } = await supabase
+    .from('team_invites')
+    .select('id,status')
+    .eq('team_id', teamId)
+    .eq('user_id', userId)
+    .maybeSingle()
+
+  if (existingError) return { error: existingError.message }
+
+  if (existing) {
+    if (existing.status === 'pending') {
+      return { error: '' }
+    }
+    const { error } = await supabase
+      .from('team_invites')
+      .update({ status: 'pending', message: message ?? null, updated_at: new Date().toISOString() })
+      .eq('id', existing.id)
+    if (error) return { error: error.message }
+    return { error: '' }
+  }
+
+  const { error } = await supabase.from('team_invites').insert({
+    team_id: teamId,
+    user_id: userId,
+    invited_by: user.value.id,
+    message: message ?? null,
+    status: 'pending',
+  })
+
+  if (error) return { error: error.message }
+  return { error: '' }
+}
+
+const getMyTeamsForEvent = (eventId: string): MyTeamEntry[] => {
+  if (!user.value || !eventId) return []
+  
+  const teams = getTeamsForEvent(eventId)
+  const myTeams: MyTeamEntry[] = []
+  
+  for (const team of teams) {
+    // Check if user is a member of this team
+    const isMember = isTeamMember(team.id)
+    if (!isMember) continue
+    
+    // Determine role (leader or member)
+    const role = team.leader_id === user.value.id ? 'leader' : 'member'
+    
+    myTeams.push({
+      teamId: team.id,
+      teamName: team.name,
+      role,
+      memberCount: team.members,
+      status: 'active', // Teams that user is member of are always active
+      eventId: team.event_id,
+      createdAt: team.created_at,
+    })
+  }
+  
+  return myTeams
+}
+
+const getMyTeamRequestsForEvent = (eventId: string): MyTeamRequest[] => {
+  if (!user.value || !eventId) return []
+  
+  const teams = getTeamsForEvent(eventId)
+  const myRequests: MyTeamRequest[] = []
+  
+  for (const team of teams) {
+    const requestStatus = getTeamRequestStatus(team.id)
+    if (requestStatus && requestStatus !== '') {
+      myRequests.push({
+        id: `${team.id}-${user.value.id}`, // Generate a composite ID
+        teamId: team.id,
+        teamName: team.name,
+        status: requestStatus as 'pending' | 'approved' | 'rejected',
+        message: null, // We don't have access to the message in current structure
+        createdAt: team.created_at, // Use team creation as fallback
+      })
+    }
+  }
+  
+  return myRequests
+}
+
+const getMyTeamInvitesForEvent = (eventId: string): MyTeamInvite[] => {
+  if (!user.value || !eventId) return []
+  
+  const teams = getTeamsForEvent(eventId)
+  const myInvites: MyTeamInvite[] = []
+  
+  for (const team of teams) {
+    const invite = getMyTeamInvite(team.id)
+    if (invite && invite.status === 'pending') {
+      myInvites.push({
+        id: invite.id,
+        teamId: team.id,
+        teamName: team.name,
+        invitedByName: null, // We don't have access to inviter name in current structure
+        status: invite.status as 'pending' | 'accepted' | 'rejected',
+        message: invite.message,
+        createdAt: invite.created_at,
+      })
+    }
+  }
+  
+  return myInvites
+}
+
+const getSubmissionsForEvent = (eventId: string) => {
+  return submissionsByEventId.value[eventId] ?? []
+}
+
+const loadSubmissions = async (eventId: string) => {
+  if (!eventId) return []
+  
+  submissionsLoading.value = true
+  submissionsError.value = ''
+  
+  try {
+    const { data, error } = await supabase
+      .from('submissions')
+      .select(`
+        id,
+        event_id,
+        team_id,
+        submitted_by,
+        project_name,
+        intro,
+        cover_path,
+        video_link,
+        link_mode,
+        submission_url,
+        submission_storage_path,
+        submission_password,
+        created_at,
+        updated_at,
+        teams(
+          id,
+          name
+        )
+      `)
+      .eq('event_id', eventId)
+      .order('created_at', { ascending: false })
+
+    if (error) {
+      submissionsError.value = error.message
+      setBanner('error', error.message)
+      submissionsByEventId.value = { ...submissionsByEventId.value, [eventId]: [] }
+      return []
+    }
+
+    // 转换数据格式
+    const submissions: SubmissionWithTeam[] = (data || []).map(item => {
+      console.log('Raw submission item:', item)
+      console.log('Teams data:', item.teams)
+      
+      // 处理队伍数据 - Supabase 的 !inner 关联可能返回对象或数组
+      let teamData = null
+      if (item.teams) {
+        if (Array.isArray(item.teams) && item.teams.length > 0) {
+          // 如果是数组，取第一个
+          teamData = { id: item.teams[0].id, name: item.teams[0].name }
+          console.log('Team data from array:', teamData)
+        } else if (typeof item.teams === 'object' && item.teams.id) {
+          // 如果是单个对象
+          teamData = { id: item.teams.id, name: item.teams.name }
+          console.log('Team data from object:', teamData)
+        }
+      }
+      
+      const result = {
+        id: item.id,
+        event_id: item.event_id,
+        team_id: item.team_id,
+        submitted_by: item.submitted_by,
+        project_name: item.project_name,
+        intro: item.intro,
+        cover_path: item.cover_path,
+        video_link: item.video_link,
+        link_mode: item.link_mode as 'link' | 'file',
+        submission_url: item.submission_url,
+        submission_storage_path: item.submission_storage_path,
+        submission_password: item.submission_password,
+        created_at: item.created_at,
+        updated_at: item.updated_at,
+        team: teamData
+      }
+      
+      console.log('Processed submission:', result)
+      return result
+    })
+
+    submissionsByEventId.value = { ...submissionsByEventId.value, [eventId]: submissions }
+    return submissions
+  } catch (err: any) {
+    console.error('Failed to load submissions:', err)
+    submissionsError.value = err.message || '加载作品失败'
+    setBanner('error', submissionsError.value)
+    submissionsByEventId.value = { ...submissionsByEventId.value, [eventId]: [] }
+    return []
+  } finally {
+    submissionsLoading.value = false
+  }
+}
+
+const maybePushProfileSetupNotification = () => {
+  if (!user.value) return
+  if (!notificationsLoaded.value) loadNotifications()
+  const createdAt = Date.parse(user.value.created_at)
+  if (Number.isNaN(createdAt)) return
+
+  const maxAgeMs = 14 * 24 * 60 * 60 * 1000
+  if (Date.now() - createdAt > maxAgeMs) return
+
+  const createdTime = new Date().toISOString()
+  const added = pushNotification({
+    id: `onboarding:${user.value.id}:complete-profile`,
+    title: '完善个人信息',
+    body: '欢迎加入！为了方便组队与联系，请前往个人主页完善用户名、头像、职能与联系方式',
+    created_at: createdTime,
+    read: false,
+    link: '/me/profile',
+  })
+
+  if (added) {
+    setBanner('info', '欢迎加入！请完善个人信息')
+  }
+}
+
 const refreshUser = async () => {
   const { data: sessionData } = await supabase.auth.getSession()
   if (!sessionData.session) {
     user.value = null
     profile.value = null
     contacts.value = null
+    teamMembershipByTeamId.value = {}
+    teamRequestStatusByTeamId.value = {}
+    teamJoinRequestsByTeamId.value = {}
+    myTeamInviteByTeamId.value = {}
     return
   }
 
@@ -161,7 +1298,7 @@ const dataURLtoBlob = (dataurl: string) => {
 }
 
 const updateMyProfile = async (payload: Partial<Pick<Profile, 'username' | 'avatar_url' | 'roles'>>) => {
-  if (!user.value) return { error: '请先登录。' }
+  if (!user.value) return { error: '请先登录' }
   profileLoading.value = true
   profileError.value = ''
 
@@ -171,7 +1308,7 @@ const updateMyProfile = async (payload: Partial<Pick<Profile, 'username' | 'avat
     if (nextPayload.avatar_url && nextPayload.avatar_url.startsWith('data:image')) {
       const blob = dataURLtoBlob(nextPayload.avatar_url)
       if (!blob) {
-        throw new Error('无效的头像图片格式。')
+        throw new Error('无效的头像图片格式')
       }
 
       const filePath = `${user.value.id}/avatar.png`
@@ -202,7 +1339,7 @@ const updateMyProfile = async (payload: Partial<Pick<Profile, 'username' | 'avat
     profile.value = (data ?? null) as Profile | null
     return { error: '' }
   } catch (error: any) {
-    const errorMessage = error.message || '更新个人资料时发生未知错误。'
+    const errorMessage = error.message || '更新个人资料时发生未知错误'
     profileError.value = errorMessage
     return { error: errorMessage }
   } finally {
@@ -235,7 +1372,7 @@ const loadMyContacts = async () => {
 }
 
 const upsertMyContacts = async (payload: Partial<Pick<UserContacts, 'phone' | 'qq'>>) => {
-  if (!user.value) return { error: '请先登录。' }
+  if (!user.value) return { error: '请先登录' }
   contactsLoading.value = true
   contactsError.value = ''
 
@@ -291,6 +1428,7 @@ const loadEvents = async () => {
 
   eventsLoading.value = false
   eventsLoaded.value = true
+  syncNotifications()
 }
 
 const ensureEventsLoaded = async () => {
@@ -322,11 +1460,152 @@ const loadMyRegistrations = async () => {
   myRegistrationByEventId.value = next
   registrationsLoading.value = false
   registrationsLoaded.value = true
+  syncNotifications()
 }
 
 const ensureRegistrationsLoaded = async () => {
   if (registrationsLoaded.value || registrationsLoading.value || !user.value) return
   await loadMyRegistrations()
+}
+
+const parseTime = (value: string | null) => {
+  if (!value) return null
+  const time = Date.parse(value)
+  if (Number.isNaN(time)) return null
+  return time
+}
+
+const syncTeamJoinResultNotifications = async () => {
+  if (!user.value) return
+  try {
+    const { data: requests, error } = await supabase
+      .from('team_join_requests')
+      .select('id,team_id,status,created_at,updated_at,teams(event_id,name)')
+      .eq('user_id', user.value.id)
+      .in('status', ['approved', 'rejected'])
+
+    if (error || !requests) return
+
+    for (const row of requests as Array<{
+      id: string
+      team_id: string
+      status: string
+      created_at: string
+      updated_at: string | null
+      teams?: { event_id?: string | null; name?: string | null } | null
+    }>) {
+      const statusLabel = row.status === 'approved' ? '已通过' : '已拒绝'
+      const teamName = row.teams?.name || '队伍'
+      const eventId = row.teams?.event_id
+      pushNotification({
+        id: `team-join-result:${row.id}:${row.status}`,
+        title: `入队申请${statusLabel}`,
+        body: `你申请加入的「${teamName}」已${statusLabel}`,
+        created_at: row.updated_at ?? row.created_at ?? new Date().toISOString(),
+        read: false,
+        link: eventId ? `/events/${eventId}/team/${row.team_id}` : undefined,
+      })
+    }
+  } catch {
+    return
+  }
+}
+
+const syncNotifications = () => {
+  if (!user.value || !eventsLoaded.value) return
+  if (!notificationsLoaded.value) loadNotifications()
+
+  const now = Date.now()
+  const oneHour = 60 * 60 * 1000
+  const registeredIds = registrationsLoaded.value
+    ? new Set(Object.keys(myRegistrationByEventId.value))
+    : new Set<string>()
+
+  const relevantEvents = displayedEvents.value.filter((event) => {
+    if (isDemoEvent(event)) return false
+    if (event.status === 'draft') return false
+    if (registeredIds.has(event.id)) return true
+    return event.created_by === user.value?.id
+  })
+
+  const addNotification = (id: string, title: string, body: string, link?: string) => {
+    const createdAt = new Date().toISOString()
+    const added = pushNotification({
+      id,
+      title,
+      body,
+      created_at: createdAt,
+      read: false,
+      link,
+    })
+    if (added) {
+      setBanner('info', title)
+    }
+  }
+
+  for (const event of relevantEvents) {
+    const startTime = parseTime(event.start_time)
+    if (startTime && now >= startTime) {
+      addNotification(
+        `event:${event.id}:start`,
+        `活动已开始：${event.title}`,
+        `活动「${event.title}」已经开始，去看看最新进展吧`,
+        `/events/${event.id}`,
+      )
+    }
+
+    const endTime = parseTime(event.end_time)
+    if (endTime) {
+      const remindTime = endTime - oneHour
+      if (now >= remindTime) {
+        addNotification(
+          `event:${event.id}:end-1h`,
+          `活动即将结束：${event.title}`,
+          `距离活动「${event.title}」结束还有 1 小时`,
+          `/events/${event.id}`,
+        )
+      }
+    }
+
+    const submissionStart = parseTime(event.submission_start_time)
+    if (submissionStart && now >= submissionStart) {
+      addNotification(
+        `event:${event.id}:submission-start`,
+        `作品提交开始：${event.title}`,
+        `活动「${event.title}」作品提交通道已开启`,
+        `/events/${event.id}`,
+      )
+    }
+
+    const submissionEnd = parseTime(event.submission_end_time)
+    if (submissionEnd) {
+      const remindTime = submissionEnd - oneHour
+      if (now >= remindTime) {
+        addNotification(
+          `event:${event.id}:submission-end-1h`,
+          `作品提交即将截止：${event.title}`,
+          `距离活动「${event.title}」提交截止还有 1 小时`,
+          `/events/${event.id}`,
+        )
+      }
+    }
+  }
+
+  void syncTeamJoinResultNotifications()
+}
+
+let notificationTicker: number | undefined
+const startNotificationTicker = () => {
+  if (notificationTicker) return
+  notificationTicker = window.setInterval(() => {
+    syncNotifications()
+  }, 60 * 1000)
+}
+
+const stopNotificationTicker = () => {
+  if (!notificationTicker) return
+  window.clearInterval(notificationTicker)
+  notificationTicker = undefined
 }
 
 const getEventById = (id: string) => {
@@ -340,7 +1619,7 @@ const fetchEventById = async (id: string) => {
   const { data, error } = await (supabase.from('events').select(EVENT_SELECT) as any).eq('id', id).maybeSingle()
 
   if (error) return { data: null, error: error.message }
-  if (!data) return { data: null, error: '活动不存在。' }
+  if (!data) return { data: null, error: '活动不存在' }
 
   const next = data as Event
   if (next.status === 'draft') {
@@ -348,7 +1627,7 @@ const fetchEventById = async (id: string) => {
       await refreshUser()
     }
     if (!user.value || next.created_by !== user.value.id) {
-      return { data: null, error: '草稿仅发布者可见。' }
+      return { data: null, error: '草稿仅发布者可见' }
     }
   }
   if (!events.value.find((event) => event.id === next.id)) {
@@ -395,7 +1674,7 @@ const submitAuth = async () => {
     if (error) {
       authError.value = error.message
     } else if (data.user && !data.session) {
-      authInfo.value = '已发送验证邮件，请完成邮箱确认后再登录。'
+      authInfo.value = '已发送验证邮件，请完成邮箱确认后再登录'
     }
   }
 
@@ -409,15 +1688,23 @@ const handleSignOut = async () => {
   contacts.value = null
   myRegistrationByEventId.value = {}
   registrationsLoaded.value = false
+  teamMembershipByTeamId.value = {}
+  teamRequestStatusByTeamId.value = {}
+  teamJoinRequestsByTeamId.value = {}
+  myTeamInviteByTeamId.value = {}
   void loadEvents()
   void supabase.auth.signOut().then(({ error }) => {
     if (error) setBanner('error', error.message)
   })
+  
+  // 跳转到主页
+  const router = (await import('../router')).default
+  router.push('/events')
 }
 
 const openCreateModal = () => {
   if (!isAdmin.value) {
-    setBanner('error', '没有权限：仅管理员可发起活动。')
+    setBanner('error', '没有权限：仅管理员可发起活动')
     return
   }
   createError.value = ''
@@ -434,13 +1721,13 @@ const submitCreate = async () => {
   clearBanners()
 
   if (!isAdmin.value) {
-    createError.value = '没有权限：仅管理员可发起活动。'
+    createError.value = '没有权限：仅管理员可发起活动'
     return null
   }
 
   const title = createTitle.value.trim()
   if (!title) {
-    createError.value = '请填写活动标题。'
+    createError.value = '请填写活动标题'
     return null
   }
 
@@ -449,7 +1736,7 @@ const submitCreate = async () => {
   if (teamMaxSizeInput) {
     const parsed = Number.parseInt(teamMaxSizeInput, 10)
     if (!Number.isFinite(parsed) || parsed < 0) {
-      createError.value = '队伍最大人数需要是 0 或大于 0 的数字。'
+      createError.value = '队伍最大人数需要是 0 或大于 0 的数字'
       return null
     }
     teamMaxSize = parsed
@@ -458,15 +1745,15 @@ const submitCreate = async () => {
   const startDate = createStartTime.value ? new Date(createStartTime.value) : null
   const endDate = createEndTime.value ? new Date(createEndTime.value) : null
   if (startDate && Number.isNaN(startDate.getTime())) {
-    createError.value = '活动开始时间无效。'
+    createError.value = '活动开始时间无效'
     return null
   }
   if (endDate && Number.isNaN(endDate.getTime())) {
-    createError.value = '活动结束时间无效。'
+    createError.value = '活动结束时间无效'
     return null
   }
   if (startDate && endDate && startDate.getTime() > endDate.getTime()) {
-    createError.value = '活动开始时间不能晚于活动结束时间。'
+    createError.value = '活动开始时间不能晚于活动结束时间'
     return null
   }
 
@@ -478,6 +1765,10 @@ const submitCreate = async () => {
     description,
     start_time: startDate ? startDate.toISOString() : null,
     end_time: endDate ? endDate.toISOString() : null,
+    registration_start_time: startDate ? startDate.toISOString() : null,
+    registration_end_time: endDate ? endDate.toISOString() : null,
+    submission_start_time: startDate ? startDate.toISOString() : null,
+    submission_end_time: endDate ? endDate.toISOString() : null,
     location: createLocation.value.trim() ? createLocation.value.trim() : null,
     team_max_size: teamMaxSize,
     status: 'draft',
@@ -490,7 +1781,7 @@ const submitCreate = async () => {
     return null
   }
 
-  setBanner('info', '活动已保存为草稿，进入页面继续完善。')
+  setBanner('info', '活动已保存为草稿，进入页面继续完善')
   createTitle.value = ''
   createStartTime.value = ''
   createEndTime.value = ''
@@ -505,7 +1796,7 @@ const submitCreate = async () => {
 
 const updateEvent = async (eventId: string, updates: Partial<Event>) => {
   if (!isAdmin.value) {
-    return { data: null, error: '没有权限：仅管理员可更新活动。' }
+    return { data: null, error: '没有权限：仅管理员可更新活动' }
   }
 
   const { data, error } = await supabase
@@ -528,7 +1819,7 @@ const updateEvent = async (eventId: string, updates: Partial<Event>) => {
 
 const updateEventStatus = async (eventId: string, status: EventStatus, description?: string | null) => {
   if (!isAdmin.value) {
-    return { data: null, error: '没有权限：仅管理员可更新活动。' }
+    return { data: null, error: '没有权限：仅管理员可更新活动' }
   }
 
   const payload: { status: EventStatus; description?: string | null } = { status }
@@ -557,24 +1848,24 @@ const updateEventStatus = async (eventId: string, status: EventStatus, descripti
 const deleteDraftEvent = async (event: DisplayEvent) => {
   clearBanners()
   if (isDemoEvent(event)) {
-    setBanner('info', '这是前端临时活动，仅用于展示，无法删除。')
+    setBanner('info', '这是前端临时活动，仅用于展示，无法删除')
     return { error: 'demo' }
   }
   if (!user.value) {
     openAuth('sign_in')
-    authInfo.value = '请先登录后删除草稿。'
+    authInfo.value = '请先登录后删除草稿'
     return { error: 'auth' }
   }
   if (!isAdmin.value) {
-    setBanner('error', '没有权限：仅管理员可删除草稿。')
+    setBanner('error', '没有权限：仅管理员可删除草稿')
     return { error: 'auth' }
   }
   if (event.status !== 'draft') {
-    setBanner('error', '只有草稿可以删除。')
+    setBanner('error', '只有草稿可以删除')
     return { error: 'status' }
   }
   if (event.created_by && event.created_by !== user.value.id) {
-    setBanner('error', '没有权限删除他人草稿。')
+    setBanner('error', '没有权限删除他人草稿')
     return { error: 'auth' }
   }
 
@@ -587,7 +1878,7 @@ const deleteDraftEvent = async (event: DisplayEvent) => {
   }
 
   events.value = events.value.filter((item) => item.id !== event.id)
-  setBanner('info', '草稿已删除。')
+  setBanner('info', '草稿已删除')
   deleteBusyEventId.value = null
   return { error: '' }
 }
@@ -595,21 +1886,21 @@ const deleteDraftEvent = async (event: DisplayEvent) => {
 const submitRegistration = async (event: DisplayEvent, formResponse: Record<string, string | string[]>) => {
   clearBanners()
   if (isDemoEvent(event)) {
-    setBanner('info', '这是前端临时活动，仅用于展示，暂不支持报名。')
+    setBanner('info', '这是前端临时活动，仅用于展示，暂不支持报名')
     return { error: 'demo' }
   }
   if (event.status === 'draft') {
-    setBanner('info', '草稿活动暂不支持报名。')
+    setBanner('info', '草稿活动暂不支持报名')
     return { error: 'draft' }
   }
   if (!user.value) {
     openAuth('sign_in')
-    authInfo.value = '请先登录后报名。'
+    authInfo.value = '请先登录后报名'
     return { error: 'auth' }
   }
 
   if (myRegistrationByEventId.value[event.id]) {
-    setBanner('info', '你已报名该活动。')
+    setBanner('info', '你已报名该活动')
     return { error: '' }
   }
 
@@ -636,7 +1927,7 @@ const submitRegistration = async (event: DisplayEvent, formResponse: Record<stri
     ...myRegistrationByEventId.value,
     [row.event_id]: row.id,
   }
-  setBanner('info', '报名成功。')
+  setBanner('info', '报名成功')
   registrationBusyEventId.value = null
   return { error: '' }
 }
@@ -658,16 +1949,16 @@ const registrationVariant = (event: DisplayEvent) => {
 const toggleRegistration = async (event: DisplayEvent) => {
   clearBanners()
   if (isDemoEvent(event)) {
-    setBanner('info', '这是前端临时活动，仅用于展示，暂不支持报名。')
+    setBanner('info', '这是前端临时活动，仅用于展示，暂不支持报名')
     return
   }
   if (event.status === 'draft') {
-    setBanner('info', '草稿活动暂不支持报名。')
+    setBanner('info', '草稿活动暂不支持报名')
     return
   }
   if (!user.value) {
     openAuth('sign_in')
-    authInfo.value = '请先登录后报名。'
+    authInfo.value = '请先登录后报名'
     return
   }
 
@@ -675,7 +1966,7 @@ const toggleRegistration = async (event: DisplayEvent) => {
   registrationBusyEventId.value = event.id
 
   if (!existingId) {
-    setBanner('info', '请在活动详情页填写报名表。')
+    setBanner('info', '请在活动详情页填写报名表')
     registrationBusyEventId.value = null
     return
   }
@@ -688,7 +1979,7 @@ const toggleRegistration = async (event: DisplayEvent) => {
     const next = { ...myRegistrationByEventId.value }
     delete next[event.id]
     myRegistrationByEventId.value = next
-    setBanner('info', '已取消报名。')
+    setBanner('info', '已取消报名')
   }
 
   registrationBusyEventId.value = null
@@ -702,18 +1993,27 @@ const init = async () => {
   initialized = true
 
   await refreshUser()
+  loadNotifications()
+  maybePushProfileSetupNotification()
+  if (user.value) startNotificationTicker()
   void loadMyProfile()
   void loadMyContacts()
   void loadEvents()
   void loadMyRegistrations()
+  void loadMyPendingTeamActions()
 
   const { data: listener } = supabase.auth.onAuthStateChange(async (_event, session) => {
     if (!session) {
       user.value = null
       profile.value = null
       contacts.value = null
+      notifications.value = []
+      notificationsLoaded.value = false
+      stopNotificationTicker()
       myRegistrationByEventId.value = {}
       registrationsLoaded.value = false
+      pendingRequestsCount.value = 0
+      pendingInvitesCount.value = 0
       void loadEvents()
       return
     }
@@ -721,10 +2021,14 @@ const init = async () => {
     user.value = session.user
     closeAuth()
     void refreshUser()
+    loadNotifications()
+    maybePushProfileSetupNotification()
+    startNotificationTicker()
     void loadMyProfile()
     void loadMyContacts()
     void loadEvents()
     void loadMyRegistrations()
+    void loadMyPendingTeamActions()
     closeAuth()
   })
 
@@ -735,6 +2039,7 @@ const dispose = () => {
   authSubscription?.unsubscribe()
   authSubscription = null
   initialized = false
+  stopNotificationTicker()
 }
 
 const store = proxyRefs({
@@ -749,6 +2054,12 @@ const store = proxyRefs({
   contacts,
   contactsLoading,
   contactsError,
+  notifications,
+  unreadNotifications,
+  pendingRequestsCount,
+  pendingInvitesCount,
+  isProfileIncomplete,
+  hasAnyNotification,
   bannerInfo,
   bannerError,
   registrationsLoading,
@@ -772,6 +2083,8 @@ const store = proxyRefs({
   createDescription,
   createBusy,
   createError,
+  submissionsLoading,
+  submissionsError,
   isAuthed,
   isAdmin,
   showDemoEvents,
@@ -787,6 +2100,42 @@ const store = proxyRefs({
   updateMyProfile,
   loadMyContacts,
   upsertMyContacts,
+  loadNotifications,
+  markNotificationRead,
+  markAllNotificationsRead,
+  deleteReadNotifications,
+  loadMyPendingTeamActions,
+  loadTeams,
+  getTeamsForEvent,
+  loadTeamSeekers,
+  getTeamSeekersForEvent,
+  getMyTeamSeeker,
+  loadTeamMembers,
+  getTeamMembers,
+  getTeamRequestStatus,
+  loadTeamJoinRequests,
+  getTeamJoinRequests,
+  loadMyTeamInvite,
+  getMyTeamInvite,
+  isTeamMember,
+  createTeam,
+  updateTeam,
+  closeTeam,
+  deleteTeam,
+  removeTeamMember,
+  updateTeamJoinRequestStatus,
+  requestJoinTeam,
+  cancelTeamJoinRequest,
+  acceptTeamInvite,
+  rejectTeamInvite,
+  sendTeamInvite,
+  getMyTeamsForEvent,
+  getMyTeamRequestsForEvent,
+  getMyTeamInvitesForEvent,
+  saveTeamSeeker,
+  deleteTeamSeeker,
+  getSubmissionsForEvent,
+  loadSubmissions,
   loadEvents,
   ensureEventsLoaded,
   loadMyRegistrations,

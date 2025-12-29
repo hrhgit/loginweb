@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { RouterLink, useRoute, useRouter } from 'vue-router'
+import { ArrowLeft, Home, LogOut } from 'lucide-vue-next'
 import { useAppStore } from '../../store/appStore'
 
 const store = useAppStore()
@@ -27,10 +28,10 @@ const handleBack = () => {
     <div class="app-header__inner">
       <div class="header-left">
         <button class="btn btn--flat btn--icon" type="button" @click="handleBack" aria-label="返回" title="返回">
-          <img src="/icons/arrow-left.svg" alt="" aria-hidden="true" />
+          <ArrowLeft :size="20" />
         </button>
         <RouterLink class="btn btn--flat btn--icon" to="/events" aria-label="主页" title="主页">
-          <img src="/icons/home.svg" alt="" aria-hidden="true" />
+          <Home :size="20" />
         </RouterLink>
       </div>
 
@@ -54,11 +55,24 @@ const handleBack = () => {
               </div>
             </div>
             <p class="user-pill__name">{{ store.displayName }}</p>
+            <span v-if="store.hasAnyNotification" class="user-pill__dot"></span>
           </RouterLink>
           <span v-if="store.isAdmin" class="pill-badge">admin</span>
-          <button class="btn btn--flat" type="button" @click="store.handleSignOut">退出</button>
+          <button class="btn btn--flat btn--icon-text" type="button" @click="store.handleSignOut" title="退出登录">
+            <LogOut :size="18" />
+            <span>退出</span>
+          </button>
         </div>
       </div>
     </div>
   </header>
 </template>
+
+<style scoped>
+.btn--icon-text {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+}
+</style>

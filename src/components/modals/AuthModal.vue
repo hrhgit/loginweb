@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { X } from 'lucide-vue-next'
 import { useAppStore } from '../../store/appStore'
 
 const store = useAppStore()
@@ -7,10 +8,10 @@ const store = useAppStore()
 <template>
   <teleport to="body">
     <div v-if="store.authModalOpen" class="modal-backdrop">
-      <div class="modal">
+      <div class="modal-shell">
+        <div class="modal">
         <header class="modal__header">
           <h2>{{ store.authView === 'sign_in' ? '登录' : '创建账号' }}</h2>
-          <button class="icon-btn" type="button" @click="store.closeAuth" aria-label="close">×</button>
         </header>
 
         <div class="segmented">
@@ -62,8 +63,11 @@ const store = useAppStore()
             {{ store.authBusy ? '处理中..' : store.authView === 'sign_in' ? '登录' : '立即注册' }}
           </button>
         </form>
+        </div>
+        <button class="icon-btn modal-close" type="button" @click="store.closeAuth" aria-label="close">
+          <X :size="20" />
+        </button>
       </div>
     </div>
   </teleport>
 </template>
-

@@ -20,9 +20,12 @@
 
 - `src/pages/EventsPage.vue`：全部活动页（普通用户只能看已发布/已结束；管理员可发起活动）。
 - `src/pages/MyEventsPage.vue`：我发起的活动页（仅管理员可见，只展示自己创建的活动；草稿仅在此页出现）。
-- `src/pages/EventDetailPage.vue`：活动详情页（报名入口、报名表单填写、组队大厅/作品提交等展示）。
+- `src/pages/EventDetailPage.vue`：活动详情页（报名入口、报名表单填写、组队大厅含"我的队伍"页签、作品提交等展示）。
 - `src/pages/EventEditPage.vue`：活动编辑页（编辑活动内容、报名表单设置、预览与发布/保存草稿等）。
 - `src/pages/ProfilePage.vue`：个人主页（个人资料、职能/头像/联系方式、账号密码修改）。
+- `src/pages/TeamCreatePage.vue`：队伍创建页（创建和编辑队伍信息）。
+- `src/pages/TeamDetailPage.vue`：队伍详情页（查看队伍信息和成员）。
+- `src/pages/SubmissionPage.vue`：作品提交页（提交项目文件和信息）。
 
 ### 组件（可复用 UI）
 
@@ -31,7 +34,9 @@
 - `src/components/feedback/GlobalBanner.vue`：全局消息提示（绿色半透明，2 秒后渐隐）。
 - `src/components/modals/AuthModal.vue`：登录/注册弹窗。
 - `src/components/modals/CreateEventModal.vue`：创建活动弹窗（创建成功后跳转到编辑页）。
+- `src/components/modals/AvatarCropperModal.vue`：头像裁剪弹窗。
 - `src/components/events/EventCard.vue`：活动卡片基础封装（卡片头部/摘要/元信息/操作区位置统一，样式复用）。
+- `src/components/MyTeamsTabContent.vue`：我的队伍页签内容（显示用户在当前活动中的队伍、申请、邀请信息）。
 
 ### Composables / Utils
 

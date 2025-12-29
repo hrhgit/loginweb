@@ -82,3 +82,19 @@
 - **`.field`**: 一个独立的表单字段容器，包含 `<span>` 标签和 `input`, `textarea` 等。
 - **`.field--error`**: 应用于 `.field` 元素，当验证失败时，其内部的 `<span>` 和输入框会变为红色。
 - **`.error-text`**: 显示在输入框下方的小字错误提示。
+
+#### 表单校验提示用法
+
+- 给字段容器加 `field--error`，触发红色边框与高亮。
+- 在输入框下方放 `p.help-text.error-text` 作为通用的小字错误提示。
+- 对非标准输入控件（如自定义上传框）可额外加 `input-error` 来显示红色边框。
+
+示例：
+
+```html
+<div class="field field--error">
+  <label>作品名</label>
+  <input class="input-error" type="text" />
+  <p class="help-text error-text">请填写作品名</p>
+</div>
+```

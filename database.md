@@ -52,3 +52,37 @@
 - `form_response` (jsonb): 报名表单填写结果
 - `status` (enum: registration_status): 报名状态
 - **Unique Constraint**: `(user_id, event_id)` (防止重复报名)
+
+### `team_seekers` (求组队卡片)
+- `id` (uuid, PK): 主键
+- `event_id` (uuid, FK): 关联 events.id
+- `user_id` (uuid, FK): 关联 profiles.id
+- `intro` (text): 个人简介
+- `qq` (text): QQ 号
+- `roles` (text[]): 个人职能（可多选：programmer / planner / artist / audio），可为空
+- `created_at` (timestamptz): 创建时间
+- `updated_at` (timestamptz): 更新时间
+- **Unique Constraint**: `(event_id, user_id)` (每个用户在同一活动只能发布一张求组队卡片)
+
+### `submissions` (作品提交)
+- `id` (uuid, PK): 主键
+- `event_id` (uuid, FK): 关联 events.id
+- `team_id` (uuid, FK): 关联 teams.id
+- `submitted_by` (uuid, FK): 关联 profiles.id（提交人，通常为队长）
+- `project_name` (text): 作品名
+- `intro` (text): 作品简介
+- `cover_path` (text): 封面存储路径（如 storage 路径）
+- `video_link` (text, nullable): 视频链接
+- `link_mode` (text): 'link' | 'file'
+- `submission_url` (text, nullable): 外部作品链接（当 link_mode='link'）
+- `submission_storage_path` (text, nullable): 文件存储路径（当 link_mode='file'）
+- `submission_password` (text, nullable): 网盘提取码或访问密码
+- `created_at` (timestamptz): 创建时间
+- `updated_at` (timestamptz): 更新时间
+- **Unique Constraint**: `(event_id, team_id)`（同一队伍每个活动仅一条提交记录，可通过更新覆盖）
+- **Check Constraint**: `link_mode='link'` 时 `submission_url` 必填；`link_mode='file'` 时 `submission_storage_path` 必填
+- **Index**: `event_id`, `team_id`, `submitted_by`
+
+**RLS 规则建议**
+- `insert/update/delete`: 仅允许 `auth.uid()` 为 `teams.leader_id` 的用户操作，且 `submissions.team_id` 必须属于该队长
+- `select`: 可按需求开放给队长/队员/活动创建者查看

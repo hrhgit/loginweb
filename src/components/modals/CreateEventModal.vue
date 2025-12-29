@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router'
+import { X } from 'lucide-vue-next'
 import { useAppStore } from '../../store/appStore'
 
 const store = useAppStore()
@@ -16,10 +17,10 @@ const handleCreateSubmit = async () => {
 <template>
   <teleport to="body">
     <div v-if="store.createModalOpen" class="modal-backdrop">
-      <div class="modal">
+      <div class="modal-shell">
+        <div class="modal">
         <header class="modal__header">
           <h2>创建新活动</h2>
-          <button class="icon-btn" type="button" @click="store.closeCreateModal" aria-label="close">×</button>
         </header>
 
         <form class="form" @submit.prevent="handleCreateSubmit">
@@ -28,16 +29,15 @@ const handleCreateSubmit = async () => {
             <input v-model="store.createTitle" type="text" placeholder="例如 周末 Game Jam" required />
           </label>
 
-                <div class="field-row">
-                  <label class="field">
-                    <span>活动开始时间</span>
-                    <input v-model="createStartTime" type="datetime-local" />
-                  </label>
-                  <label class="field">
-                    <span>活动结束时间</span>
-                    <input v-model="createEndTime" type="datetime-local" />
-                  </label>
-                </div>
+          <label class="field">
+            <span>活动开始时间</span>
+            <input v-model="store.createStartTime" type="datetime-local" />
+          </label>
+
+          <label class="field">
+            <span>活动结束时间</span>
+            <input v-model="store.createEndTime" type="datetime-local" />
+          </label>
 
           <label class="field">
             <span>地点</span>
@@ -65,6 +65,10 @@ const handleCreateSubmit = async () => {
             {{ store.createBusy ? '创建中..' : '确认创建' }}
           </button>
         </form>
+        </div>
+        <button class="icon-btn modal-close" type="button" @click="store.closeCreateModal" aria-label="close">
+          <X :size="20" />
+        </button>
       </div>
     </div>
   </teleport>

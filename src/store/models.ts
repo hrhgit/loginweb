@@ -38,3 +38,136 @@ export type UserContacts = {
   qq: string | null
   updated_at: string | null
 }
+
+export type TeamLobbyTeam = {
+  id: string
+  event_id: string
+  leader_id: string
+  name: string
+  leader_qq: string
+  intro: string
+  needs: string[]
+  extra: string
+  members: number
+  is_closed?: boolean
+  created_at: string
+}
+
+export type TeamMemberProfile = {
+  id: string
+  username: string | null
+  avatar_url: string | null
+  roles: string[] | null
+}
+
+export type TeamMember = {
+  id: string
+  team_id: string
+  user_id: string
+  joined_at: string
+  profile: TeamMemberProfile | null
+}
+
+export type TeamJoinRequest = {
+  id: string
+  team_id: string
+  user_id: string
+  status: string
+  message: string | null
+  created_at: string
+  updated_at: string | null
+}
+
+export type TeamJoinRequestProfile = {
+  id: string
+  username: string | null
+  avatar_url: string | null
+  roles: string[] | null
+}
+
+export type TeamJoinRequestRecord = TeamJoinRequest & {
+  profile: TeamJoinRequestProfile | null
+}
+
+export type TeamInvite = {
+  id: string
+  team_id: string
+  user_id: string
+  invited_by: string | null
+  message: string | null
+  status: string
+  created_at: string
+  updated_at: string | null
+}
+
+export type TeamSeekerProfile = {
+  id: string
+  username: string | null
+  avatar_url: string | null
+  roles: string[] | null
+}
+
+export type TeamSeeker = {
+  id: string
+  event_id: string
+  user_id: string
+  intro: string
+  qq: string
+  roles: string[]
+  created_at: string
+  updated_at: string | null
+  profile: TeamSeekerProfile | null
+}
+
+export type MyTeamEntry = {
+  teamId: string
+  teamName: string
+  role: 'leader' | 'member'
+  memberCount: number
+  status: 'active' | 'pending'
+  eventId: string
+  createdAt: string
+}
+
+export type MyTeamRequest = {
+  id: string
+  teamId: string
+  teamName: string
+  status: 'pending' | 'approved' | 'rejected'
+  message: string | null
+  createdAt: string
+}
+
+export type MyTeamInvite = {
+  id: string
+  teamId: string
+  teamName: string
+  invitedByName: string | null
+  status: 'pending' | 'accepted' | 'rejected'
+  message: string | null
+  createdAt: string
+}
+
+export type Submission = {
+  id: string
+  event_id: string
+  team_id: string
+  submitted_by: string
+  project_name: string
+  intro: string
+  cover_path: string
+  video_link: string | null
+  link_mode: 'link' | 'file'
+  submission_url: string | null
+  submission_storage_path: string | null
+  submission_password: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type SubmissionWithTeam = Submission & {
+  team: {
+    id: string
+    name: string
+  } | null
+}

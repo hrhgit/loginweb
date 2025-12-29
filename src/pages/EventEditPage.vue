@@ -1,8 +1,21 @@
-<script setup lang="ts">
+﻿﻿<script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { Link2 } from 'lucide-vue-next'
+import {
+  Link2,
+  Eye,
+  Save,
+  Trash2,
+  Send,
+  Undo2,
+  FileText,
+  Calendar,
+  Settings,
+  Plus,
+  X,
+} from 'lucide-vue-next'
 import { RouterLink, onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { useAppStore, type EventStatus } from '../store/appStore'
+import type { Event as AppEvent } from '../store/models'
 import {
   teamSizeLabel,
   formatTimeRange,
@@ -95,6 +108,10 @@ const questionTypeLabel = (type: FormQuestionType) => {
       return '下拉选择'
     case 'text':
       return '填空题'
+    case 'textarea':
+      return '简答题'
+    case 'autocomplete':
+      return '带选项填空'
     default:
       return '未知题型'
   }
@@ -108,6 +125,69 @@ const createOption = (): FormOption => ({
   label: '',
 })
 
+const parseOptionTable = (raw: string) => {
+  const lines = raw
+    .replace(/\uFEFF/g, '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+  const labels: string[] = []
+  for (const line of lines) {
+    const cells = line.split(/[\t,]/).map((cell) => cell.trim()).filter(Boolean)
+    if (cells.length) labels.push(...cells)
+  }
+  return Array.from(new Set(labels))
+}
+
+const parseOptionRows = (rows: unknown[][]) => {
+  const labels: string[] = []
+  for (const row of rows) {
+    if (!Array.isArray(row)) continue
+    for (const cell of row) {
+      if (cell === null || cell === undefined) continue
+      const value = `${cell}`.trim()
+      if (value) labels.push(value)
+    }
+  }
+  return Array.from(new Set(labels))
+}
+
+const applyOptionLabels = (question: RegistrationQuestion, labels: string[]) => {
+  if (!labels.length) return
+  question.options = labels.map((label) => ({ id: generateId(), label }))
+}
+
+const handleOptionFileUpload = async (question: RegistrationQuestion, event: Event) => {
+  const target = event.target as HTMLInputElement | null
+  const file = target?.files?.[0]
+  if (!file) return
+  const name = file.name.toLowerCase()
+  let labels: string[] = []
+  if (name.endsWith('.xlsx') || name.endsWith('.xls')) {
+    const { read, utils } = await import('xlsx')
+    const data = await file.arrayBuffer()
+    const workbook = read(data, { type: 'array' })
+    const firstSheet = workbook.SheetNames[0]
+    if (firstSheet) {
+      const rows = utils.sheet_to_json(workbook.Sheets[firstSheet], { header: 1 }) as unknown[][]
+      labels = parseOptionRows(rows)
+    }
+  } else {
+    const text = await file.text()
+    labels = parseOptionTable(text)
+  }
+  if (!labels.length) {
+    store.setBanner('info', '未解析到选项，请检查文件内容')
+    return
+  }
+  applyOptionLabels(question, labels)
+  if (target) target.value = ''
+}
+
+const clearQuestionOptions = (question: RegistrationQuestion) => {
+  question.options = []
+}
+
 const createQuestion = (type: FormQuestionType): RegistrationQuestion => ({
   id: generateId(),
   type,
@@ -115,7 +195,7 @@ const createQuestion = (type: FormQuestionType): RegistrationQuestion => ({
   required: false,
   allowOther: false,
   dependsOn: null,
-  options: type === 'text' ? [] : [createOption(), createOption()],
+  options: type === 'text' || type === 'textarea' ? [] : [createOption(), createOption()],
 })
 
 const applyDetailsToForm = (details: EventDetailContent) => {
@@ -133,7 +213,7 @@ const applyDetailsToForm = (details: EventDetailContent) => {
     allowOther: question.allowOther ?? false,
     dependsOn: question.dependsOn ?? null,
     options:
-      question.type === 'text'
+      question.type === 'text' || question.type === 'textarea'
         ? []
         : (question.options ?? []).map((option) => ({ id: option.id, label: option.label })),
   }))
@@ -160,7 +240,7 @@ const sanitizeQuestions = (questions: RegistrationQuestion[]): RegistrationForm 
     .map((question) => {
       const title = question.title.trim()
       if (!title) return null
-      if (question.type === 'text') {
+      if (question.type === 'text' || question.type === 'textarea') {
         return { ...question, title, options: [], allowOther: false, dependsOn: question.dependsOn ?? null }
       }
       const allowOther = question.type === 'select' ? Boolean(question.allowOther) : false
@@ -168,7 +248,7 @@ const sanitizeQuestions = (questions: RegistrationQuestion[]): RegistrationForm 
         question.options
           ?.map((option) => ({ ...option, label: option.label.trim() }))
           .filter((option) => option.label) ?? []
-      return { ...question, title, options, allowOther, dependsOn: question.dependsOn ?? null }
+      return { ...question, title, options, allowOther, dependsOn: question.dependsOn ?? null } as RegistrationQuestion
     })
     .filter((item): item is RegistrationQuestion => Boolean(item))
 
@@ -214,7 +294,7 @@ const removeQuestion = (index: number) => {
 }
 
 const addOption = (question: RegistrationQuestion) => {
-  if (question.type === 'text') return
+  if (question.type === 'text' || question.type === 'textarea') return
   question.options = [...(question.options ?? []), createOption()]
 }
 
@@ -232,8 +312,10 @@ const removeOption = (question: RegistrationQuestion, optionIndex: number) => {
 }
 
 const handleQuestionTypeChange = (question: RegistrationQuestion) => {
+  const isTextLike = question.type === 'text' || question.type === 'textarea' || question.type === 'autocomplete'
+
   // Reset linked profile field if incompatible
-  if (question.type === 'text') {
+  if (isTextLike) {
     if (question.linkedProfileField === 'roles') {
       question.linkedProfileField = null
     }
@@ -243,8 +325,14 @@ const handleQuestionTypeChange = (question: RegistrationQuestion) => {
     }
   }
 
-  if (question.type === 'text') {
-    question.options = []
+  if (isTextLike) {
+    if (question.type === 'autocomplete') {
+      if (!question.options || question.options.length === 0) {
+        question.options = [createOption(), createOption()]
+      }
+    } else {
+      question.options = []
+    }
     question.allowOther = false
     formQuestions.value = formQuestions.value.map((item) => {
       if (item.dependsOn?.questionId === question.id) {
@@ -252,12 +340,13 @@ const handleQuestionTypeChange = (question: RegistrationQuestion) => {
       }
       return item
     })
-  } else if (!question.options || question.options.length === 0) {
+    return
+  }
+
+  if (!question.options || question.options.length === 0) {
     question.options = [createOption(), createOption()]
-    if (question.type !== 'select') {
-      question.allowOther = false
-    }
-  } else if (question.type !== 'select') {
+  }
+  if (question.type !== 'select') {
     question.allowOther = false
   }
 }
@@ -270,8 +359,31 @@ const toggleLinkMenu = (id: string) => {
   }
 }
 
+const linkedRoleOptions = ['策划', '程序', '美术', '音乐音效']
+const applyLinkedFieldDefaults = (question: RegistrationQuestion, field: string | null) => {
+  if (!field) return
+  const isTextLike = question.type === 'text' || question.type === 'textarea' || question.type === 'autocomplete'
+  const title = getLinkFieldLabel(field)
+  if (field === 'roles' && isTextLike) {
+    question.type = 'multi'
+    handleQuestionTypeChange(question)
+  }
+  if (['phone', 'qq', 'username'].includes(field) && question.type !== 'text') {
+    question.type = 'text'
+    handleQuestionTypeChange(question)
+  }
+  if (!question.title.trim() && title) {
+    question.title = title
+  }
+  if (field === 'roles') {
+    question.options = linkedRoleOptions.map((label) => ({ id: generateId(), label }))
+    question.allowOther = false
+  }
+}
+
 const selectLinkField = (question: RegistrationQuestion, field: string | null) => {
   question.linkedProfileField = field as any
+  applyLinkedFieldDefaults(question, field)
   activeLinkMenuQuestionId.value = null
 }
 
@@ -302,7 +414,13 @@ const getAvailableDependencyQuestions = (targetId: string | null) => {
   if (targetIndex <= 0) return []
   return formQuestions.value
     .slice(0, targetIndex)
-    .filter((item) => item.type !== 'text' && (item.options ?? []).length > 0)
+    .filter(
+      (item) =>
+        item.type !== 'text' &&
+        item.type !== 'textarea' &&
+        item.type !== 'autocomplete' &&
+        (item.options ?? []).length > 0,
+    )
 }
 
 const availableDependencyQuestions = computed(() =>
@@ -326,8 +444,8 @@ const syncDependencyOption = () => {
 const openDependencyModal = (question: RegistrationQuestion) => {
   dependencyTargetId.value = question.id
   const candidates = getAvailableDependencyQuestions(question.id)
-  if (question.dependsOn && candidates.find((item) => item.id === question.dependsOn?.questionId)) {
-    const selected = candidates.find((item) => item.id === question.dependsOn.questionId)
+  if (question.dependsOn && candidates.find((item) => item.id === question.dependsOn!.questionId)) {
+    const selected = candidates.find((item) => item.id === question.dependsOn!.questionId)
     dependencyQuestionId.value = question.dependsOn.questionId
     dependencyOptionId.value =
       selected?.options?.find((option) => option.id === question.dependsOn?.optionId)?.id ??
@@ -436,20 +554,20 @@ const validateFormQuestions = () => {
   for (let index = 0; index < formQuestions.value.length; index += 1) {
     const question = formQuestions.value[index]
     if (!question.title.trim()) {
-      questionErrors[question.id] = { title: `报名表单第 ${index + 1} 题标题未填写。` }
+      questionErrors[question.id] = { title: `报名表单第 ${index + 1} 题标题未填写` }
       focusQuestion(question.id)
       return false
     }
-    if (question.type === 'text') continue
+    if (question.type === 'text' || question.type === 'textarea') continue
     const options = question.options ?? []
     if (options.length === 0) {
-      questionErrors[question.id] = { options: `报名表单第 ${index + 1} 题至少需要一个选项。` }
+      questionErrors[question.id] = { options: `报名表单第 ${index + 1} 题至少需要一个选项` }
       focusQuestion(question.id)
       return false
     }
     const emptyOptionIds = options.filter((option) => !option.label.trim()).map((option) => option.id)
     if (emptyOptionIds.length > 0) {
-      questionErrors[question.id] = { options: `报名表单第 ${index + 1} 题还有未填写的选项。` }
+      questionErrors[question.id] = { options: `报名表单第 ${index + 1} 题还有未填写的选项` }
       questionOptionErrors[question.id] = emptyOptionIds
       focusQuestion(question.id)
       return false
@@ -464,7 +582,7 @@ const validateFields = (): boolean => {
   Object.keys(fieldErrors).forEach((key) => delete fieldErrors[key])
 
   if (!editTitle.value.trim()) {
-    fieldErrors.title = '活动标题不能为空。'
+    fieldErrors.title = '活动标题不能为空'
     isValid = false
   }
 
@@ -472,7 +590,7 @@ const validateFields = (): boolean => {
   if (teamMaxSizeInput) {
     const parsed = Number.parseInt(teamMaxSizeInput, 10)
     if (!Number.isFinite(parsed) || parsed < 0) {
-      fieldErrors.teamMaxSize = '队伍最大人数需要是 0 或大于 0 的数字。'
+      fieldErrors.teamMaxSize = '队伍最大人数需要是 0 或大于 0 的数字'
       isValid = false
     }
   }
@@ -480,15 +598,15 @@ const validateFields = (): boolean => {
   const startDate = editStartTime.value ? new Date(editStartTime.value) : null
   const endDate = editEndTime.value ? new Date(editEndTime.value) : null
   if (startDate && Number.isNaN(startDate.getTime())) {
-    fieldErrors.startTime = '活动开始时间无效。'
+    fieldErrors.startTime = '活动开始时间无效'
     isValid = false
   }
   if (endDate && Number.isNaN(endDate.getTime())) {
-    fieldErrors.endTime = '活动结束时间无效。'
+    fieldErrors.endTime = '活动结束时间无效'
     isValid = false
   }
   if (startDate && endDate && startDate.getTime() > endDate.getTime()) {
-    fieldErrors.endTime = '活动开始时间不能晚于活动结束时间。'
+    fieldErrors.endTime = '活动开始时间不能晚于活动结束时间'
     isValid = false
   }
 
@@ -497,11 +615,11 @@ const validateFields = (): boolean => {
     : null
   const registrationEndDate = editRegistrationEndTime.value ? new Date(editRegistrationEndTime.value) : null
   if (registrationStartDate && Number.isNaN(registrationStartDate.getTime())) {
-    fieldErrors.registrationStartTime = '报名开始时间无效。'
+    fieldErrors.registrationStartTime = '报名开始时间无效'
     isValid = false
   }
   if (registrationEndDate && Number.isNaN(registrationEndDate.getTime())) {
-    fieldErrors.registrationEndTime = '报名结束时间无效。'
+    fieldErrors.registrationEndTime = '报名结束时间无效'
     isValid = false
   }
   if (
@@ -509,7 +627,7 @@ const validateFields = (): boolean => {
     registrationEndDate &&
     registrationStartDate.getTime() > registrationEndDate.getTime()
   ) {
-    fieldErrors.registrationEndTime = '报名开始时间不能晚于报名结束时间。'
+    fieldErrors.registrationEndTime = '报名开始时间不能晚于报名结束时间'
     isValid = false
   }
 
@@ -518,11 +636,11 @@ const validateFields = (): boolean => {
     : null
   const submissionEndDate = editSubmissionEndTime.value ? new Date(editSubmissionEndTime.value) : null
   if (submissionStartDate && Number.isNaN(submissionStartDate.getTime())) {
-    fieldErrors.submissionStartTime = '提交开始时间无效。'
+    fieldErrors.submissionStartTime = '提交开始时间无效'
     isValid = false
   }
   if (submissionEndDate && Number.isNaN(submissionEndDate.getTime())) {
-    fieldErrors.submissionEndTime = '提交结束时间无效。'
+    fieldErrors.submissionEndTime = '提交结束时间无效'
     isValid = false
   }
   if (
@@ -530,7 +648,7 @@ const validateFields = (): boolean => {
     submissionEndDate &&
     submissionStartDate.getTime() > submissionEndDate.getTime()
   ) {
-    fieldErrors.submissionEndTime = '提交开始时间不能晚于提交结束时间。'
+    fieldErrors.submissionEndTime = '提交开始时间不能晚于提交结束时间'
     isValid = false
   }
 
@@ -559,7 +677,7 @@ const loadEvent = async (id: string) => {
 
   await store.refreshUser()
   if (!store.user) {
-    loadError.value = '请先登录后再编辑活动。'
+    loadError.value = '请先登录后再编辑活动'
     loading.value = false
     return
   }
@@ -579,11 +697,11 @@ const loadEvent = async (id: string) => {
   }
 
   if (!event.value) {
-    loadError.value = loadError.value || '活动不存在。'
+    loadError.value = loadError.value || '活动不存在'
   } else if (store.isDemoEvent(event.value)) {
-    loadError.value = '演示活动不支持编辑。'
+    loadError.value = '演示活动不支持编辑'
   } else if (!store.isAdmin || event.value.created_by !== store.user.id) {
-    loadError.value = '没有权限编辑此活动。'
+    loadError.value = '没有权限编辑此活动'
   }
 
   if (!loadError.value) {
@@ -615,17 +733,17 @@ const loadEvent = async (id: string) => {
 }
 
 const handleSave = async (nextStatus: EventStatus) => {
-  if (!event.value || !canEdit.value) return
+  if (!event.value || !canEdit.value) return false
   saveBusy.value = true
   store.clearBanners()
 
   if (!validateAndScroll()) {
     saveBusy.value = false
-    return
+    return false
   }
   if (!validateFormQuestions()) {
     saveBusy.value = false
-    return
+    return false
   }
 
   // Validate Max Participants - re-evaluate after validateAndScroll
@@ -656,7 +774,7 @@ const handleSave = async (nextStatus: EventStatus) => {
 
   const description = buildEventDescription(summary.value, previewDetails.value)
 
-  const updates: Partial<Event> = {
+  const updates: Partial<AppEvent> = {
     title: editTitle.value.trim(),
     start_time: startDate ? startDate.toISOString() : null,
     end_time: endDate ? endDate.toISOString() : null,
@@ -673,13 +791,16 @@ const handleSave = async (nextStatus: EventStatus) => {
   const { error } = await store.updateEvent(event.value.id, updates)
   if (error) {
     store.setBanner('error', `保存失败：${error}`)
+    saveBusy.value = false
+    return false
   } else {
     // Update local event object after successful save
     event.value = { ...event.value, ...updates }
     syncSavedSnapshot()
-    store.setBanner('info', nextStatus === 'published' ? '活动已发布！' : '草稿已保存！')
+    store.setBanner('info', nextStatus === 'published' ? '活动进行中！' : '草稿已保存！')
   }
   saveBusy.value = false
+  return true
 }
 
 
@@ -687,8 +808,39 @@ const handleSaveDraft = async () => {
   await handleSave('draft')
 }
 
+const handleSaveChanges = async () => {
+  if (!event.value) return
+  const status = event.value.status ?? 'draft'
+  const ok = await handleSave(status)
+  if (!ok || status !== 'published') return
+  allowNavigation.value = true
+  await router.push(`/events/${event.value.id}`)
+}
+
 const handlePublish = async () => {
-  await handleSave('published')
+  const ok = await handleSave('published')
+  if (!ok || !event.value) return
+  allowNavigation.value = true
+  await router.push(`/events/${event.value.id}`)
+}
+
+const revertBusy = ref(false)
+const handleRevertToDraft = async () => {
+  if (!event.value || !canEdit.value) return
+  if (event.value.status !== 'published') return
+  const confirmed = window.confirm('确定要将该活动退回草稿吗？退回后将从公开列表隐藏')
+  if (!confirmed) return
+  revertBusy.value = true
+  store.clearBanners()
+  const { error } = await store.updateEventStatus(event.value.id, 'draft')
+  if (error) {
+    store.setBanner('error', error)
+  } else {
+    event.value = { ...event.value, status: 'draft' }
+    syncSavedSnapshot()
+    store.setBanner('info', '已退回草稿（仅你可见，可在“我发起的活动”中继续编辑）')
+  }
+  revertBusy.value = false
 }
 
 const togglePreview = () => {
@@ -705,16 +857,16 @@ const handleDeleteDraft = async () => {
   if (!event.value) return
   Object.keys(fieldErrors).forEach((key) => delete fieldErrors[key]) // Clear field errors
   if (event.value.status !== 'draft') {
-    store.setBanner('error', '只有草稿可以删除。')
+    store.setBanner('error', '只有草稿可以删除')
     return
   }
-  const confirmed = window.confirm('确定要删除该草稿吗？删除后无法恢复。')
+  const confirmed = window.confirm('确定要删除该草稿吗？删除后无法恢复')
   if (!confirmed) return
   const { error } = await store.deleteDraftEvent(event.value)
   if (error) {
-    if (error === 'demo') store.setBanner('error', '演示活动不支持删除。')
-    else if (error === 'auth') store.setBanner('error', '请先登录并确保有权限删除草稿。')
-    else if (error === 'status') store.setBanner('error', '只有草稿可以删除。')
+    if (error === 'demo') store.setBanner('error', '演示活动不支持删除')
+    else if (error === 'auth') store.setBanner('error', '请先登录并确保有权限删除草稿')
+    else if (error === 'status') store.setBanner('error', '只有草稿可以删除')
     else store.setBanner('error', `删除失败：${error}`)
     return
   }
@@ -789,29 +941,59 @@ onBeforeUnmount(() => {
               teamSizeLabel(event.team_max_size)
             }}
           </p>
-          <p class="muted">详细内容会保存到数据库，发布后对所有用户可见。</p>
+          <p class="muted">详细内容会保存到数据库，发布后对所有用户可见</p>
         </div>
-        <div class="editor-actions">
+        <div class="editor-actions" :class="{ 'editor-actions--stack-primary': event.status === 'draft' || event.status === 'published' }">
           <span v-if="event.status" class="pill-badge" :class="statusClass(event.status)">
             {{ statusLabel(event.status) }}
           </span>
-          <button class="btn btn--ghost" type="button" @click="togglePreview">
-            {{ isPreview ? '返回编辑' : '预览页面' }}
+          <button class="btn btn--ghost btn--icon-text" type="button" @click="togglePreview">
+            <Eye :size="18" />
+            <span>{{ isPreview ? '返回编辑' : '预览页面' }}</span>
           </button>
-          <button class="btn btn--ghost" type="button" :disabled="saveBusy" @click="handleSaveDraft">
-            保存草稿
+          <template v-if="event.status === 'draft'">
+            <button
+              class="btn btn--ghost btn--icon-text"
+              type="button"
+              :disabled="saveBusy"
+              @click="handleSaveDraft"
+            >
+              <Save :size="18" />
+              <span>保存草稿</span>
+            </button>
+            <button class="btn btn--primary btn--icon-text" type="button" :disabled="saveBusy" @click="handlePublish">
+              <Send :size="18" />
+              <span>发布活动</span>
+            </button>
+          </template>
+          <button v-else class="btn btn--primary btn--icon-text" type="button" :disabled="saveBusy" @click="handleSaveChanges">
+            <Save :size="18" />
+            <span>保存修改</span>
+          </button>
+          <span
+            v-if="event.status === 'draft' || event.status === 'published'"
+            class="editor-actions__break"
+            aria-hidden="true"
+          ></span>
+          <button
+            v-if="event.status === 'published'"
+            class="btn btn--danger btn--icon-text"
+            type="button"
+            :disabled="revertBusy"
+            @click="handleRevertToDraft"
+          >
+            <Undo2 :size="18" />
+            <span>{{ revertBusy ? '处理中...' : '退回草稿' }}</span>
           </button>
           <button
             v-if="event.status === 'draft'"
-            class="btn btn--danger"
+            class="btn btn--danger btn--icon-text"
             type="button"
             :disabled="saveBusy || isDeleting"
             @click="handleDeleteDraft"
           >
-            {{ isDeleting ? '删除中...' : '删除草稿' }}
-          </button>
-          <button class="btn btn--primary" type="button" :disabled="saveBusy" @click="handlePublish">
-            发布活动
+            <Trash2 :size="18" />
+            <span>{{ isDeleting ? '删除中...' : '删除草稿' }}</span>
           </button>
         </div>
       </section>
@@ -826,7 +1008,8 @@ onBeforeUnmount(() => {
               :class="{ active: editorTab === 'details' }"
               @click="editorTab = 'details'"
             >
-              活动详情
+              <FileText :size="16" />
+              <span>活动详情</span>
             </button>
             <button
               class="editor-tab"
@@ -834,7 +1017,8 @@ onBeforeUnmount(() => {
               :class="{ active: editorTab === 'schedule' }"
               @click="editorTab = 'schedule'"
             >
-              时间与名额
+              <Calendar :size="16" />
+              <span>时间与名额</span>
             </button>
             <button
               class="editor-tab"
@@ -842,7 +1026,8 @@ onBeforeUnmount(() => {
               :class="{ active: editorTab === 'form' }"
               @click="editorTab = 'form'"
             >
-              报名表单设置
+              <Settings :size="16" />
+              <span>报名表单设置</span>
             </button>
           </div>
           <div class="form">
@@ -871,13 +1056,13 @@ onBeforeUnmount(() => {
                 </label>
 
                 <label class="field">
-                  <span>报名流程</span>
+                  <span>活动流程</span>
                   <textarea
                     v-model="form.registrationSteps"
                     rows="6"
                     placeholder="T-7 | 报名登记 | 填写报名信息"
                   ></textarea>
-                  <p class="help-text">一行一个步骤，使用 | 分隔 时间 / 标题 / 描述。</p>
+                  <p class="help-text">一行一个步骤，使用 | 分隔 时间 / 标题 / 描述</p>
                 </label>
 
                 <label class="field">
@@ -964,13 +1149,13 @@ onBeforeUnmount(() => {
                 <header class="form-builder__header">
                   <div>
                     <h3>报名表单</h3>
-                    <p class="muted">参与者报名时需填写，支持单选/多选/填空题。</p>
+                    <p class="muted">参与者报名时需填写，支持单选、多选、下拉、带选项填空与填空题</p>
                   </div>
                 </header>
 
                 <div v-if="formQuestions.length === 0" class="form-builder__empty">
                   <button class="form-builder__add form-builder__add--empty" type="button" @click="addQuestion('single')">
-                    <span class="form-builder__add-icon">+</span>
+                    <Plus :size="24" />
                     添加新问题
                   </button>
                 </div>
@@ -996,7 +1181,9 @@ onBeforeUnmount(() => {
                         <option value="single">单选题</option>
                         <option value="multi">多选题</option>
                         <option value="select">下拉选择</option>
+                        <option value="autocomplete">带选项填空</option>
                         <option value="text">填空题</option>
+                        <option value="textarea">简答题</option>
                       </select>
                       
                       <div class="link-menu-wrapper">
@@ -1024,7 +1211,11 @@ onBeforeUnmount(() => {
                           >
                             不关联
                           </button>
-                          <template v-if="question.type === 'text'">
+                          <template
+                            v-if="
+                              question.type === 'text' || question.type === 'textarea' || question.type === 'autocomplete'
+                            "
+                          >
                             <button
                               type="button"
                               class="link-menu-item"
@@ -1065,7 +1256,7 @@ onBeforeUnmount(() => {
                         @click="removeQuestion(index)"
                         aria-label="remove"
                       >
-                        ×
+                        <Trash2 :size="16" />
                       </button>
                     </header>
 
@@ -1084,35 +1275,56 @@ onBeforeUnmount(() => {
 
                     <div class="question-editor__options">
                       <div v-if="question.type === 'text'" class="question-editor__text-hint">
-                        填空题无需选项，报名时将提供文本输入框。
+                        填空题无须选项，报名时将提供文本输入框
                       </div>
-                      <div
-                        v-else
-                        v-for="(option, optionIndex) in question.options ?? []"
-                        :key="option.id"
-                        class="question-editor__option-row"
-                        :class="{ 'question-editor__option-row--full': question.type === 'select' }"
-                      >
-                        <span
-                          v-if="question.type !== 'select'"
-                          class="question-editor__indicator"
-                          :class="{ 'question-editor__indicator--multi': question.type === 'multi' }"
-                        ></span>
-                        <input
-                          v-model="option.label"
-                          type="text"
-                          placeholder="选项内容"
-                          :class="{ 'input-error': questionOptionErrors[question.id]?.includes(option.id) }"
-                        />
-                        <button
-                          class="icon-btn icon-btn--small"
-                          type="button"
-                          @click="removeOption(question, optionIndex)"
-                          aria-label="remove option"
+                      <div v-else-if="question.type === 'textarea'" class="question-editor__text-hint">
+                        简答题无需选项，报名时将提供多行文本输入框
+                      </div>
+                      <template v-else>
+                        <div v-if="question.type === 'autocomplete'" class="question-editor__text-hint">
+                          带选项填空将在填写时提供联想下拉，仍可输入任意文本
+                        </div>
+                        <div v-if="question.type === 'autocomplete'" class="question-editor__option-upload">
+                          <label class="btn btn--ghost btn--text">
+                            导入选项
+                            <input
+                              type="file"
+                              accept=".csv,.tsv,.txt,.xlsx,.xls"
+                              @change="handleOptionFileUpload(question, $event)"
+                            />
+                          </label>
+                          <button class="btn btn--ghost btn--text" type="button" @click="clearQuestionOptions(question)">
+                            清空选项
+                          </button>
+                          <p class="help-text">支持 Excel（.xlsx/.xls）或 CSV/TSV 文本，每行或单元格作为一个选项</p>
+                        </div>
+                        <div
+                          v-for="(option, optionIndex) in question.options ?? []"
+                          :key="option.id"
+                          class="question-editor__option-row"
+                          :class="{ 'question-editor__option-row--full': question.type === 'select' }"
                         >
-                          ×
-                        </button>
-                      </div>
+                          <span
+                            v-if="question.type !== 'select'"
+                            class="question-editor__indicator"
+                            :class="{ 'question-editor__indicator--multi': question.type === 'multi' }"
+                          ></span>
+                          <input
+                            v-model="option.label"
+                            type="text"
+                            placeholder="选项内容"
+                            :class="{ 'input-error': questionOptionErrors[question.id]?.includes(option.id) }"
+                          />
+                          <button
+                            class="icon-btn icon-btn--small"
+                            type="button"
+                            @click="removeOption(question, optionIndex)"
+                            aria-label="remove option"
+                          >
+                            <X :size="14" />
+                          </button>
+                        </div>
+                      </template>
                     </div>
                     <p v-if="questionErrors[question.id]?.options" class="help-text error-text">
                       {{ questionErrors[question.id]?.options }}
@@ -1123,7 +1335,7 @@ onBeforeUnmount(() => {
                         <button
                           class="btn btn--ghost btn--text"
                           type="button"
-                          :disabled="question.type === 'text'"
+                          :disabled="question.type === 'text' || question.type === 'textarea'"
                           @click="addOption(question)"
                         >
                           + 添加选项
@@ -1152,7 +1364,7 @@ onBeforeUnmount(() => {
                   </article>
 
                   <button class="form-builder__add form-builder__add--footer" type="button" @click="addQuestion('single')">
-                    <span class="form-builder__add-icon">+</span>
+                    <Plus :size="18" />
                     添加新问题
                   </button>
                 </template>
@@ -1160,8 +1372,11 @@ onBeforeUnmount(() => {
             </template>
 
             <div class="editor-footer-actions">
-              <button class="btn btn--ghost" type="button" :disabled="saveBusy" @click="handleSaveDraft">
+              <button v-if="event.status === 'draft'" class="btn btn--ghost" type="button" :disabled="saveBusy" @click="handleSaveDraft">
                 保存草稿
+              </button>
+              <button v-else class="btn btn--ghost" type="button" :disabled="saveBusy" @click="handleSaveChanges">
+                保存修改
               </button>
               <button class="btn btn--primary" type="button" :disabled="saveBusy" @click="togglePreview">
                 预览界面
@@ -1211,7 +1426,7 @@ onBeforeUnmount(() => {
                   >
                     {{ store.registrationLabel(event) }}
                   </button>
-                  <p v-if="isDemo" class="muted small-note">展示活动不支持报名。</p>
+                  <p v-if="isDemo" class="muted small-note">展示活动不支持报名</p>
                 </div>
               </div>
             </div>
@@ -1238,7 +1453,7 @@ onBeforeUnmount(() => {
                   :class="{ active: previewTab === 'registration' }"
                   @click="previewTab = 'registration'"
                 >
-                  报名流程
+                  活动流程
                 </button>
                 <button
                   class="detail-tabs__btn"
@@ -1276,7 +1491,7 @@ onBeforeUnmount(() => {
                 <section v-if="previewTab === 'intro'" class="detail-section" role="tabpanel">
                   <div class="detail-section__head">
                     <h2>活动介绍</h2>
-                    <p class="muted">围绕 Game Jam 的创作节奏与规则，打造沉浸式体验。</p>
+                    <p class="muted">围绕 Game Jam 的创作节奏与规则，打造沉浸式体验</p>
                   </div>
                   <div class="detail-grid">
                     <article class="detail-panel">
@@ -1294,8 +1509,8 @@ onBeforeUnmount(() => {
 
                 <section v-else-if="previewTab === 'registration'" class="detail-section" role="tabpanel">
                   <div class="detail-section__head">
-                    <h2>报名流程</h2>
-                    <p class="muted">从报名到展示的完整节奏，一步一步走完。</p>
+                    <h2>活动流程</h2>
+                    <p class="muted">从报名到展示的完整节奏，一步一步走完</p>
                   </div>
                   <div class="flow-grid">
                     <div v-for="step in previewDetails.registrationSteps" :key="step.title" class="flow-card">
@@ -1310,7 +1525,7 @@ onBeforeUnmount(() => {
                   <div class="detail-section__head">
                     <div>
                       <h2>组队大厅</h2>
-                      <p class="muted">以下为示例队伍展示（仅前端模板）。</p>
+                      <p class="muted">以下为示例队伍展示（仅前端模板）</p>
                     </div>
                     <div class="detail-section__actions">
                       <button class="btn btn--primary" type="button" disabled>创建队伍</button>
@@ -1334,10 +1549,10 @@ onBeforeUnmount(() => {
                 <section v-else-if="previewTab === 'form'" class="detail-section" role="tabpanel">
                   <div class="detail-section__head">
                     <h2>报名表单</h2>
-                    <p class="muted">报名成功后可查看并修改填写内容。</p>
+                    <p class="muted">报名成功后可查看并修改填写内容</p>
                   </div>
                   <div v-if="previewDetails.registrationForm.questions.length === 0" class="detail-panel">
-                    <p class="muted">暂未设置报名表单。</p>
+                    <p class="muted">暂未设置报名表单</p>
                   </div>
                   <div v-else class="detail-panel">
                     <div
@@ -1351,13 +1566,15 @@ onBeforeUnmount(() => {
                         <span v-if="question.required" class="pill-badge pill-badge--draft">必填</span>
                         <span class="pill-badge pill-badge--success">{{ questionTypeLabel(question.type) }}</span>
                       </div>
-                      <div v-if="question.type !== 'text'" class="detail-form-options">
+                      <div v-if="question.type !== 'text' && question.type !== 'textarea'" class="detail-form-options">
                         <span v-for="option in question.options ?? []" :key="option.id" class="meta-item">
                           {{ option.label || '未命名选项' }}
                         </span>
                         <span v-if="question.allowOther" class="meta-item">允许其他</span>
                       </div>
-                      <p v-else class="muted small-note">填空题在报名时填写。</p>
+                      <p v-else class="muted small-note">
+                        {{ question.type === 'textarea' ? '简答题在报名时填写' : '填空题在报名时填写' }}
+                      </p>
                     </div>
                   </div>
                 </section>
@@ -1365,7 +1582,7 @@ onBeforeUnmount(() => {
                 <section v-else class="detail-section" role="tabpanel">
                   <div class="detail-section__head">
                     <h2>作品提交</h2>
-                    <p class="muted">提交前准备好构建包与说明材料。</p>
+                    <p class="muted">提交前准备好构建包与说明材料</p>
                   </div>
                   <div class="detail-grid">
                     <article class="detail-panel">
@@ -1386,8 +1603,11 @@ onBeforeUnmount(() => {
           </section>
 
           <div class="editor-preview-actions">
-            <button class="btn btn--primary btn--full" type="button" :disabled="saveBusy" @click="handlePublish">
+            <button v-if="event.status === 'draft'" class="btn btn--primary btn--full" type="button" :disabled="saveBusy" @click="handlePublish">
               发布活动
+            </button>
+            <button v-else class="btn btn--primary btn--full" type="button" :disabled="saveBusy" @click="handleSaveChanges">
+              保存修改
             </button>
           </div>
         </aside>
@@ -1400,12 +1620,12 @@ onBeforeUnmount(() => {
       <div class="modal">
         <header class="modal__header">
           <h2>前置问题</h2>
-          <button class="icon-btn" type="button" @click="closeDependencyModal" aria-label="close">×</button>
+          <button class="icon-btn" type="button" @click="closeDependencyModal" aria-label="close"><X :size="20" /></button>
         </header>
 
         <div v-if="availableDependencyQuestions.length === 0" class="empty-state">
           <h3>暂无可选的前置问题</h3>
-          <p class="muted">请先在该题之前添加选择题并设置选项。</p>
+          <p class="muted">请先在该题之前添加选择题并设置选项</p>
           <div class="empty-state__actions">
             <button class="btn btn--primary" type="button" @click="closeDependencyModal">知道了</button>
           </div>
@@ -1444,5 +1664,28 @@ onBeforeUnmount(() => {
     </div>
   </teleport>
 </template>
+
+<style scoped>
+.btn--icon-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.editor-tab {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.form-builder__add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+</style>
+
 
 

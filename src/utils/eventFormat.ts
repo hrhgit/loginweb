@@ -42,7 +42,7 @@ export const statusLabel = (status: EventStatus | null) => {
     case 'draft':
       return '草稿'
     case 'published':
-      return '已发布'
+      return '进行中'
     case 'ended':
       return '已结束'
     default:

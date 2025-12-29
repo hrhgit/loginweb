@@ -32,7 +32,7 @@ const handleCardDblClick = (event: MouseEvent, eventId: string) => {
 
 const handleRevertToDraft = async (event: { id: string; status: string | null }) => {
   if (event.status !== 'published') return
-  const confirmed = window.confirm('确定要将该活动退回草稿吗？退回后将从公开列表隐藏。')
+  const confirmed = window.confirm('确定要将该活动退回草稿吗？退回后将从公开列表隐藏')
   if (!confirmed) return
   revertBusyId.value = event.id
   store.clearBanners()
@@ -40,7 +40,7 @@ const handleRevertToDraft = async (event: { id: string; status: string | null })
   if (error) {
     store.setBanner('error', error)
   } else {
-    store.setBanner('info', '已退回草稿。')
+    store.setBanner('info', '已退回草稿')
   }
   revertBusyId.value = null
 }
@@ -53,7 +53,7 @@ useEventsReady(store)
     <section class="page-head">
       <div>
         <h1>我发起的活动</h1>
-        <p class="muted">管理你创建的 Game Jam 活动和草稿。</p>
+        <p class="muted">管理你创建的 Game Jam 活动和草稿</p>
       </div>
       <div class="page-head__actions">
         <button class="btn btn--ghost" type="button" @click="store.loadEvents" :disabled="store.eventsLoading">
@@ -78,7 +78,7 @@ useEventsReady(store)
     <template v-else>
       <section v-if="!store.isAuthed" class="empty-state">
         <h2>请先登录</h2>
-        <p class="muted">登录后才能查看你发起的活动。</p>
+        <p class="muted">登录后才能查看你发起的活动</p>
         <div class="empty-state__actions">
           <button class="btn btn--primary" type="button" @click="store.openAuth('sign_in')">登录</button>
         </div>
@@ -86,7 +86,7 @@ useEventsReady(store)
 
       <section v-else-if="!canManage" class="empty-state">
         <h2>暂无权限查看</h2>
-        <p class="muted">仅管理员可查看自己发起的活动与草稿。</p>
+        <p class="muted">仅管理员可查看自己发起的活动与草稿</p>
         <div class="empty-state__actions">
           <RouterLink class="btn btn--ghost" to="/events">返回活动页</RouterLink>
         </div>
@@ -94,7 +94,7 @@ useEventsReady(store)
 
       <section v-else-if="myEvents.length === 0" class="empty-state">
         <h2>还没有发起过活动</h2>
-        <p class="muted">创建一个草稿活动，开始编辑详细页面。</p>
+        <p class="muted">创建一个草稿活动，开始编辑详细页面</p>
         <div class="empty-state__actions">
           <button class="btn btn--primary" type="button" @click="store.openCreateModal">发起活动</button>
         </div>
