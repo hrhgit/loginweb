@@ -29,6 +29,11 @@ const router = createRouter({
       name: 'event-submit',
       component: () => import('./pages/SubmissionPage.vue'),
     },
+    {
+      path: '/events/:eventId/submissions/:submissionId/edit',
+      name: 'submission-edit',
+      component: () => import('./pages/SubmissionPage.vue'),
+    },
     { path: '/events/:id/edit', name: 'event-edit', component: EventEditPage },
     { path: '/me', redirect: '/me/profile' },
     { path: '/me/profile', name: 'me-profile', component: ProfilePage, props: { tab: 'profile' } },

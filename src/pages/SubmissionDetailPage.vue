@@ -101,81 +101,77 @@
         </div>
 
         <!-- 4. Introduction/Description -->
-        <div class="project-description">
-          <p>{{ submission.intro }}</p>
+        <div class="project-description-section">
+          <h2 class="section-title">作品简介</h2>
+          <div class="project-description">
+            <p>{{ submission.intro }}</p>
+          </div>
         </div>
 
         <!-- 5. Download/Action Section -->
-        <div class="actions-card">
-          <!-- Link Mode -->
-          <template v-if="submission.link_mode === 'link'">
-            <div v-if="sanitizedSubmissionUrl" class="action-content">
-              <a 
-                :href="sanitizedSubmissionUrl" 
-                target="_blank" 
-                rel="noopener noreferrer" 
-                class="btn btn--primary btn--large btn--block"
-              >
-                <LinkIcon :size="20" />
-                访问作品链接
-              </a>
-              
-              <!-- Password Display -->
-              <div v-if="submission.submission_password" class="password-box">
-                <span class="password-label">访问密码:</span>
-                <code class="password-code">{{ passwordVisible ? submission.submission_password : '••••••••' }}</code>
-                <div class="password-actions">
-                  <button class="btn-icon" @click="togglePasswordVisibility" :title="passwordVisible ? '隐藏' : '显示'">
-                    <component :is="passwordVisible ? EyeOff : Eye" :size="14" />
-                  </button>
-                  <button class="btn-icon" @click="copyPassword" title="复制密码">
-                    <component :is="passwordCopied ? Check : Copy" :size="14" />
-                  </button>
+        <div class="project-actions-section">
+          <h2 class="section-title">作品下载</h2>
+          <div class="actions-card">
+            <!-- Link Mode -->
+            <template v-if="submission.link_mode === 'link'">
+              <div v-if="sanitizedSubmissionUrl" class="action-content">
+                <a 
+                  :href="sanitizedSubmissionUrl" 
+                  target="_blank" 
+                  rel="noopener noreferrer" 
+                  class="btn btn--primary btn--large btn--block"
+                >
+                  <LinkIcon :size="20" />
+                  作品链接
+                </a>
+                
+                <!-- Password Display -->
+                <div v-if="submission.submission_password" class="password-box">
+                  <span class="password-label">密码:</span>
+                  <code class="password-code">{{ submission.submission_password }}</code>
+                  <div class="password-actions">
+                    <button class="btn-icon" @click="copyPassword" title="复制密码">
+                      <component :is="passwordCopied ? Check : Copy" :size="14" />
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
-            <div v-else class="action-error">
-              <AlertCircle :size="16" /> 链接无效或已被屏蔽
-            </div>
-          </template>
-
-          <!-- File Mode -->
-          <template v-else>
-            <div v-if="hasValidSubmissionContent" class="action-content">
-              <button 
-                v-if="!downloadLoading"
-                class="btn btn--primary btn--large btn--block"
-                @click="handleSecureDownload"
-              >
-                <Download :size="20" />
-                下载作品文件
-                <span v-if="submission.submission_storage_path" class="file-ext">
-                  {{ getFileExtension(submission.submission_storage_path) }}
-                </span>
-              </button>
-              
-              <!-- Download Progress -->
-              <div v-else class="download-status">
-                <div class="progress-bar">
-                  <div class="progress-fill" :style="{ width: `${downloadProgress}%` }"></div>
-                </div>
-                <div class="progress-info">
-                  <span>{{ downloadProgress }}%</span>
-                  <button class="btn-text" @click="cancelDownload">取消</button>
-                </div>
-                <p v-if="downloadSpeed" class="progress-detail">{{ downloadSpeed }} - 剩余 {{ downloadETA }}</p>
+              <div v-else class="action-error">
+                <AlertCircle :size="16" /> 链接无效或已被屏蔽
               </div>
+            </template>
 
-              <p v-if="downloadError" class="error-text">{{ downloadError }}</p>
-            </div>
-            <div v-else class="action-error">
-              <AlertCircle :size="16" /> 文件无效或丢失
-            </div>
-          </template>
+            <!-- File Mode -->
+            <template v-else>
+              <div v-if="hasValidSubmissionContent" class="action-content">
+                <button 
+                  v-if="submission.submission_storage_path"
+                  class="btn btn--primary btn--large btn--block"
+                  @click="handleCustomDownload"
+                >
+                  <Download :size="20" />
+                  下载作品文件
+                  <span v-if="submission.submission_storage_path" class="file-ext">
+                    {{ getFileExtension(submission.submission_storage_path) }}
+                  </span>
+                </button>
+                
+                <!-- 如果没有存储路径，显示错误信息 -->
+                <div v-else class="action-error">
+                  <AlertCircle :size="16" /> 
+                  文件路径无效
+                </div>
+              </div>
+              <div v-else class="action-error">
+                <AlertCircle :size="16" /> 文件无效或丢失
+              </div>
+            </template>
+          </div>
         </div>
 
         <!-- 6. Team Card -->
         <div class="team-card-section">
+          <h2 class="section-title">制作团队</h2>
           <div class="team-card">
             <div class="team-card__header">
               <h3 class="team-card__title team">{{ teamName }}</h3>
@@ -211,10 +207,7 @@ import {
   FileText, 
   FileX,
   Link as LinkIcon, 
-  Upload, 
   Download,
-  Eye,
-  EyeOff,
   Copy,
   Check,
   Users,
@@ -245,17 +238,8 @@ const imageRetryCount = ref(0)
 const maxRetries = 3
 const loadTimeout = ref<number | null>(null)
 
-// Password visibility and copy state
-const passwordVisible = ref(false)
+// Password copy state
 const passwordCopied = ref(false)
-
-// Download state with progress tracking
-const downloadLoading = ref(false)
-const downloadProgress = ref(0)
-const downloadSpeed = ref('')
-const downloadETA = ref('')
-const downloadError = ref('')
-const downloadAbortController = ref<AbortController | null>(null)
 
 // Enhanced computed properties
 const eventTitle = computed(() => {
@@ -348,20 +332,117 @@ const sanitizedSubmissionUrl = computed(() => {
   }
   
   if (submission.value.link_mode === 'file') {
-    if (submission.value.submission_storage_path?.trim()) {
-      return generateSecureFileUrl(submission.value.submission_storage_path.trim())
+    // 优先使用数据库中存储的完整URL
+    const storedUrl = submission.value.submission_url?.trim()
+    if (storedUrl && storedUrl.includes('supabase.co/storage')) {
+      console.log('使用存储的完整URL:', storedUrl)
+      return storedUrl
     }
-    const url = submission.value.submission_url?.trim()
-    if (url && url.includes('supabase')) return url
+    
+    // 使用存储路径生成普通的文件URL
+    if (submission.value.submission_storage_path?.trim()) {
+      const storagePath = submission.value.submission_storage_path.trim()
+      
+      console.log('生成文件URL，路径:', storagePath)
+      console.log('路径结构分析:', {
+        parts: storagePath.split('/'),
+        isNewFormat: storagePath.split('/').length >= 3,
+        originalFileName: storagePath.split('/').pop()
+      })
+      
+      const fileUrl = generateDownloadUrl(storagePath)
+      console.log('生成的文件URL:', fileUrl)
+      
+      if (fileUrl) {
+        return fileUrl
+      }
+    }
+    
+    console.warn('无法生成有效的文件下载URL', {
+      storage_path: submission.value.submission_storage_path,
+      submission_url: submission.value.submission_url
+    })
   }
+  
   return null
 })
 
-const generateSecureFileUrl = (storagePath: string): string | null => {
+// 生成自定义下载文件名：队伍名-作品名.扩展名
+const generateCustomFileName = (): string => {
+  if (!submission.value) return 'download.zip'
+  
+  const projectName = submission.value.project_name || '作品'
+  const teamName = teamDetails.value?.name || submission.value.team?.name || '未知队伍'
+  
+  // 获取原文件扩展名
+  let extension = '.zip'
+  if (submission.value.submission_storage_path) {
+    const pathParts = submission.value.submission_storage_path.split('/')
+    const fileName = pathParts[pathParts.length - 1]
+    const lastDot = fileName.lastIndexOf('.')
+    if (lastDot > 0) {
+      extension = fileName.substring(lastDot)
+    }
+  }
+  
+  // 清理文件名中的特殊字符
+  const cleanTeamName = teamName.replace(/[\/\\:*?"<>|]/g, '-')
+  const cleanProjectName = projectName.replace(/[\/\\:*?"<>|]/g, '-')
+  
+  const customFileName = `${cleanTeamName}-${cleanProjectName}${extension}`
+  console.log('生成自定义文件名:', customFileName)
+  
+  return customFileName
+}
+
+// 使用 Supabase 的 createSignedUrl 生成带自定义文件名的下载链接
+const generateSignedDownloadUrl = async (storagePath: string, customFileName: string): Promise<string | null> => {
   try {
+    console.log('生成签名下载URL:', { storagePath, customFileName })
+    
+    // 创建带自定义文件名的签名URL (有效期60秒)
+    const { data, error } = await supabase.storage
+      .from('submission-files')
+      .createSignedUrl(storagePath, 60, {
+        download: customFileName  // 👈 关键：指定下载时的中文文件名
+      })
+    
+    if (error) {
+      console.error('创建签名URL失败:', error)
+      return null
+    }
+    
+    if (data?.signedUrl) {
+      console.log('签名URL生成成功:', data.signedUrl)
+      console.log('指定的下载文件名:', customFileName)
+      return data.signedUrl
+    }
+    
+    return null
+  } catch (error) {
+    console.error('生成签名下载URL失败:', error)
+    return null
+  }
+}
+
+const generateDownloadUrl = (storagePath: string): string | null => {
+  try {
+    // 检查路径是否已经是完整URL
+    if (storagePath.startsWith('http')) {
+      return storagePath
+    }
+    
+    // 生成公共URL
     const { data } = supabase.storage.from('submission-files').getPublicUrl(storagePath)
-    return data?.publicUrl || null
-  } catch {
+    
+    if (data?.publicUrl) {
+      console.log('生成的文件URL:', data.publicUrl)
+      return data.publicUrl
+    }
+    
+    return null
+  } catch (error) {
+    console.error('生成文件URL失败:', error)
     return null
   }
 }
@@ -393,6 +474,15 @@ const loadSubmissionData = async () => {
     }
 
     submission.value = found
+    
+    // 调试：检查文件路径和URL生成
+    if (found.link_mode === 'file' && found.submission_storage_path) {
+      console.log('作品文件信息:', {
+        storage_path: found.submission_storage_path,
+        submission_url: found.submission_url,
+        generated_url: generateDownloadUrl(found.submission_storage_path)
+      })
+    }
   } catch (err: any) {
     console.error(err)
     error.value = err.message || '加载失败'
@@ -452,10 +542,6 @@ watch(coverUrl, (newUrl) => {
 }, { immediate: true })
 
 // Password interaction
-const togglePasswordVisibility = () => {
-  passwordVisible.value = !passwordVisible.value
-}
-
 const copyPassword = async () => {
   if (!submission.value?.submission_password) return
   try {
@@ -467,69 +553,44 @@ const copyPassword = async () => {
   }
 }
 
-// Download logic
-const handleSecureDownload = async () => {
-  if (!sanitizedSubmissionUrl.value || downloadLoading.value) return
+// 处理自定义文件名下载
+const handleCustomDownload = async () => {
+  if (!submission.value?.submission_storage_path) {
+    store.setBanner('error', '文件路径无效')
+    return
+  }
   
-  downloadLoading.value = true
-  downloadProgress.value = 0
-  downloadError.value = ''
-  downloadAbortController.value = new AbortController()
+  const customFileName = generateCustomFileName()
+  console.log('开始生成签名下载链接:', {
+    storagePath: submission.value.submission_storage_path,
+    fileName: customFileName
+  })
   
   try {
-    const filename = submission.value?.submission_storage_path?.split('/').pop() || 'download'
-    await downloadFileWithProgress(sanitizedSubmissionUrl.value, filename)
-  } catch (err: any) {
-    if (err.name !== 'AbortError') {
-      downloadError.value = '下载失败'
-    }
-  } finally {
-    downloadLoading.value = false
-    downloadAbortController.value = null
-  }
-}
-
-const cancelDownload = () => {
-  downloadAbortController.value?.abort()
-}
-
-const downloadFileWithProgress = async (url: string, filename: string) => {
-  const startTime = Date.now()
-  const response = await fetch(url, { signal: downloadAbortController.value?.signal })
-  
-  if (!response.ok) throw new Error('Network error')
-  
-  const reader = response.body?.getReader()
-  const totalSize = Number(response.headers.get('content-length')) || 0
-  
-  if (!reader) throw new Error('Readable stream not supported')
-  
-  const chunks: Uint8Array[] = []
-  let received = 0
-  
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
+    // 生成带自定义文件名的签名下载URL
+    const signedUrl = await generateSignedDownloadUrl(
+      submission.value.submission_storage_path, 
+      customFileName
+    )
     
-    chunks.push(value)
-    received += value.length
-    
-    if (totalSize) {
-      downloadProgress.value = Math.round((received / totalSize) * 100)
-      const elapsed = (Date.now() - startTime) / 1000
-      const speed = received / elapsed
-      downloadSpeed.value = speed > 1024 * 1024 
-        ? `${(speed / 1024 / 1024).toFixed(1)} MB/s` 
-        : `${(speed / 1024).toFixed(1)} KB/s`
+    if (signedUrl) {
+      // 创建临时链接并触发下载
+      const link = document.createElement('a')
+      link.href = signedUrl
+      link.style.display = 'none'
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      
+      console.log('下载已触发，文件名:', customFileName)
+      store.setBanner('info', '文件下载已开始')
+    } else {
+      store.setBanner('error', '生成下载链接失败')
     }
+  } catch (error) {
+    console.error('下载处理失败:', error)
+    store.setBanner('error', '文件下载失败，请重试')
   }
-  
-  const blob = new Blob(chunks)
-  const link = document.createElement('a')
-  link.href = URL.createObjectURL(blob)
-  link.download = filename
-  link.click()
-  URL.revokeObjectURL(link.href)
 }
 
 onMounted(async () => {
@@ -544,14 +605,13 @@ onMounted(async () => {
 
 onUnmounted(() => {
   clearLoadTimeout()
-  cancelDownload()
 })
 </script>
 
 <style scoped>
 .showcase-page {
   max-width: 1100px;
-  margin: 0 auto;
+  margin: 0;
   padding: 2rem 1.5rem 6rem;
   color: var(--ink);
 }
@@ -586,6 +646,26 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 2.5rem;
+}
+
+.section-title {
+  font-family: 'Sora', sans-serif;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--ink);
+  margin: 0 0 1.25rem 0;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.section-title::before {
+  content: '';
+  display: block;
+  width: 4px;
+  height: 1.25rem;
+  background: var(--accent);
+  border-radius: 2px;
 }
 
 /* Project Header */
@@ -623,9 +703,14 @@ onUnmounted(() => {
   background: var(--surface-muted);
   border: 1px solid var(--border);
   box-shadow: var(--shadow-md);
-  aspect-ratio: 16/9;
+  aspect-ratio: 16 / 9;
+  height: 67vh;
+  min-height: 400px;
+  max-height: 800px;
   position: relative;
   width: 100%;
+  max-width: calc(67vh * 16 / 9);
+  margin: 0 auto;
 }
 
 .cover-image-wrapper {
@@ -788,55 +873,6 @@ onUnmounted(() => {
   color: var(--accent);
 }
 
-/* Download Progress */
-.download-status {
-  margin-top: 1rem;
-  background: var(--surface-muted);
-  padding: 1rem;
-  border-radius: 8px;
-}
-
-.progress-bar {
-  height: 6px;
-  background: var(--border);
-  border-radius: 3px;
-  overflow: hidden;
-  margin-bottom: 0.5rem;
-}
-
-.progress-fill {
-  height: 100%;
-  background: var(--accent);
-  transition: width 0.3s ease;
-}
-
-.progress-info {
-  display: flex;
-  justify-content: space-between;
-  font-size: 0.85rem;
-  font-weight: 500;
-}
-
-.progress-detail {
-  font-size: 0.8rem;
-  color: var(--muted);
-  margin-top: 0.25rem;
-  text-align: right;
-}
-
-.btn-text {
-  background: none;
-  border: none;
-  color: var(--muted);
-  cursor: pointer;
-  font-size: 0.85rem;
-}
-
-.btn-text:hover {
-  text-decoration: underline;
-  color: var(--danger);
-}
-
 .file-ext {
   opacity: 0.7;
   font-size: 0.8em;
@@ -872,5 +908,62 @@ onUnmounted(() => {
 
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+/* Responsive Design for Cover */
+@media (max-width: 980px) {
+  .showcase-cover {
+    height: 60vh;
+    min-height: 300px;
+    max-height: 600px;
+    max-width: calc(60vh * 16 / 9);
+  }
+}
+
+@media (max-width: 640px) {
+  .showcase-cover {
+    height: 50vh;
+    min-height: 250px;
+    max-height: 400px;
+    max-width: calc(50vh * 16 / 9);
+    border-radius: 16px;
+  }
+}
+
+@media (max-height: 600px) {
+  .showcase-cover {
+    height: 80vh;
+    min-height: 200px;
+    max-width: calc(80vh * 16 / 9);
+  }
+}
+
+/* 当屏幕宽度不足以容纳按高度计算的16:9宽度时，以宽度为准 */
+@media (max-width: calc(67vh * 16 / 9)) {
+  .showcase-cover {
+    width: 90vw;
+    max-width: 90vw;
+    height: calc(90vw * 9 / 16);
+    min-height: auto;
+  }
+}
+
+@media (max-width: 980px) and (max-width: calc(60vh * 16 / 9)) {
+  .showcase-cover {
+    width: 90vw;
+    max-width: 90vw;
+    height: calc(90vw * 9 / 16);
+    min-height: auto;
+  }
+}
+
+@media (max-width: 640px) and (max-width: calc(50vh * 16 / 9)) {
+  .showcase-cover {
+    width: 90vw;
+    max-width: 90vw;
+    height: calc(90vw * 9 / 16);
+    min-height: auto;
+    border-radius: 16px;
+  }
 }
 </style>

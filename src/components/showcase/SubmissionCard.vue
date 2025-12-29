@@ -12,14 +12,6 @@
       <div v-else class="submission-card__placeholder">
         <FileText class="submission-card__placeholder-icon" />
       </div>
-      
-      <!-- 作品类型标识 -->
-      <div class="submission-card__type">
-        <component 
-          :is="typeIcon" 
-          class="submission-card__type-icon"
-        />
-      </div>
     </div>
 
     <!-- 作品信息 -->
@@ -37,6 +29,7 @@
         <time class="submission-card__time">
           {{ formatSubmissionTime }}
         </time>
+        <slot name="actions"></slot>
       </div>
     </div>
   </article>
@@ -44,7 +37,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { FileText, Link, Upload } from 'lucide-vue-next'
+import { FileText } from 'lucide-vue-next'
 import { supabase } from '../../lib/supabase'
 import type { SubmissionWithTeam } from '../../store/models'
 
@@ -87,10 +80,6 @@ const coverUrl = computed(() => {
 
 const teamName = computed(() => {
   return props.submission.team?.name || '未知队伍'
-})
-
-const typeIcon = computed(() => {
-  return props.submission.link_mode === 'link' ? Link : Upload
 })
 
 const truncatedIntro = computed(() => {
@@ -197,27 +186,6 @@ const handleImageError = (event: Event) => {
   opacity: 0.6;
 }
 
-.submission-card__type {
-  position: absolute;
-  top: 0.75rem;
-  right: 0.75rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 2rem;
-  height: 2rem;
-  background: var(--surface-strong);
-  border-radius: 8px;
-  backdrop-filter: blur(8px);
-  border: 1px solid var(--border);
-}
-
-.submission-card__type-icon {
-  width: 1rem;
-  height: 1rem;
-  color: var(--accent);
-}
-
 .submission-card__content {
   padding: 1rem;
   flex: 1;
@@ -268,6 +236,7 @@ const handleImageError = (event: Event) => {
   align-items: center;
   justify-content: space-between;
   margin-top: auto;
+  gap: 0.5rem;
 }
 
 .submission-card__time {

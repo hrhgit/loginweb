@@ -435,6 +435,12 @@ to authenticated
 using (
   user_id = (select auth.uid())
   or ((select auth.jwt()) -> 'app_metadata' ->> 'role') = 'admin'
+  or exists (
+    select 1
+    from public.events
+    where id = registrations.event_id
+      and created_by = (select auth.uid())
+  )
 );
 
 -- 报名 (只能给自己报)
@@ -1063,7 +1069,7 @@ values (
   'submission-files',
   'submission-files',
   true,      -- 公开访问
-  52428800,  -- 50MB
+  524288000, -- 500MB (修正文件大小限制)
   -- 仅限压缩包
   array[
     'application/zip', 

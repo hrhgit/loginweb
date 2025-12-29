@@ -1737,7 +1737,18 @@ watch(isRegistered, async (value) => {
               @click="handleSubmissionClick(submission)"
               @double-click="handleSubmissionDoubleClick(submission)"
               @title-click="handleSubmissionTitleClick(submission)"
-            />
+            >
+              <template #actions v-if="showcaseTab === 'mine'">
+                <RouterLink 
+                  :to="`/events/${eventId}/submissions/${submission.id}/edit`" 
+                  class="btn btn--compact btn--ghost"
+                  @click.stop
+                >
+                  <Edit :size="14" />
+                  编辑
+                </RouterLink>
+              </template>
+            </SubmissionCard>
           </div>
         </section>
 

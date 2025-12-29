@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, onMounted, watch } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import { useEventsReady } from '../composables/useEventsReady'
 import { useAppStore } from '../store/appStore'
@@ -18,6 +18,22 @@ const eventSummary = (description: string | null) => getEventSummaryText(descrip
 const myEvents = computed(() => store.myEvents)
 const canManage = computed(() => store.isAdmin)
 const revertBusyId = ref<string | null>(null)
+
+// 添加初始化状态跟踪
+const isInitializing = ref(true)
+
+onMounted(async () => {
+  // 确保 store 已经初始化
+  await store.init()
+  isInitializing.value = false
+})
+
+// 监听用户状态变化，如果用户登录状态发生变化也更新初始化状态
+watch(() => store.user, () => {
+  if (isInitializing.value) {
+    isInitializing.value = false
+  }
+}, { immediate: true })
 
 const shouldIgnoreCardNav = (event: MouseEvent) => {
   const target = event.target as HTMLElement | null
@@ -71,7 +87,7 @@ useEventsReady(store)
     </nav>
 
 
-    <section v-if="store.eventsLoading" class="skeleton-grid" aria-label="loading">
+    <section v-if="store.eventsLoading || isInitializing" class="skeleton-grid" aria-label="loading">
       <div v-for="n in 6" :key="n" class="skeleton-card"></div>
     </section>
 
