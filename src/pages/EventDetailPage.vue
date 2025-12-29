@@ -6,7 +6,7 @@ import {
   MapPin,
   Users,
   Edit,
-  RotateCcw,
+  Undo2,
   Filter,
   UserPlus,
   Info,
@@ -16,6 +16,8 @@ import {
   Plus,
   X,
   Eye,
+  Trash2,
+  Send,
 } from 'lucide-vue-next'
 import { useAppStore } from '../store/appStore'
 import { supabase } from '../lib/supabase'
@@ -71,7 +73,7 @@ const registrationCount = ref<number | null>(null)
 
 type AutocompleteScope = 'reg' | 'form'
 const autocompleteOpen = ref<Record<string, boolean>>({})
-const autocompleteCloseTimers: Record<string, ReturnType<typeof window.setTimeout>> = {}
+const autocompleteCloseTimers: Record<string, number> = {}
 
 const getAutocompleteKey = (scope: AutocompleteScope, questionId: string) => `${scope}-${questionId}`
 
@@ -1220,7 +1222,7 @@ watch(isRegistered, async (value) => {
               :disabled="revertBusy"
               @click="handleRevertToDraft"
             >
-              <RotateCcw :size="18" />
+              <Undo2 :size="18" />
               <span>{{ revertBusy ? '处理中...' : '退回草稿' }}</span>
             </button>
           </div>
@@ -1530,18 +1532,24 @@ watch(isRegistered, async (value) => {
                   </div>
                 </div>
 
-                <div class="team-card__section team-card__actions">
-                  <template v-if="isMyTeam(team)">
-                    <RouterLink class="btn btn--ghost" :to="`/events/${eventId}/team/${team.id}/edit`">编辑</RouterLink>
-                    <button class="btn btn--danger" type="button" @click="handleDeleteTeam(team.id)">删除</button>
-                  </template>
-                  <button
+                                <div class="team-card__section team-card__actions">  
+
+                                  <template v-if="isMyTeam(team)">
+
+                                    <RouterLink class="btn btn--ghost btn--icon-text" :to="`/events/${eventId}/team/${team.id}/edit`"><Edit :size="14" /> 编辑</RouterLink>
+
+                                    <button class="btn btn--danger btn--icon-text" type="button" @click="handleDeleteTeam(team.id)"><Trash2 :size="14" /> 删除</button>
+
+                                  </template>     
+
+                                  <button
                     v-else
-                    class="btn btn--ghost"
+                    class="btn btn--ghost btn--icon-text"
                     type="button"
                     :disabled="joinDisabled(team.id)"
                     @click="handleJoinTeam(team.id)"
                   >
+                    <UserPlus :size="14" />
                     {{ joinLabel(team.id) }}
                   </button>
                 </div>
@@ -1622,16 +1630,17 @@ watch(isRegistered, async (value) => {
             <p class="seeker-card__intro">{{ seeker.intro || '暂无个人简介' }}</p>
             <div class="seeker-card__actions">
                   <template v-if="isMySeeker(seeker)">
-                    <button class="btn btn--ghost" type="button" @click="openSeekerModal">编辑</button>
-                    <button class="btn btn--danger" type="button" @click="deleteSeeker(seeker.id)">删除</button>
+                    <button class="btn btn--ghost btn--icon-text" type="button" @click="openSeekerModal"><Edit :size="14" /> 编辑</button>
+                    <button class="btn btn--danger btn--icon-text" type="button" @click="deleteSeeker(seeker.id)"><Trash2 :size="14" /> 删除</button>
                   </template>
                   <button
                     v-else-if="canInviteSeekers"
-                    class="btn btn--ghost"
+                    class="btn btn--ghost btn--icon-text"
                     type="button"
                     :disabled="inviteBusy && inviteTargetSeekerId === seeker.id"
                     @click="handleInviteSeeker(seeker.id)"
                   >
+                    <Send :size="14" />
                     邀请组队
                   </button>
                 </div>

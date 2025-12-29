@@ -2,6 +2,7 @@
 import { computed, ref, onMounted, watch } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import { useEventsReady } from '../composables/useEventsReady'
+import { Settings, Edit, Undo2 } from 'lucide-vue-next'
 import { useAppStore } from '../store/appStore'
 import EventCard from '../components/events/EventCard.vue'
 import {
@@ -138,19 +139,29 @@ useEventsReady(store)
             <template v-if="store.isDemoEvent(event)">
               <button class="btn btn--ghost" type="button" disabled>仅展示</button>
             </template>
-            <RouterLink v-else-if="event.status === 'draft'" class="btn btn--ghost" :to="`/events/${event.id}/edit`">
+            <RouterLink v-else-if="event.status === 'draft'" class="btn btn--ghost btn--icon-text" :to="`/events/${event.id}/edit`">
+              <Edit :size="16" />
               编辑页面
             </RouterLink>
             <template v-else-if="event.status === 'published'">
-              <RouterLink class="btn btn--success" :to="`/events/${event.id}/edit`">
+              <RouterLink 
+                class="btn btn--ghost btn--icon-text"
+                :to="`/events/${event.id}/admin`"
+              >
+                <Settings :size="16" />
+                后台管理
+              </RouterLink>
+              <RouterLink class="btn btn--success btn--icon-text" :to="`/events/${event.id}/edit`">
+                <Edit :size="16" />
                 编辑页面
               </RouterLink>
               <button
-                class="btn btn--danger"
+                class="btn btn--danger btn--icon-text"
                 type="button"
                 :disabled="revertBusyId === event.id"
                 @click="handleRevertToDraft(event)"
               >
+                <Undo2 :size="16" />
                 {{ revertBusyId === event.id ? '退回中...' : '退回草稿' }}
               </button>
             </template>

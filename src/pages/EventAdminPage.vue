@@ -40,16 +40,45 @@ const loadData = async () => {
   try {
     await store.ensureEventsLoaded()
     
-    // Check permissions
-    if (!event.value) {
-      router.replace('/events/mine')
-      return
+    // Check if event exists and user has permission
+    const currentEvent = event.value
+    console.log('EventAdminPage - Current event:', currentEvent)
+    console.log('EventAdminPage - User:', store.user)
+    console.log('EventAdminPage - Is admin:', store.isAdmin)
+    
+    if (!currentEvent) {
+      // Try to fetch the event directly if not found in displayedEvents
+      console.log('EventAdminPage - Fetching event by ID:', eventId.value)
+      const { data: fetchedEvent, error: fetchError } = await store.fetchEventById(eventId.value)
+      console.log('EventAdminPage - Fetch result:', { fetchedEvent, fetchError })
+      
+      if (fetchError || !fetchedEvent) {
+        console.error('EventAdminPage - Event not found or error:', fetchError)
+        store.setBanner('error', `活动不存在或您没有访问权限: ${fetchError || '未知错误'}`)
+        router.replace('/events/mine')
+        return
+      }
+      // Check if user is the creator or admin
+      if (fetchedEvent.created_by !== store.user?.id && !store.isAdmin) {
+        console.error('EventAdminPage - Permission denied for fetched event')
+        store.setBanner('error', '您没有管理此活动的权限')
+        router.replace('/events/mine')
+        return
+      }
+    } else {
+      // Check permissions for existing event
+      if (currentEvent.created_by !== store.user?.id && !store.isAdmin) {
+        console.error('EventAdminPage - Permission denied for existing event')
+        store.setBanner('error', '您没有管理此活动的权限')
+        router.replace('/events/mine')
+        return
+      }
     }
     
     // Load registrations
     const { data: regData, error: regError } = await supabase
       .from('registrations')
-      .select('*, profiles(username, avatar_url), user_contacts(phone, qq)')
+      .select('*, profiles(username, avatar_url)')
       .eq('event_id', eventId.value)
     
     if (regError) throw regError
@@ -95,8 +124,6 @@ const downloadForms = () => {
       return {
         用户ID: reg.user_id,
         用户名: reg.profiles?.username || '未知',
-        电话: reg.user_contacts?.phone || '',
-        QQ: reg.user_contacts?.qq || '',
         报名状态: reg.status,
         报名时间: new Date(reg.created_at).toLocaleString(),
         ...formResponse // Spread dynamic form answers
