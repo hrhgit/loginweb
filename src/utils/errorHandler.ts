@@ -287,10 +287,24 @@ export class ErrorClassifier {
     const message = this.safeGetMessage(error)
     return message.includes('permission') || 
            message.includes('权限') || 
+           message.includes('Permission denied') ||
+           message.includes('Access denied') ||
+           message.includes('Insufficient privileges') ||
+           message.includes('Authentication failed') ||
+           message.includes('认证失败') ||
+           message.includes('登录失败') ||
+           message.includes('Invalid credentials') ||
+           message.includes('Session expired') ||
+           message.includes('Account locked') ||
            error.code === '42501' ||
            error.code === 'PERMISSION_DENIED' ||
+           error.code === 'AUTH_ERROR' ||
+           error.code === 'SESSION_EXPIRED' ||
+           error.code === 'ACCOUNT_LOCKED' ||
            error.code === '401' ||
            error.code === '403' ||
+           error.status === 401 ||
+           error.status === 403 ||
            message.includes('unauthorized') ||
            message.includes('forbidden') ||
            message.includes('Forbidden') ||
@@ -335,7 +349,10 @@ export class ErrorClassifier {
     const message = this.safeGetMessage(error)
     return message.includes('timeout') ||
            message.includes('超时') ||
+           message.includes('Network timeout') ||
+           message.includes('Request timeout') ||
            error.code === 'TIMEOUT' ||
+           error.code === 'REQUEST_TIMEOUT' ||
            message.includes('timed out')
   }
 
@@ -344,10 +361,26 @@ export class ErrorClassifier {
     const message = this.safeGetMessage(error)
     return message.includes('server') ||
            message.includes('服务器') ||
+           message.includes('Internal Server Error') ||
+           message.includes('Service Unavailable') ||
+           message.includes('Bad Gateway') ||
+           message.includes('Gateway Timeout') ||
+           message.includes('Insufficient storage') ||
+           message.includes('storage') ||
            error.code === '500' ||
+           error.code === '502' ||
            error.code === '503' ||
+           error.code === '504' ||
+           error.code === '507' ||
+           error.status === 500 ||
+           error.status === 502 ||
+           error.status === 503 ||
+           error.status === 504 ||
+           error.status === 507 ||
            message.includes('internal server error') ||
-           message.includes('service unavailable')
+           message.includes('service unavailable') ||
+           message.includes('database') ||
+           message.includes('数据库')
   }
 
   private isClientError(error: any): boolean {
@@ -546,6 +579,22 @@ export class MessageLocalizer {
 
     const message = this.safeGetMessage(error)
 
+    // 处理认证相关的特定错误
+    if (errorType === ErrorType.PERMISSION) {
+      // 对于权限错误，始终使用标准化消息，除非有特定的更详细的消息
+      if (error.code === '401' && message.includes('Invalid credentials')) {
+        return '登录失败，请检查用户名和密码'
+      }
+      if (error.code === 'SESSION_EXPIRED' || message.includes('Session expired')) {
+        return '会话已过期，请重新登录'
+      }
+      if (error.code === 'ACCOUNT_LOCKED' || message.includes('Account locked')) {
+        return '账户已被锁定，请联系管理员'
+      }
+      // 对于其他权限错误，返回null让系统使用标准化消息
+      return null
+    }
+
     // 处理特定的错误消息
     if (message.includes('duplicate') || message.includes('重复') || error.code === '23505') {
       return '该数据已存在，请检查后重试'
@@ -564,7 +613,7 @@ export class MessageLocalizer {
     }
 
     // 对于网络、权限和验证错误，不使用原始消息，而是使用标准化消息
-    if (errorType === ErrorType.NETWORK || errorType === ErrorType.PERMISSION || errorType === ErrorType.VALIDATION) {
+    if (errorType === ErrorType.NETWORK || errorType === ErrorType.VALIDATION) {
       return null // 让调用者使用标准化消息
     }
 
@@ -665,6 +714,11 @@ export class ErrorHandlerAPI {
   // Performance optimization: Throttle error logging
   private logThrottle = new Map<string, number>()
   private readonly LOG_THROTTLE_INTERVAL = 1000 // 1秒内相同错误只记录一次
+  private throttlingEnabled = true // Allow disabling throttling for tests
+  private duplicateSuppressionEnabled = true // Allow disabling duplicate suppression for tests
+
+  // Simple in-memory error log for testing
+  private inMemoryErrorLog: ErrorRecord[] = []
 
   /**
    * 主要错误处理方法 - 性能优化版本
@@ -675,11 +729,21 @@ export class ErrorHandlerAPI {
     try {
       // Performance optimization: Use cached classification if available
       const errorKey = this.generateErrorKey(error, context)
-      let classification = this.classificationCache.get(errorKey)
+      let cachedClassification = this.classificationCache.get(errorKey)
+      let classification: ErrorClassification
       
-      if (!classification) {
+      if (!cachedClassification) {
         classification = this.classifier.classifyError(error)
         performanceMonitor.recordCacheMiss()
+        
+        // Cache only the classification metadata, not the originalError reference
+        const classificationToCache = {
+          type: classification.type,
+          category: classification.category,
+          isRetryable: classification.isRetryable,
+          severity: classification.severity,
+          originalError: null // Don't cache the original error reference
+        }
         
         // Cache the classification with LRU eviction
         if (this.classificationCache.size >= this.CLASSIFICATION_CACHE_SIZE) {
@@ -688,9 +752,17 @@ export class ErrorHandlerAPI {
             this.classificationCache.delete(firstKey)
           }
         }
-        this.classificationCache.set(errorKey, classification)
+        this.classificationCache.set(errorKey, classificationToCache)
       } else {
         performanceMonitor.recordCacheHit()
+        // Create a fresh classification with the current error object
+        classification = {
+          type: cachedClassification.type,
+          category: cachedClassification.category,
+          isRetryable: cachedClassification.isRetryable,
+          severity: cachedClassification.severity,
+          originalError: error // Use the current error, not the cached one
+        }
       }
       
       const localizedMessage = this.localizer.localize(error, context)
@@ -698,7 +770,7 @@ export class ErrorHandlerAPI {
       const errorId = this.generateErrorId(error, context)
       
       // 检查重复消息
-      if (this.isDuplicateMessage(errorId)) {
+      if (this.duplicateSuppressionEnabled && this.isDuplicateMessage(errorId)) {
         console.log('Duplicate error message suppressed:', errorId)
       }
 
@@ -741,28 +813,49 @@ export class ErrorHandlerAPI {
   /**
    * 获取错误日志
    */
-  async getErrorLog(): Promise<ErrorRecord[]> {
-    // 动态导入以避免循环依赖
+  getErrorLog(): ErrorRecord[] {
+    // Always try to get from error log manager first
     try {
-      const { errorLogManager } = await import('./errorLogManager')
-      return errorLogManager.getRecords()
+      const { errorLogManager } = require('./errorLogManager')
+      const records = errorLogManager.getRecords()
+      // If we have records from the manager, return them
+      if (records.length > 0) {
+        return records
+      }
     } catch (error) {
-      console.warn('Failed to get error log:', error)
-      return []
+      // If error log manager is not available, fall back to memory log
     }
+    
+    // Return memory log as fallback
+    return [...this.inMemoryErrorLog]
   }
 
   /**
    * 清除错误日志
    */
-  async clearErrorLog(): Promise<void> {
+  clearErrorLog(): void {
     try {
-      const { errorLogManager } = await import('./errorLogManager')
+      const { errorLogManager } = require('./errorLogManager')
       errorLogManager.clearRecords()
-      console.log('Error log cleared')
     } catch (error) {
-      console.warn('Failed to clear error log:', error)
+      // 降级到内存日志
+      this.inMemoryErrorLog = []
     }
+    console.log('Error log cleared')
+  }
+
+  /**
+   * 禁用/启用错误日志节流 (主要用于测试)
+   */
+  setThrottlingEnabled(enabled: boolean): void {
+    this.throttlingEnabled = enabled
+  }
+
+  /**
+   * 禁用/启用重复消息抑制 (主要用于测试)
+   */
+  setDuplicateSuppressionEnabled(enabled: boolean): void {
+    this.duplicateSuppressionEnabled = enabled
   }
 
   private generateErrorKey(error: any, context?: ErrorContext): string {
@@ -774,6 +867,12 @@ export class ErrorHandlerAPI {
   }
 
   private logErrorThrottled(error: any, context?: ErrorContext, classification?: ErrorClassification, errorKey?: string): void {
+    // Skip throttling if disabled (for tests)
+    if (!this.throttlingEnabled) {
+      this.logError(error, context, classification)
+      return
+    }
+    
     const now = Date.now()
     const key = errorKey || this.generateErrorKey(error, context)
     
@@ -886,15 +985,23 @@ export class ErrorHandlerAPI {
   }
 
   private saveErrorRecord(errorRecord: ErrorRecord): void {
+    // Always try to use the error log manager first
     try {
-      // 动态导入以避免循环依赖
-      import('./errorLogManager').then(({ errorLogManager }) => {
-        errorLogManager.addRecord(errorRecord)
-      }).catch(error => {
-        console.warn('Failed to save error record:', error)
-      })
+      const { errorLogManager } = require('./errorLogManager')
+      errorLogManager.addRecord(errorRecord)
     } catch (error) {
-      console.warn('Failed to save error record:', error)
+      // Fallback to in-memory log only if error log manager is not available
+      this.inMemoryErrorLog.unshift(errorRecord)
+      // Keep log size limited
+      if (this.inMemoryErrorLog.length > 50) {
+        this.inMemoryErrorLog = this.inMemoryErrorLog.slice(0, 50)
+      }
+      console.warn('Error record saved to memory fallback:', {
+        id: errorRecord.id,
+        type: errorRecord.type,
+        message: errorRecord.message,
+        timestamp: errorRecord.timestamp
+      })
     }
   }
 

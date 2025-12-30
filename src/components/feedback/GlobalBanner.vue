@@ -13,6 +13,7 @@ const canRetry = ref(false)
 const isRetrying = ref(false)
 const suggestions = ref<string[]>([])
 const onRetryCallback = ref<(() => void) | null>(null)
+const showNetworkInfo = ref(false)
 
 // 自动隐藏定时器
 let hideTimer: number | undefined
@@ -28,8 +29,45 @@ const messageInfoCache = ref<{
   visible: boolean
 } | null>(null)
 
+// Network status integration
+const networkInfo = computed(() => {
+  const state = store.networkState
+  const quality = store.connectionQuality
+  
+  return {
+    isOnline: state.isOnline,
+    quality,
+    effectiveType: state.effectiveType,
+    rtt: state.rtt,
+    downlink: state.downlink
+  }
+})
+
+const shouldShowNetworkInfo = computed(() => {
+  return !networkInfo.value.isOnline || 
+         networkInfo.value.quality === 'slow' ||
+         store.networkRetryCount > 0
+})
+
 // 计算消息类型和内容 - 性能优化版本
 const messageInfo = computed(() => {
+  // Network-related messages take priority for critical issues
+  if (!networkInfo.value.isOnline) {
+    return {
+      type: MessageType.ERROR,
+      message: '网络连接已断开，部分功能可能无法使用',
+      visible: true
+    }
+  }
+  
+  if (networkInfo.value.quality === 'slow' && store.networkRetryCount > 0) {
+    return {
+      type: MessageType.WARNING,
+      message: `网络连接较慢，正在重试 (${store.networkRetryCount}/${3})`,
+      visible: true
+    }
+  }
+  
   if (store.bannerError) {
     return {
       type: MessageType.ERROR,
@@ -81,6 +119,13 @@ const getMessageIcon = (messageType: MessageType): string => {
   }
 }
 
+// 获取网络状态图标
+const getNetworkIcon = (): string => {
+  if (!networkInfo.value.isOnline) return '📶'
+  if (networkInfo.value.quality === 'slow') return '📶'
+  return '📶'
+}
+
 // 获取CSS类名
 const bannerClasses = computed(() => {
   const classes = ['toast-notification']
@@ -104,6 +149,10 @@ const bannerClasses = computed(() => {
       break
   }
   
+  if (shouldShowNetworkInfo.value) {
+    classes.push('toast-notification--with-network')
+  }
+  
   return classes
 })
 
@@ -123,6 +172,7 @@ const showMessage = () => {
   messageUpdateTimer = window.setTimeout(() => {
     currentMessage.value = info.message
     currentType.value = info.type
+    showNetworkInfo.value = shouldShowNetworkInfo.value
     isVisible.value = true
     
     // 清除之前的定时器
@@ -130,8 +180,10 @@ const showMessage = () => {
       clearTimeout(hideTimer)
     }
     
-    // 设置自动隐藏定时器
-    const duration = getMessageDuration(info.type)
+    // 设置自动隐藏定时器 (网络问题消息显示更长时间)
+    const duration = shouldShowNetworkInfo.value ? 
+      getMessageDuration(info.type) * 2 : 
+      getMessageDuration(info.type)
     hideTimer = window.setTimeout(() => {
       isVisible.value = false
     }, duration)
@@ -159,6 +211,20 @@ const handleRetry = async () => {
     }
   }
   closeMessage()
+}
+
+// 网络重试操作
+const handleNetworkRetry = async () => {
+  if (!isRetrying.value) {
+    isRetrying.value = true
+    try {
+      await store.handleConnectivityRestoration()
+    } catch (error) {
+      console.error('Network retry failed:', error)
+    } finally {
+      isRetrying.value = false
+    }
+  }
 }
 
 // 监听store变化
@@ -194,6 +260,35 @@ onUnmounted(() => {
           </button>
         </div>
         
+        <!-- 网络状态信息 -->
+        <div v-if="showNetworkInfo" class="toast-notification__network">
+          <div class="toast-notification__network-info">
+            <span class="toast-notification__network-icon">{{ getNetworkIcon() }}</span>
+            <span class="toast-notification__network-text">
+              <template v-if="!networkInfo.isOnline">
+                网络连接已断开
+              </template>
+              <template v-else-if="networkInfo.quality === 'slow'">
+                网络连接较慢 ({{ networkInfo.effectiveType?.toUpperCase() || 'Unknown' }})
+                <span v-if="networkInfo.rtt > 0"> • {{ networkInfo.rtt }}ms</span>
+              </template>
+              <template v-else>
+                网络连接正常
+              </template>
+            </span>
+          </div>
+          
+          <!-- 网络重试按钮 -->
+          <button 
+            v-if="!networkInfo.isOnline || store.networkRetryCount > 0"
+            class="toast-notification__network-retry"
+            :disabled="isRetrying"
+            @click="handleNetworkRetry"
+          >
+            {{ isRetrying ? '重试中...' : '重试连接' }}
+          </button>
+        </div>
+        
         <!-- 错误建议 -->
         <div v-if="suggestions.length > 0" class="toast-notification__suggestions">
           <div class="toast-notification__suggestions-title">建议解决方案：</div>
@@ -222,3 +317,85 @@ onUnmounted(() => {
   </Transition>
 </template>
 
+
+<style scoped>
+/* Network information styles */
+.toast-notification__network {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.toast-notification__network-info {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1;
+}
+
+.toast-notification__network-icon {
+  font-size: 0.875rem;
+  opacity: 0.8;
+}
+
+.toast-notification__network-text {
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  opacity: 0.9;
+}
+
+.toast-notification__network-retry {
+  background: rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: inherit;
+  padding: 0.375rem 0.75rem;
+  border-radius: 4px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.toast-notification__network-retry:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.3);
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+.toast-notification__network-retry:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Enhanced styles for network-aware banners */
+.toast-notification--with-network {
+  min-width: 320px;
+}
+
+.toast-notification--with-network .toast-notification__content {
+  padding: 1rem 1.25rem;
+}
+
+/* Responsive adjustments */
+@media (max-width: 640px) {
+  .toast-notification__network {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+  }
+  
+  .toast-notification__network-retry {
+    width: 100%;
+    text-align: center;
+  }
+  
+  .toast-notification--with-network {
+    min-width: auto;
+    max-width: calc(100vw - 2rem);
+  }
+}
+</style>

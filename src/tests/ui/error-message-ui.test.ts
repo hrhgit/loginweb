@@ -14,6 +14,15 @@ const mockStore = {
   get bannerInfo() { return mockBannerInfo.value },
   set bannerInfo(value) { mockBannerInfo.value = value },
   setBanner: vi.fn(),
+  // Network state properties
+  networkState: {
+    isOnline: true,
+    effectiveType: '4g',
+    rtt: 100,
+    downlink: 10
+  },
+  connectionQuality: 'fast',
+  networkRetryCount: 0
 }
 
 vi.mock('../../store/appStore', () => ({

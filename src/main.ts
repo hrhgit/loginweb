@@ -4,12 +4,18 @@ import router from './router'
 import { vLazyLoad } from './directives/vLazyLoad'
 import { setupGlobalErrorHandling, logGlobalError } from './utils/globalErrorHandler'
 import { ErrorType, MessageSeverity } from './utils/errorHandler'
+import { offlineManager } from './utils/offlineManager'
 import './style.css'
 
 const app = createApp(App)
 
 // 设置全局错误处理
 setupGlobalErrorHandling()
+
+// Initialize offline manager
+offlineManager.init().catch(error => {
+  console.error('Failed to initialize offline manager:', error)
+})
 
 // 设置Vue应用错误处理
 app.config.errorHandler = (error: unknown, instance: any, info: string) => {

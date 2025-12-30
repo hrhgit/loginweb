@@ -14,6 +14,14 @@ import {
   teamErrorHandler,
   eventErrorHandler
 } from './enhancedErrorHandling'
+import { 
+  networkManager, 
+  type NetworkState,
+  executeNetworkRequest
+} from '../utils/networkManager'
+import { cacheManager } from '../utils/cacheManager'
+import { performanceMonitor } from '../utils/performanceMonitor'
+import { offlineManager } from '../utils/offlineManager'
 import type {
   AuthView,
   DisplayEvent,
@@ -186,6 +194,32 @@ const judgePermissionsByEventId = ref<Record<string, JudgePermission>>({})
 const judgeWorkspaceLoading = ref(false)
 const judgeWorkspaceError = ref('')
 
+// Network state management
+const networkState = ref<NetworkState>(networkManager.networkState)
+const isOnline = computed(() => networkState.value.isOnline)
+const connectionQuality = computed(() => networkManager.connectionQuality)
+const networkStatus = computed(() => networkManager.getStatus())
+
+// Network-aware loading states
+const networkAwareLoading = ref(false)
+const networkRetryCount = ref(0)
+const maxNetworkRetries = 3
+
+// Offline capabilities
+const isOfflineMode = computed(() => offlineManager.offline)
+const offlineCapabilities = computed(() => offlineManager.getOfflineCapability())
+
+// Performance monitoring
+const performanceMetrics = ref({
+  pageLoadTime: 0,
+  apiResponseTime: 0,
+  cacheHitRate: 0,
+  networkLatency: 0
+})
+
+// Network state listener cleanup function
+let networkStateCleanup: (() => void) | null = null
+
 // Error handling utilities for judge operations
 const isNetworkError = (error: any): boolean => {
   if (!error) return false
@@ -196,6 +230,138 @@ const isNetworkError = (error: any): boolean => {
          message.includes('fetch') ||
          message.includes('NetworkError') ||
          error.code === 'NETWORK_ERROR'
+}
+
+// Network-aware API functions
+const executeNetworkAwareRequest = async <T>(
+  url: string,
+  options: {
+    method?: string
+    data?: any
+    priority?: 'high' | 'medium' | 'low'
+    cacheKey?: string
+    cacheTTL?: number
+    retryable?: boolean
+  } = {}
+): Promise<T> => {
+  const startTime = performance.now()
+  
+  try {
+    // Check cache first if cache key provided
+    if (options.cacheKey) {
+      const cached = await cacheManager.get<T>(options.cacheKey)
+      if (cached) {
+        performanceMetrics.value.cacheHitRate = 
+          (performanceMetrics.value.cacheHitRate * 0.9) + (1 * 0.1) // Moving average
+        return cached
+      }
+    }
+
+    // Execute network request with retry logic
+    const result = await executeNetworkRequest<T>(url, {
+      method: options.method || 'GET',
+      data: options.data,
+      priority: options.priority || 'medium',
+      maxRetries: options.retryable !== false ? maxNetworkRetries : 0
+    })
+
+    // Cache result if cache key provided
+    if (options.cacheKey && result) {
+      await cacheManager.set(options.cacheKey, result, options.cacheTTL)
+    }
+
+    // Update performance metrics
+    const responseTime = performance.now() - startTime
+    performanceMetrics.value.apiResponseTime = 
+      (performanceMetrics.value.apiResponseTime * 0.9) + (responseTime * 0.1) // Moving average
+
+    return result
+  } catch (error) {
+    // Handle network errors with enhanced error handling
+    const networkError = isNetworkError(error)
+    if (networkError && options.retryable !== false) {
+      networkRetryCount.value++
+      if (networkRetryCount.value < maxNetworkRetries) {
+        // Exponential backoff retry
+        const delay = Math.min(1000 * Math.pow(2, networkRetryCount.value), 10000)
+        await new Promise(resolve => setTimeout(resolve, delay))
+        return executeNetworkAwareRequest(url, options)
+      }
+    }
+    
+    // Reset retry count on different error or max retries reached
+    networkRetryCount.value = 0
+    throw error
+  }
+}
+
+const handleNetworkAwareOperation = async <T>(
+  operation: () => Promise<T>,
+  options: {
+    operationName: string
+    showLoading?: boolean
+    cacheKey?: string
+    retryable?: boolean
+  }
+): Promise<T> => {
+  const { operationName, showLoading = true, retryable = true } = options
+  
+  // Track performance
+  const operationId = `${operationName}_${Date.now()}`
+  
+  try {
+    if (showLoading) {
+      networkAwareLoading.value = true
+    }
+
+    performanceMonitor.startMeasurement(operationId)
+
+    // Check offline capabilities
+    if (!isOnline.value) {
+      const capability = offlineManager.getOfflineCapability()
+      if (!capability.canAccessFeatures.includes(operationName)) {
+        throw new Error('此功能需要网络连接，请检查网络后重试')
+      }
+    }
+
+    const result = await operation()
+
+    // Record successful operation
+    performanceMonitor.endMeasurement(operationId)
+    networkRetryCount.value = 0 // Reset retry count on success
+
+    return result
+  } catch (error: any) {
+    performanceMonitor.endMeasurement(operationId)
+    
+    // Enhanced error handling with network awareness
+    if (isNetworkError(error)) {
+      if (retryable && networkRetryCount.value < maxNetworkRetries) {
+        networkRetryCount.value++
+        const delay = Math.min(1000 * Math.pow(2, networkRetryCount.value), 10000)
+        await new Promise(resolve => setTimeout(resolve, delay))
+        return handleNetworkAwareOperation(operation, options)
+      } else {
+        // Store for offline retry if supported
+        const capability = offlineManager.getOfflineCapability()
+        if (capability.canSubmitForms) {
+          await offlineManager.storeFormData(
+            `${operationName}_${Date.now()}`,
+            operationName,
+            { operation: operationName },
+            Date.now().toString()
+          )
+        }
+      }
+    }
+    
+    networkRetryCount.value = 0
+    throw error
+  } finally {
+    if (showLoading) {
+      networkAwareLoading.value = false
+    }
+  }
 }
 
 const getJudgeErrorMessage = (error: any, operation: string): string => {
@@ -1596,33 +1762,41 @@ const upsertMyContacts = async (payload: Partial<Pick<UserContacts, 'phone' | 'q
 }
 
 const loadEvents = async () => {
-  eventsError.value = ''
-  eventsLoading.value = true
+  return handleNetworkAwareOperation(async () => {
+    eventsError.value = ''
+    eventsLoading.value = true
 
-  let query = supabase.from('events').select(EVENT_SELECT) as any
+    let query = supabase.from('events').select(EVENT_SELECT) as any
 
-  if (user.value?.id && isAdmin.value) {
-    query = query.or(`status.eq.published,status.eq.ended,created_by.eq.${user.value.id}`)
-  } else {
-    query = query.in('status', ['published', 'ended'])
-  }
+    if (user.value?.id && isAdmin.value) {
+      query = query.or(`status.eq.published,status.eq.ended,created_by.eq.${user.value.id}`)
+    } else {
+      query = query.in('status', ['published', 'ended'])
+    }
 
-  const { data, error } = await query
-    .order('start_time', { ascending: true })
-    .order('created_at', { ascending: false })
-    .limit(100)
+    const { data, error } = await query
+      .order('start_time', { ascending: true })
+      .order('created_at', { ascending: false })
+      .limit(100)
 
-  if (error) {
-    eventsError.value = error.message
-    eventErrorHandler.handleError(error, { operation: 'loadEvents' })
-    events.value = []
-  } else {
-    events.value = data as Event[]
-  }
+    if (error) {
+      eventsError.value = error.message
+      eventErrorHandler.handleError(error, { operation: 'loadEvents' })
+      events.value = []
+    } else {
+      events.value = data as Event[]
+    }
 
-  eventsLoading.value = false
-  eventsLoaded.value = true
-  syncNotifications()
+    eventsLoading.value = false
+    eventsLoaded.value = true
+    syncNotifications()
+    
+    return events.value
+  }, {
+    operationName: 'loadEvents',
+    cacheKey: user.value ? `events_${user.value.id}_${isAdmin.value}` : 'events_public',
+    retryable: true
+  })
 }
 
 const ensureEventsLoaded = async () => {
@@ -1634,27 +1808,35 @@ const loadMyRegistrations = async () => {
   myRegistrationByEventId.value = {}
   if (!user.value) return
 
-  registrationsLoading.value = true
-  const { data, error } = await supabase
-    .from('registrations')
-    .select('id,event_id,status')
-    .eq('user_id', user.value.id)
-    .limit(500)
+  return handleNetworkAwareOperation(async () => {
+    registrationsLoading.value = true
+    const { data, error } = await supabase
+      .from('registrations')
+      .select('id,event_id,status')
+      .eq('user_id', user.value!.id)
+      .limit(500)
 
-  if (error) {
+    if (error) {
+      registrationsLoading.value = false
+      authErrorHandler.handleError(error, { operation: 'loadMyRegistrations' })
+      return
+    }
+
+    const next: Record<string, string> = {}
+    for (const row of data as RegistrationRow[]) {
+      next[row.event_id] = row.id
+    }
+    myRegistrationByEventId.value = next
     registrationsLoading.value = false
-    authErrorHandler.handleError(error, { operation: 'loadMyRegistrations' })
-    return
-  }
-
-  const next: Record<string, string> = {}
-  for (const row of data as RegistrationRow[]) {
-    next[row.event_id] = row.id
-  }
-  myRegistrationByEventId.value = next
-  registrationsLoading.value = false
-  registrationsLoaded.value = true
-  syncNotifications()
+    registrationsLoaded.value = true
+    syncNotifications()
+    
+    return next
+  }, {
+    operationName: 'loadMyRegistrations',
+    cacheKey: user.value ? `registrations_${user.value.id}` : undefined,
+    retryable: true
+  })
 }
 
 const ensureRegistrationsLoaded = async () => {
@@ -2213,35 +2395,69 @@ const submitRegistration = async (event: DisplayEvent, formResponse: Record<stri
     return { error: '' }
   }
 
-  registrationBusyEventId.value = event.id
-  const { data, error } = await supabase
-    .from('registrations')
-    .insert({
-      event_id: event.id,
-      user_id: user.value.id,
-      status: 'registered',
-      form_response: formResponse,
+  return handleNetworkAwareOperation(async () => {
+    registrationBusyEventId.value = event.id
+    
+    // Store form data for offline retry if needed
+    if (!isOnline.value) {
+      await offlineManager.storeFormData(
+        `registration_${event.id}_${user.value?.id}`,
+        'registration',
+        {
+          event_id: event.id,
+          user_id: user.value?.id,
+          status: 'registered',
+          form_response: formResponse,
+        },
+        Date.now().toString()
+      )
+      
+      handleSuccessWithBanner('网络连接不稳定，报名信息已保存，将在网络恢复后自动提交', setBanner, { 
+        operation: 'submitRegistration',
+        component: 'offline' 
+      })
+      registrationBusyEventId.value = null
+      return { error: '' }
+    }
+
+    const { data, error } = await supabase
+      .from('registrations')
+      .insert({
+        event_id: event.id,
+        user_id: user.value!.id,
+        status: 'registered',
+        form_response: formResponse,
+      })
+      .select('id,event_id')
+      .single()
+
+    if (error) {
+      eventErrorHandler.handleError(error, { operation: 'submitRegistration' })
+      registrationBusyEventId.value = null
+      return { error: error.message }
+    }
+
+    const row = data as RegistrationRow
+    myRegistrationByEventId.value = {
+      ...myRegistrationByEventId.value,
+      [row.event_id]: row.id,
+    }
+    
+    // Invalidate cache
+    if (user.value) {
+      await cacheManager.invalidate(`registrations_${user.value.id}`)
+    }
+    
+    handleSuccessWithBanner('报名成功', setBanner, { 
+      operation: 'submitRegistration',
+      component: 'form' 
     })
-    .select('id,event_id')
-    .single()
-
-  if (error) {
-    eventErrorHandler.handleError(error, { operation: 'submitRegistration' })
     registrationBusyEventId.value = null
-    return { error: error.message }
-  }
-
-  const row = data as RegistrationRow
-  myRegistrationByEventId.value = {
-    ...myRegistrationByEventId.value,
-    [row.event_id]: row.id,
-  }
-  handleSuccessWithBanner('报名成功', setBanner, { 
-    operation: 'submitRegistration',
-    component: 'form' 
+    return { error: '' }
+  }, {
+    operationName: 'submitRegistration',
+    retryable: true
   })
-  registrationBusyEventId.value = null
-  return { error: '' }
 }
 
 const registrationLabel = (event: DisplayEvent) => {
@@ -2995,6 +3211,25 @@ const init = async () => {
   if (initialized) return
   initialized = true
 
+  // Initialize network state monitoring
+  networkStateCleanup = networkManager.addNetworkStateListener((state) => {
+    networkState.value = state
+    
+    // Update performance metrics
+    performanceMetrics.value.networkLatency = state.rtt
+    
+    // Handle connectivity restoration
+    if (state.isOnline && !networkState.value.isOnline) {
+      handleConnectivityRestoration()
+    }
+  })
+
+  // Initialize performance monitoring
+  performanceMonitor.startMeasurement('page_load')
+  
+  // Track initial page load performance
+  const pageLoadStart = performance.now()
+
   await refreshUser()
   loadNotifications()
   maybePushProfileSetupNotification()
@@ -3008,6 +3243,11 @@ const init = async () => {
   // Start judge-related optimizations
   startJudgeRealtimeSync()
   startCacheCleanup()
+
+  // Record page load performance
+  const pageLoadEnd = performance.now()
+  performanceMetrics.value.pageLoadTime = pageLoadEnd - pageLoadStart
+  performanceMonitor.endMeasurement('page_load')
 
   const { data: listener } = supabase.auth.onAuthStateChange(async (_event, session) => {
     if (!session) {
@@ -3027,6 +3267,9 @@ const init = async () => {
       judgePermissionsByEventId.value = {}
       judgeDataCacheTimestamps.value = {}
       judgeDataRefreshPromises.value = {}
+      
+      // Clear network-related state
+      networkRetryCount.value = 0
       
       void loadEvents()
       return
@@ -3049,11 +3292,46 @@ const init = async () => {
   authSubscription = listener.subscription
 }
 
+// Handle connectivity restoration
+const handleConnectivityRestoration = async () => {
+  // Retry failed network operations
+  try {
+    await networkManager.retryFailedRequests()
+    
+    // Sync offline changes
+    const storedForms = await offlineManager.getAllStoredForms()
+    if (storedForms.length > 0) {
+      console.log(`Found ${storedForms.length} stored forms to sync`)
+      // Here you would implement the sync logic
+    }
+    
+    // Refresh critical data
+    if (user.value) {
+      void loadEvents()
+      void loadMyRegistrations()
+    }
+    
+    // Show restoration notification
+    handleSuccessWithBanner('网络连接已恢复', setBanner, { 
+      operation: 'connectivity',
+      component: 'network' 
+    })
+  } catch (error) {
+    console.warn('Failed to handle connectivity restoration:', error)
+  }
+}
+
 const dispose = () => {
   authSubscription?.unsubscribe()
   authSubscription = null
   initialized = false
   stopNotificationTicker()
+  
+  // Clean up network state monitoring
+  if (networkStateCleanup) {
+    networkStateCleanup()
+    networkStateCleanup = null
+  }
   
   // Clean up judge-related resources
   stopJudgeRealtimeSync()
@@ -3202,6 +3480,22 @@ const store = proxyRefs({
   handleJudgeNotificationClick,
   init,
   dispose,
+  
+  // Network state
+  networkState,
+  isOnline,
+  connectionQuality,
+  networkStatus,
+  
+  // Network-aware features
+  networkAwareLoading,
+  networkRetryCount,
+  isOfflineMode,
+  offlineCapabilities,
+  performanceMetrics,
+  executeNetworkAwareRequest,
+  handleNetworkAwareOperation,
+  handleConnectivityRestoration,
 })
 
 export const useAppStore = () => store

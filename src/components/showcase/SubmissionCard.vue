@@ -2,10 +2,18 @@
   <article class="submission-card" @click="handleClick" @dblclick="handleDoubleClick">
     <!-- 作品封面 -->
     <div class="submission-card__cover">
-      <img 
+      <ResponsiveImage
         v-if="coverUrl"
-        v-lazy-load="coverUrl"
+        :src="coverUrl"
         :alt="submission.project_name"
+        :width="400"
+        :height="225"
+        aspect-ratio="16 / 9"
+        object-fit="cover"
+        loading="lazy"
+        :enable-web-p="true"
+        :show-placeholder="true"
+        placeholder-color="var(--surface-muted)"
         class="submission-card__image"
         @error="handleImageError"
       />
@@ -38,7 +46,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { FileText } from 'lucide-vue-next'
-import { vLazyLoad } from '../../directives/vLazyLoad'
+import ResponsiveImage from '../ResponsiveImage.vue'
 import type { SubmissionWithTeam } from '../../store/models'
 
 interface Props {

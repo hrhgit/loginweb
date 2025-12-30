@@ -6,6 +6,9 @@
  */
 
 import { ref, type Ref } from 'vue'
+import { registerNetworkCleanup, trackNetworkOperation, completeNetworkOperation, type NetworkMemoryStats } from './memoryManager'
+import { backgroundProcessor } from './backgroundProcessor'
+import { updateBatcher } from './updateBatcher'
 
 // Network State Types
 export interface NetworkState {
@@ -86,6 +89,14 @@ export class ConnectionMonitor {
   addListener(callback: (state: NetworkState) => void): () => void {
     this.listeners.add(callback)
     return () => this.listeners.delete(callback)
+  }
+
+  removeAllListeners(): void {
+    this.listeners.clear()
+  }
+
+  getListenerCount(): number {
+    return this.listeners.size
   }
 
   private initializeNetworkAPI(): void {
@@ -311,6 +322,26 @@ export class NetworkManager {
         this.retryFailedRequests()
       }
     })
+
+    // Register memory cleanup callbacks
+    this.registerMemoryCleanup()
+  }
+
+  private registerMemoryCleanup(): void {
+    registerNetworkCleanup({
+      clearRequestQueue: () => this.requestQueue.clear(),
+      clearFailedRequests: () => { this.failedRequests = [] },
+      removeNetworkListeners: () => this.connectionMonitor.removeAllListeners(),
+      getNetworkStats: (): NetworkMemoryStats => ({
+        activeListeners: this.connectionMonitor.getListenerCount(),
+        queuedRequests: this.requestQueue.getQueueStatus().pending,
+        cacheEntries: 0, // Will be set by cache manager
+        cacheSize: 0, // Will be set by cache manager
+        failedRequests: this.failedRequests.length
+      }),
+      clearBackgroundTasks: () => backgroundProcessor.cleanup(),
+      clearUpdateBatches: () => updateBatcher.cleanup()
+    })
   }
 
   get isOnline(): boolean {
@@ -336,9 +367,15 @@ export class NetworkManager {
       maxRetries: request.maxRetries || 3
     }
 
+    const operationId = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+    trackNetworkOperation(operationId, `${request.method || 'GET'} ${request.url}`)
+
     try {
-      return await this.requestQueue.add(requestWithDefaults)
+      const result = await this.requestQueue.add(requestWithDefaults)
+      completeNetworkOperation(operationId)
+      return result
     } catch (error) {
+      completeNetworkOperation(operationId)
       // Store failed request for later retry
       this.failedRequests.push(requestWithDefaults as NetworkRequest)
       throw error
@@ -411,9 +448,24 @@ export class NetworkManager {
     }
   }
 
+  /**
+   * Process heavy network operations in background
+   */
+  async processHeavyNetworkTask(taskType: string, data: any): Promise<any> {
+    return backgroundProcessor.processHeavyTask(`network_${taskType}`, data, 'high')
+  }
+
+  /**
+   * Add batched network state update
+   */
+  addNetworkStateUpdate(update: Partial<NetworkState>): void {
+    updateBatcher.addUpdate('network-state', update)
+  }
+
   dispose(): void {
     this.requestQueue.clear()
     this.failedRequests = []
+    backgroundProcessor.cleanup()
   }
 }
 
@@ -453,4 +505,12 @@ export function executeNetworkRequest<T>(
 
 export function addNetworkStateListener(callback: (state: NetworkState) => void): () => void {
   return networkManager.addNetworkStateListener(callback)
+}
+
+export function processHeavyNetworkTask(taskType: string, data: any): Promise<any> {
+  return networkManager.processHeavyNetworkTask(taskType, data)
+}
+
+export function addNetworkStateUpdate(update: Partial<NetworkState>): void {
+  return networkManager.addNetworkStateUpdate(update)
 }

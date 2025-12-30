@@ -1,10 +1,12 @@
 import { createRouter, createWebHistory, type RouteLocationNormalized } from 'vue-router'
-import EventsPage from './pages/EventsPage.vue'
-import EventDetailPage from './pages/EventDetailPage.vue'
-import EventEditPage from './pages/EventEditPage.vue'
-import ProfilePage from './pages/ProfilePage.vue'
-import NotFoundPage from './pages/NotFoundPage.vue'
 import { useAppStore } from './store/appStore'
+
+// Lazy load all route components for optimal code splitting
+const EventsPage = () => import('./pages/EventsPage.vue')
+const EventDetailPage = () => import('./pages/EventDetailPage.vue')
+const EventEditPage = () => import('./pages/EventEditPage.vue')
+const ProfilePage = () => import('./pages/ProfilePage.vue')
+const NotFoundPage = () => import('./pages/NotFoundPage.vue')
 
 const router = createRouter({
   history: createWebHistory(),
@@ -21,6 +23,7 @@ const router = createRouter({
     { path: '/events/:id/team/:teamId', name: 'event-team-detail', component: () => import('./pages/TeamDetailPage.vue') },
     { path: '/events/:id/showcase', name: 'event-detail-showcase', component: EventDetailPage, props: { tab: 'showcase' } },
     { path: '/events/:id/admin', name: 'event-admin', component: () => import('./pages/EventAdminPageSimple.vue') },
+    { path: '/admin/dashboard', name: 'admin-dashboard', component: () => import('./pages/AdminDashboardPage.vue') },
     {
       path: '/events/:eventId/judge',
       name: 'judge-workspace',

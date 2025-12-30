@@ -12,3 +12,7 @@ export * from './downloadUtils'
 export * from './eventFormat'
 export * from './eventDetails'
 export * from './roleTags'
+
+// Cache management utilities
+export * from './cacheManager'
+export * from './appStoreCacheIntegration'

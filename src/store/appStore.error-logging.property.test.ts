@@ -15,8 +15,15 @@ describe('Property Test: Error Logging', () => {
 
   beforeEach(() => {
     errorHandler = new ErrorHandlerAPI()
+    // 禁用节流和重复抑制以确保测试中的console.error调用
+    errorHandler.setThrottlingEnabled(false)
+    errorHandler.setDuplicateSuppressionEnabled(false)
     // 监听 console.error 调用
     consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+  })
+
+  afterEach(() => {
+    consoleSpy.mockRestore()
   })
 
   afterEach(() => {

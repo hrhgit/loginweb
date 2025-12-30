@@ -1,5 +1,5 @@
 ﻿﻿<script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch, defineAsyncComponent } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import {
   Clock,
@@ -21,8 +21,9 @@ import {
 } from 'lucide-vue-next'
 import { useAppStore } from '../store/appStore'
 import { supabase } from '../lib/supabase'
-import MyTeamsTabContent from '../components/MyTeamsTabContent.vue'
-import SubmissionCard from '../components/showcase/SubmissionCard.vue'
+// Lazy load heavy components for better performance
+const MyTeamsTabContent = defineAsyncComponent(() => import('../components/MyTeamsTabContent.vue'))
+const SubmissionCard = defineAsyncComponent(() => import('../components/showcase/SubmissionCard.vue'))
 import {
   teamSizeLabel,
   formatTimeRange,

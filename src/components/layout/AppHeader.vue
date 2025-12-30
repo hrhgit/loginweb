@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { RouterLink, useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, Home, LogOut } from 'lucide-vue-next'
+import { ArrowLeft, Home, LogOut, Activity } from 'lucide-vue-next'
 import { useAppStore } from '../../store/appStore'
 
 const store = useAppStore()
@@ -42,6 +42,15 @@ const handleBack = () => {
         </div>
 
         <div v-else class="user-actions">
+          <RouterLink 
+            v-if="store.isAdmin" 
+            class="btn btn--ghost btn--compact" 
+            to="/admin/dashboard"
+            title="系统监控"
+          >
+            <Activity :size="16" />
+            监控
+          </RouterLink>
           <RouterLink class="user-pill" to="/me">
             <div class="user-pill__avatar-container">
               <img

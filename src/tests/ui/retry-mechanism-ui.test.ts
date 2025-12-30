@@ -8,6 +8,15 @@ const mockStore = {
   bannerError: '',
   bannerInfo: '',
   setBanner: vi.fn(),
+  // Network state properties
+  networkState: {
+    isOnline: true,
+    effectiveType: '4g',
+    rtt: 100,
+    downlink: 10
+  },
+  connectionQuality: 'fast',
+  networkRetryCount: 0
 }
 
 vi.mock('../../store/appStore', () => ({
