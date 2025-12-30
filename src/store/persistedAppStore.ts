@@ -5,7 +5,17 @@
 
 import { computed } from 'vue'
 import { createPersistedRef } from '../utils/statePersistence'
-import type { Event, User } from './models'
+import type { Event } from './models'
+
+// 定义 User 类型（简化版本）
+type User = {
+  id: string
+  email?: string
+  created_at: string
+  user_metadata?: {
+    full_name?: string
+  }
+}
 
 // 使用持久化状态替代普通 ref
 const events = createPersistedRef<Event[]>([], {

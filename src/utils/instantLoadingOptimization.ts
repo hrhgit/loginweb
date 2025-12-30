@@ -3,7 +3,7 @@
  * 通过预加载和状态持久化实现真正的即时显示
  */
 
-import { ref, computed, onMounted, type Ref } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { createPersistedRef } from './statePersistence'
 
 export interface InstantLoadingOptions<T> {

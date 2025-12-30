@@ -3,8 +3,28 @@
  * 展示如何用最少的代码实现状态缓存
  */
 
-// 1. 只需要添加这一行导入
+import { ref } from 'vue'
+import type { Event } from './models'
 import { stateCache } from '../utils/simpleStateCache'
+
+// Mock error handler for demo
+const eventErrorHandler = {
+  handleError: (error: any, context: any) => {
+    console.error('Event error:', error, context)
+  }
+}
+
+// Mock network-aware operation handler for demo
+const handleNetworkAwareOperation = async <T>(
+  operation: () => Promise<T>,
+  _options: {
+    operationName: string
+    cacheKey?: string
+    retryable?: boolean
+  }
+): Promise<T> => {
+  return operation()
+}
 
 // 2. 修改初始化（从原来的空值改为从缓存恢复）
 // 原来：
@@ -14,6 +34,13 @@ import { stateCache } from '../utils/simpleStateCache'
 // 改为：
 const events = ref<Event[]>(stateCache.get('events') || [])
 const eventsLoaded = ref(stateCache.get('eventsLoaded') || false)
+const eventsError = ref('')
+const eventsLoading = ref(false)
+const user = ref<any>(null)
+const isAdmin = ref(false)
+
+// Mock functions for demo
+const syncNotifications = () => {}
 
 // 3. 在 loadEvents 函数中添加缓存（只需要添加2行）
 const loadEvents = async () => {
@@ -22,6 +49,15 @@ const loadEvents = async () => {
     eventsLoading.value = true
 
     // ... 现有的查询逻辑保持不变 ...
+    let error: any = null
+    let data: Event[] = []
+
+    try {
+      // Mock API call - replace with actual Supabase query
+      // const { data, error } = await supabase.from('events').select('*')
+    } catch (err) {
+      error = err
+    }
 
     if (error) {
       eventsError.value = error.message
@@ -47,21 +83,8 @@ const loadEvents = async () => {
   })
 }
 
-// 4. 修改 ensureEventsLoaded（只需要添加1行）
-const ensureEventsLoaded = async () => {
-  // 新增：这1行检查缓存
-  if (eventsLoaded.value && events.value.length > 0) return
-  
-  // 原有逻辑保持不变
-  if (eventsLoaded.value || eventsLoading.value) return
-  await loadEvents()
-}
-
-// 5. 可选：在登出时清理缓存（1行）
-const logout = async () => {
-  // ... 现有登出逻辑 ...
-  stateCache.clear() // 新增：清理缓存
-}
+// Export functions to avoid unused warnings
+export { loadEvents }
 
 /**
  * 总改动统计：

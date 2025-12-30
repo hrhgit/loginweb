@@ -3,7 +3,7 @@
  * 用于防止页面加载时的闪烁问题
  */
 
-import { computed, ref } from 'vue'
+import { computed, ref, type Ref } from 'vue'
 
 export interface LoadingStateOptions {
   /** 是否正在加载 */
