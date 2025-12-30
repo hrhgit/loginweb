@@ -216,6 +216,7 @@ import {
 } from 'lucide-vue-next'
 import { supabase } from '../lib/supabase'
 import { useAppStore } from '../store/appStore'
+import { truncateTeamIntro } from '../utils/textUtils'
 import type { SubmissionWithTeam } from '../store/models'
 
 const route = useRoute()
@@ -259,7 +260,7 @@ const teamName = computed(() => {
 })
 
 const teamIntro = computed(() => {
-  return teamDetails.value?.intro || '暂无队伍简介'
+  return truncateTeamIntro(teamDetails.value?.intro) || '暂无队伍简介'
 })
 
 const teamMemberCount = computed(() => {

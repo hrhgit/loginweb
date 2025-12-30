@@ -4,7 +4,8 @@
  * 提供错误记录的本地存储、管理和问题反馈功能
  */
 
-import { ErrorRecord, ErrorContext, ErrorType, MessageSeverity } from './errorHandler'
+import type { ErrorRecord, ErrorContext } from './errorHandler'
+import { ErrorType, MessageSeverity } from './errorHandler'
 
 export interface FeedbackReport {
   summary: string

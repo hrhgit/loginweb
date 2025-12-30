@@ -4,7 +4,8 @@
  * 提供与现有appStore.ts集成的增强错误处理功能
  */
 
-import { errorHandler, ErrorContext, ErrorResponse, MessageType } from '../utils/errorHandler'
+import { errorHandler, MessageType } from '../utils/errorHandler'
+import type { ErrorContext, ErrorResponse } from '../utils/errorHandler'
 
 // 扩展现有的setBanner功能
 export interface EnhancedBannerOptions {

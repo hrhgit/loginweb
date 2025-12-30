@@ -38,6 +38,7 @@ import {
   type RegistrationQuestion,
 } from '../utils/eventDetails'
 import { getRoleTagClass, getRoleTagKey, sortRoleLabels } from '../utils/roleTags'
+import { truncateTeamIntro, truncateSeekerIntro } from '../utils/textUtils'
 import { 
   handleErrorWithBanner, 
   handleSuccessWithBanner,
@@ -1611,7 +1612,7 @@ watch(isRegistered, async (value) => {
                 
                 <div class="team-card__section">
                   <h5 class="team-card__label">队伍介绍</h5>
-                  <p class="team-card__desc">{{ team.intro || '暂无队伍介绍' }}</p>
+                  <p class="team-card__desc">{{ truncateTeamIntro(team.intro) || '暂无队伍介绍' }}</p>
                   
                   <div class="team-card__tags">
                     <span
@@ -1720,7 +1721,7 @@ watch(isRegistered, async (value) => {
                 {{ role }}
               </span>
             </div>
-            <p class="seeker-card__intro">{{ seeker.intro || '暂无个人简介' }}</p>
+            <p class="seeker-card__intro">{{ truncateSeekerIntro(seeker.intro) || '暂无个人简介' }}</p>
             <div class="seeker-card__actions">
                   <template v-if="isMySeeker(seeker)">
                     <button class="btn btn--ghost btn--icon-text" type="button" @click="openSeekerModal"><Edit :size="14" /> 编辑</button>

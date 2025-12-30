@@ -10,30 +10,36 @@ import { performanceMonitor } from './performanceMonitor'
 // 类型定义
 // ============================================================================
 
-export enum ErrorType {
-  NETWORK = 'network',
-  PERMISSION = 'permission', 
-  VALIDATION = 'validation',
-  TIMEOUT = 'timeout',
-  SERVER = 'server',
-  CLIENT = 'client',
-  UNKNOWN = 'unknown'
-}
+export const ErrorType = {
+  NETWORK: 'network',
+  PERMISSION: 'permission', 
+  VALIDATION: 'validation',
+  TIMEOUT: 'timeout',
+  SERVER: 'server',
+  CLIENT: 'client',
+  UNKNOWN: 'unknown'
+} as const
 
-export enum MessageSeverity {
-  FATAL = 'fatal',
-  WARNING = 'warning', 
-  INFO = 'info',
-  SUCCESS = 'success'
-}
+export type ErrorType = typeof ErrorType[keyof typeof ErrorType]
 
-export enum MessageType {
-  SUCCESS = 'success',
-  INFO = 'info',
-  WARNING = 'warning', 
-  ERROR = 'error',
-  CRITICAL = 'critical'
-}
+export const MessageSeverity = {
+  FATAL: 'fatal',
+  WARNING: 'warning', 
+  INFO: 'info',
+  SUCCESS: 'success'
+} as const
+
+export type MessageSeverity = typeof MessageSeverity[keyof typeof MessageSeverity]
+
+export const MessageType = {
+  SUCCESS: 'success',
+  INFO: 'info',
+  WARNING: 'warning', 
+  ERROR: 'error',
+  CRITICAL: 'critical'
+} as const
+
+export type MessageType = typeof MessageType[keyof typeof MessageType]
 
 export interface ErrorContext {
   operation: string
@@ -138,9 +144,6 @@ export class ErrorClassifier {
         originalError: error
       }
     }
-
-    const message = this.safeGetMessage(error)
-    const code = error.code
 
     // 超时错误 - 需要在网络错误之前检查
     if (this.isTimeoutError(error)) {
@@ -424,7 +427,7 @@ export class MessageLocalizer {
     // 根据上下文调整消息
     if (context) {
       message = this.contextualizeMessage(message, context, classification.type)
-      suggestions = this.contextualizeSuggestions(suggestions, context, classification.type)
+      suggestions = this.contextualizeSuggestions(suggestions, context)
     }
 
     // 处理特定错误消息
@@ -494,7 +497,7 @@ export class MessageLocalizer {
   private contextualizeMessage(message: string, context: ErrorContext, errorType: ErrorType): string {
     // 根据操作类型调整消息
     if (context.operation) {
-      const operationMessages: Record<string, Record<ErrorType, string>> = {
+      const operationMessages: Record<string, Partial<Record<ErrorType, string>>> = {
         'login': {
           [ErrorType.NETWORK]: '登录时网络连接失败，请检查网络后重试',
           [ErrorType.PERMISSION]: '登录失败，请检查用户名和密码',
@@ -520,7 +523,7 @@ export class MessageLocalizer {
     return message
   }
 
-  private contextualizeSuggestions(suggestions: string[], context: ErrorContext, errorType: ErrorType): string[] {
+  private contextualizeSuggestions(suggestions: string[], context: ErrorContext): string[] {
     // 根据组件类型添加特定建议
     if (context.component) {
       const componentSuggestions: Record<string, string[]> = {
@@ -652,7 +655,6 @@ export class RetryMechanism {
 export class ErrorHandlerAPI {
   private classifier = new ErrorClassifier()
   private localizer = new MessageLocalizer()
-  private retryMechanism = new RetryMechanism()
   private messageHistory: Map<string, number> = new Map()
   private readonly DUPLICATE_THRESHOLD = 5000 // 5秒内的重复消息将被合并
   
@@ -682,7 +684,9 @@ export class ErrorHandlerAPI {
         // Cache the classification with LRU eviction
         if (this.classificationCache.size >= this.CLASSIFICATION_CACHE_SIZE) {
           const firstKey = this.classificationCache.keys().next().value
-          this.classificationCache.delete(firstKey)
+          if (firstKey) {
+            this.classificationCache.delete(firstKey)
+          }
         }
         this.classificationCache.set(errorKey, classification)
       } else {
@@ -737,10 +741,10 @@ export class ErrorHandlerAPI {
   /**
    * 获取错误日志
    */
-  getErrorLog(): ErrorRecord[] {
+  async getErrorLog(): Promise<ErrorRecord[]> {
     // 动态导入以避免循环依赖
     try {
-      const { errorLogManager } = require('./errorLogManager')
+      const { errorLogManager } = await import('./errorLogManager')
       return errorLogManager.getRecords()
     } catch (error) {
       console.warn('Failed to get error log:', error)
@@ -751,9 +755,9 @@ export class ErrorHandlerAPI {
   /**
    * 清除错误日志
    */
-  clearErrorLog(): void {
+  async clearErrorLog(): Promise<void> {
     try {
-      const { errorLogManager } = require('./errorLogManager')
+      const { errorLogManager } = await import('./errorLogManager')
       errorLogManager.clearRecords()
       console.log('Error log cleared')
     } catch (error) {
