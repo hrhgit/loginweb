@@ -565,7 +565,9 @@ const downloadSingleFile = async (submission: any) => {
 
     // 生成自定义文件名（包含扩展名）
     const submissionNumber = sortedSubmissions.value.findIndex(s => s.id === submission.id) + 1
-    const customFilename = `${String(submissionNumber).padStart(3, '0')}-${sanitizeFilename(submission.teams?.name || 'unknown')}-${sanitizeFilename(submission.project_name)}${fileExtension}`
+    const teamName = submission.teams?.name || '未知团队'
+    const projectName = submission.project_name || '未知作品'
+    const customFilename = `${String(submissionNumber).padStart(3, '0')}-${sanitizeFilename(teamName)}-${sanitizeFilename(projectName)}${fileExtension}`
     
     // 使用 Supabase 生成带自定义文件名的签名URL
     const { data, error } = await supabase.storage

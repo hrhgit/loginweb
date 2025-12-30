@@ -358,7 +358,7 @@ export const processSubmissionsForDownload = (submissions: any[]): SubmissionFil
   return sorted.map((submission, index) => ({
     id: submission.id,
     projectName: submission.project_name || '未命名项目',
-    teamName: submission.team?.name || '未知团队',
+    teamName: submission.teams?.name || '未知团队',
     submissionNumber: index + 1,
     storagePath: submission.submission_storage_path || '',
     fileExtension: getFileExtension(submission.submission_storage_path || ''),
