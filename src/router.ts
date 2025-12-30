@@ -1,9 +1,10 @@
-import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter, createWebHistory, type RouteLocationNormalized } from 'vue-router'
 import EventsPage from './pages/EventsPage.vue'
 import EventDetailPage from './pages/EventDetailPage.vue'
 import EventEditPage from './pages/EventEditPage.vue'
 import ProfilePage from './pages/ProfilePage.vue'
 import NotFoundPage from './pages/NotFoundPage.vue'
+import { useAppStore } from './store/appStore'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -20,6 +21,11 @@ const router = createRouter({
     { path: '/events/:id/team/:teamId', name: 'event-team-detail', component: () => import('./pages/TeamDetailPage.vue') },
     { path: '/events/:id/showcase', name: 'event-detail-showcase', component: EventDetailPage, props: { tab: 'showcase' } },
     { path: '/events/:id/admin', name: 'event-admin', component: () => import('./pages/EventAdminPageSimple.vue') },
+    {
+      path: '/events/:eventId/judge',
+      name: 'judge-workspace',
+      component: () => import('./pages/JudgeWorkspacePage.vue')
+    },
     {
       path: '/events/:eventId/submissions/:submissionId',
       name: 'submission-detail',
@@ -85,6 +91,58 @@ const router = createRouter({
   scrollBehavior() {
     return { top: 0 }
   },
+})
+
+// Route guard for judge workspace access control
+router.beforeEach(async (to: RouteLocationNormalized, _from: RouteLocationNormalized, next) => {
+  // Check if the route is the judge workspace
+  if (to.name === 'judge-workspace') {
+    const store = useAppStore()
+    const eventId = to.params.eventId as string
+
+    // Ensure user is loaded
+    await store.refreshUser()
+
+    // If user is not authenticated, redirect to events
+    if (!store.user) {
+      return next({
+        name: 'not-found',
+        query: {
+          message: '请先登录以访问评委界面。',
+          backRoute: `/events/${eventId}`,
+          backLabel: '返回活动详情'
+        }
+      })
+    }
+
+    // Check judge permissions
+    try {
+      const permission = await store.checkJudgePermission(eventId)
+      
+      if (!permission.canAccessJudgeWorkspace) {
+        return next({
+          name: 'not-found',
+          query: {
+            message: '您没有权限访问此评委界面。',
+            backRoute: `/events/${eventId}`,
+            backLabel: '返回活动详情'
+          }
+        })
+      }
+    } catch (error) {
+      console.error('Error checking judge permission:', error)
+      return next({
+        name: 'not-found',
+        query: {
+          message: '检查权限时出错，请稍后重试。',
+          backRoute: `/events/${eventId}`,
+          backLabel: '返回活动详情'
+        }
+      })
+    }
+  }
+
+  next()
 })
 
 export default router

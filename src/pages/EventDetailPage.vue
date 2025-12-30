@@ -167,6 +167,12 @@ const canRevertToDraft = computed(() => {
   if (event.value.status !== 'published') return false
   return store.isAdmin && event.value.created_by === store.user.id
 })
+
+// Judge-related computed properties
+const judgePermission = ref<any>(null)
+const judgePermissionLoading = ref(false)
+
+const canAccessJudgeWorkspace = computed(() => judgePermission.value?.canAccessJudgeWorkspace ?? false)
 const eventSummary = computed(() => getEventSummaryText(event.value?.description ?? null))
 const registrationQuestions = computed(() => detailContent.value.registrationForm.questions)
 const teamCreateDisabled = computed(
@@ -198,6 +204,27 @@ const mySubmissions = computed(() => {
   )
 })
 
+// 分页相关
+const submissionsPerPage = 12
+const currentPage = ref(1)
+
+const displayedSubmissions = computed(() => {
+  const items = showcaseTab.value === 'all' ? allSubmissions.value : mySubmissions.value
+  const start = (currentPage.value - 1) * submissionsPerPage
+  const end = start + submissionsPerPage
+  return items.slice(start, end)
+})
+
+const totalPages = computed(() => {
+  const items = showcaseTab.value === 'all' ? allSubmissions.value : mySubmissions.value
+  return Math.ceil(items.length / submissionsPerPage)
+})
+
+// 切换标签时重置分页
+watch(showcaseTab, () => {
+  currentPage.value = 1
+})
+
 const canSubmit = computed(() => {
   if (!event.value || !store.user) return false
   if (event.value.status !== 'published') return false
@@ -213,7 +240,6 @@ const loadSubmissionsData = async () => {
 
 const handleSubmissionClick = (submission: any) => {
   // Handle single click - currently no action, reserved for future functionality
-  console.log('Clicked submission:', submission)
 }
 
 const handleSubmissionDoubleClick = async (submission: any) => {
@@ -241,9 +267,6 @@ const handleSubmissionTitleClick = async (submission: any) => {
     })
   }
 }
-const displayedSubmissions = computed(() => {
-  return showcaseTab.value === 'all' ? allSubmissions.value : mySubmissions.value
-})
 const sampleTeamLobby = computed(() =>
   detailContent.value.teamLobby.map((team, index) => ({
     id: `sample-${eventId.value}-${index}`,
@@ -423,18 +446,6 @@ const filteredTeamSeekers = computed(() => {
 const isMyTeam = (team: { leader_id?: string }) => {
   if (!store.user) return false
   return Boolean(team.leader_id && team.leader_id === store.user.id)
-}
-
-const handleDeleteTeam = async (teamId: string) => {
-  if (!eventId.value) return
-  const confirmed = window.confirm('确定要删除该队伍吗？删除后将从组队大厅移除')
-  if (!confirmed) return
-  const { error: deleteError } = await store.deleteTeam(eventId.value, teamId)
-  if (deleteError) {
-    store.setBanner('error', deleteError)
-  } else {
-    store.setBanner('info', '队伍已删除')
-  }
 }
 
 const joinLabel = (teamId: string) => {
@@ -1006,6 +1017,33 @@ const handleRegistrationClick = async () => {
   await store.submitRegistration(event.value, {})
 }
 
+const loadJudgePermission = async () => {
+  if (!event.value || !store.user) {
+    judgePermission.value = null
+    return
+  }
+  judgePermissionLoading.value = true
+  try {
+    const permission = await store.checkJudgePermission(event.value.id)
+    judgePermission.value = permission
+  } catch (error) {
+    console.error('Failed to load judge permission:', error)
+    judgePermission.value = null
+  } finally {
+    judgePermissionLoading.value = false
+  }
+}
+
+const handleJudgeWorkspaceClick = async () => {
+  if (!event.value || !canAccessJudgeWorkspace.value) return
+  await router.push({
+    name: 'judge-workspace',
+    params: {
+      eventId: event.value.id
+    }
+  })
+}
+
 const updateFormMultiAnswer = (questionId: string, optionId: string, checked: boolean) => {
   const current = formAnswers.value[questionId]
   const next = Array.isArray(current) ? [...current] : []
@@ -1156,6 +1194,7 @@ onMounted(async () => {
   await loadEvent(eventId.value)
   if (eventId.value) {
     await loadSubmissionsData()
+    await loadJudgePermission()
   }
 })
 
@@ -1163,6 +1202,7 @@ watch(eventId, async (id) => {
   await loadEvent(id)
   if (id) {
     await loadSubmissionsData()
+    await loadJudgePermission()
   }
 })
 
@@ -1172,6 +1212,7 @@ watch(
     if (!eventId.value || isDemo.value) return
     await store.loadTeams(eventId.value)
     await store.loadTeamSeekers(eventId.value)
+    await loadJudgePermission()
   },
 )
 
@@ -1279,6 +1320,15 @@ watch(isRegistered, async (value) => {
                     ? '加载中...'
                     : store.registrationLabel(event)
               }}
+            </button>
+            <button
+              v-if="canAccessJudgeWorkspace"
+              class="btn btn--xl btn--primary"
+              type="button"
+              :disabled="judgePermissionLoading"
+              @click="handleJudgeWorkspaceClick"
+            >
+              {{ judgePermissionLoading ? '加载中...' : '评委入口' }}
             </button>
             <p v-if="isDemo" class="muted small-note">展示活动不支持报名</p>
           </div>
@@ -1538,8 +1588,6 @@ watch(isRegistered, async (value) => {
 
                                     <RouterLink class="btn btn--ghost btn--icon-text" :to="`/events/${eventId}/team/${team.id}/edit`"><Edit :size="14" /> 编辑</RouterLink>
 
-                                    <button class="btn btn--danger btn--icon-text" type="button" @click="handleDeleteTeam(team.id)"><Trash2 :size="14" /> 删除</button>
-
                                   </template>     
 
                                   <button
@@ -1758,6 +1806,27 @@ watch(isRegistered, async (value) => {
                 </RouterLink>
               </template>
             </SubmissionCard>
+          </div>
+
+          <!-- 分页控件 -->
+          <div v-if="totalPages > 1" class="showcase-pagination">
+            <button
+              class="btn btn--ghost btn--compact"
+              :disabled="currentPage === 1"
+              @click="currentPage = Math.max(1, currentPage - 1)"
+            >
+              上一页
+            </button>
+            <span class="pagination-info">
+              第 {{ currentPage }} / {{ totalPages }} 页
+            </span>
+            <button
+              class="btn btn--ghost btn--compact"
+              :disabled="currentPage === totalPages"
+              @click="currentPage = Math.min(totalPages, currentPage + 1)"
+            >
+              下一页
+            </button>
           </div>
         </section>
 
@@ -2422,5 +2491,25 @@ watch(isRegistered, async (value) => {
     grid-template-columns: 1fr;
     gap: 1rem;
   }
+}
+
+/* Showcase Pagination */
+.showcase-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 2rem;
+  padding: 1.5rem;
+  background: var(--surface-muted);
+  border-radius: 12px;
+}
+
+.pagination-info {
+  font-size: 0.875rem;
+  color: var(--muted);
+  font-weight: 500;
+  min-width: 120px;
+  text-align: center;
 }
 </style>

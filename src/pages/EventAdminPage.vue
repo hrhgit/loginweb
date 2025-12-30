@@ -178,15 +178,10 @@ const loadData = async () => {
     
     // Check if event exists and user has permission
     const currentEvent = event.value
-    console.log('EventAdminPage - Current event:', currentEvent)
-    console.log('EventAdminPage - User:', store.user)
-    console.log('EventAdminPage - Is admin:', store.isAdmin)
     
     if (!currentEvent) {
       // Try to fetch the event directly if not found in displayedEvents
-      console.log('EventAdminPage - Fetching event by ID:', eventId.value)
       const { data: fetchedEvent, error: fetchError } = await store.fetchEventById(eventId.value)
-      console.log('EventAdminPage - Fetch result:', { fetchedEvent, fetchError })
       
       if (fetchError || !fetchedEvent) {
         console.error('EventAdminPage - Event not found or error:', fetchError)
@@ -203,11 +198,6 @@ const loadData = async () => {
       }
     } else {
       // Check permissions for existing event
-      console.log('EventAdminPage - Checking permissions for existing event')
-      console.log('EventAdminPage - Event created_by:', currentEvent.created_by)
-      console.log('EventAdminPage - Current user ID:', store.user?.id)
-      console.log('EventAdminPage - Is admin:', store.isAdmin)
-      
       if (currentEvent.created_by !== store.user?.id && !store.isAdmin) {
         console.error('EventAdminPage - Permission denied for existing event')
         store.setBanner('error', '您没有管理此活动的权限')

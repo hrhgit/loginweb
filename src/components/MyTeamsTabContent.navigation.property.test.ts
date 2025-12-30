@@ -70,6 +70,8 @@ describe('MyTeamsTabContent Navigation Property Tests', () => {
         async ({ eventId, teams }) => {
           // Setup mock store to return the generated teams
           mockStore.getMyTeamsForEvent.mockReturnValue(teams)
+          mockStore.getMyTeamRequestsForEvent.mockReturnValue([])
+          mockStore.getMyTeamInvitesForEvent.mockReturnValue([])
 
           // Mount component with router
           const wrapper = mount(MyTeamsTabContent, {
@@ -93,6 +95,7 @@ describe('MyTeamsTabContent Navigation Property Tests', () => {
 
           // Verify that all navigation links contain the correct eventId and teamId parameters
           const allLinks = wrapper.findAll('a[href]')
+          
           for (const link of allLinks) {
             const href = link.attributes('href')
             if (href && href.includes('/events/') && href.includes('/team/')) {
@@ -111,24 +114,25 @@ describe('MyTeamsTabContent Navigation Property Tests', () => {
             }
           }
 
-          // For each team, verify that the correct navigation links exist
-          for (const team of teams) {
-            const expectedDetailPath = `/events/${eventId}/team/${team.teamId}`
-            const expectedEditPath = `/events/${eventId}/team/${team.teamId}/edit`
-            
-            // Check if detail link exists
-            const detailLinks = allLinks.filter(link => 
-              link.attributes('href') === expectedDetailPath
-            )
-            expect(detailLinks.length).toBeGreaterThan(0)
-            
-            // If user is leader, check if edit link exists
-            if (team.role === 'leader') {
-              const editLinks = allLinks.filter(link => 
-                link.attributes('href') === expectedEditPath
+          // Only check for team links if there are teams to display
+          if (teams.length > 0) {
+            // For each team, verify that the correct navigation links exist
+            for (const team of teams) {
+              const expectedDetailPath = `/events/${eventId}/team/${team.teamId}`
+              
+              // Check if detail link exists
+              const detailLinks = allLinks.filter(link => 
+                link.attributes('href') === expectedDetailPath
               )
-              expect(editLinks.length).toBeGreaterThan(0)
+              expect(detailLinks.length).toBeGreaterThan(0)
             }
+          } else {
+            // If there are no teams, verify that no team-related navigation links exist
+            const teamLinks = allLinks.filter(link => {
+              const href = link.attributes('href')
+              return href && href.includes('/events/') && href.includes('/team/')
+            })
+            expect(teamLinks.length).toBe(0)
           }
         }
       ),

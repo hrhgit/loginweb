@@ -2,7 +2,10 @@
 
 **1. 枚举类型 (Enums)**
 - `event_status`: 'draft' (草稿), 'published' (已发布), 'ended' (已结束)
-- `registration_status`: 'pending' (待定), 'confirmed' (已确认), 'cancelled' (已取消)
+- `registration_status`: 'registered' (已注册) - 注意：云端只有这一个值
+- `user_role`: 'programmer' (程序员), 'planner' (策划), 'artist' (美术), 'audio' (音频)
+- `join_request_status`: 'pending' (待处理), 'approved' (已批准), 'rejected' (已拒绝), 'cancelled' (已取消)
+- `submission_link_mode`: 'link' (外部链接), 'file' (文件上传)
 
 **2. 表结构**
 
@@ -10,10 +13,10 @@
 
 ### `profiles` (用户资料表)
 - `id` (uuid, PK): 关联 auth.users.id
-- `username` (text): 用户昵称
+- `username` (text): 用户昵称 (最少3个字符)
 - `avatar_url` (text): 头像地址
-- `roles` (text[]): 职能标签（可多选：programmer / planner / artist / audio）
-- `is_admin` (boolean): 管理员标记 (注：虽然保留了字段，但目前主要使用 app_metadata 判断权限)
+- `roles` (user_role[]): 职能标签数组（可多选：programmer / planner / artist / audio）
+- `updated_at` (timestamptz): 更新时间
 
 ### `user_contacts` (私密联系方式表)
 - `user_id` (uuid, PK): 关联 profiles.id
@@ -40,9 +43,15 @@
 
 ### `teams` (队伍表)
 - `id` (uuid, PK): 主键
-- `name` (text): 队伍名称
+- `name` (text): 队伍名称 (2-30个字符)
 - `event_id` (uuid, FK): 关联 events.id
 - `leader_id` (uuid, FK): 关联 profiles.id (队长)
+- `created_at` (timestamptz): 创建时间
+- `updated_at` (timestamptz): 更新时间
+- `intro` (text): 队伍简介
+- `extra` (text): 额外信息
+- `leader_qq` (text): 队长QQ
+- `needs` (text[]): 需要的职能标签 (最多6个)
 
 ### `registrations` (报名记录表)
 - `id` (uuid, PK): 主键
@@ -50,7 +59,8 @@
 - `event_id` (uuid, FK): 关联 events.id
 - `team_id` (uuid, FK, Optional): 关联 teams.id (如果是个人报名则为 NULL)
 - `form_response` (jsonb): 报名表单填写结果
-- `status` (enum: registration_status): 报名状态
+- `status` (enum: registration_status): 报名状态 (目前只有 'registered')
+- `created_at` (timestamptz): 创建时间
 - **Unique Constraint**: `(user_id, event_id)` (防止重复报名)
 
 ### `team_seekers` (求组队卡片)
@@ -63,6 +73,34 @@
 - `created_at` (timestamptz): 创建时间
 - `updated_at` (timestamptz): 更新时间
 - **Unique Constraint**: `(event_id, user_id)` (每个用户在同一活动只能发布一张求组队卡片)
+
+### `team_members` (队伍成员表)
+- `id` (uuid, PK): 主键
+- `team_id` (uuid, FK): 关联 teams.id
+- `user_id` (uuid, FK): 关联 profiles.id
+- `joined_at` (timestamptz): 加入时间
+- **Unique Constraint**: `(team_id, user_id)` (防止重复加入)
+
+### `team_join_requests` (入队申请表)
+- `id` (uuid, PK): 主键
+- `team_id` (uuid, FK): 关联 teams.id
+- `user_id` (uuid, FK): 关联 profiles.id
+- `status` (enum: join_request_status): 申请状态
+- `message` (text): 申请留言
+- `created_at` (timestamptz): 创建时间
+- `updated_at` (timestamptz): 更新时间
+- **Unique Constraint**: `(team_id, user_id)` (防止重复申请)
+
+### `team_invites` (队伍邀请表)
+- `id` (uuid, PK): 主键
+- `team_id` (uuid, FK): 关联 teams.id
+- `user_id` (uuid, FK): 关联 profiles.id (被邀请人)
+- `invited_by` (uuid, FK): 关联 profiles.id (邀请人)
+- `message` (text): 邀请留言
+- `status` (text): 邀请状态 ('pending', 'accepted', 'declined')
+- `created_at` (timestamptz): 创建时间
+- `updated_at` (timestamptz): 更新时间
+- **Unique Constraint**: `(team_id, user_id)` (防止重复邀请)
 
 ### `submissions` (作品提交)
 - `id` (uuid, PK): 主键
@@ -86,3 +124,9 @@
 **RLS 规则建议**
 - `insert/update/delete`: 仅允许 `auth.uid()` 为 `teams.leader_id` 的用户操作，且 `submissions.team_id` 必须属于该队长
 - `select`: 可按需求开放给队长/队员/活动创建者查看
+
+## 云端数据库实际情况总结
+
+✅ **已确认与云端一致的表**: profiles, user_contacts, events, teams, registrations, submissions, team_members, team_join_requests, team_seekers, team_invites
+
+⚠️ **安全建议**: 云端数据库有9个函数存在安全警告，建议修复 search_path 设置。详见: https://supabase.com/docs/guides/database/database-linter?lint=0011_function_search_path_mutable

@@ -2,9 +2,10 @@
 import { computed, ref, onMounted, watch } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import { useEventsReady } from '../composables/useEventsReady'
-import { Settings, Edit, Undo2 } from 'lucide-vue-next'
+import { Settings, Edit, Undo2, UserPlus } from 'lucide-vue-next'
 import { useAppStore } from '../store/appStore'
 import EventCard from '../components/events/EventCard.vue'
+import UserSearchModal from '../components/modals/UserSearchModal.vue'
 import {
   teamSizeLabel,
   formatDateRange,
@@ -19,6 +20,10 @@ const eventSummary = (description: string | null) => getEventSummaryText(descrip
 const myEvents = computed(() => store.myEvents)
 const canManage = computed(() => store.isAdmin)
 const revertBusyId = ref<string | null>(null)
+
+// Judge invitation modal state
+const inviteJudgeModalOpen = ref(false)
+const selectedEventId = ref<string | null>(null)
 
 // 添加初始化状态跟踪
 const isInitializing = ref(true)
@@ -60,6 +65,21 @@ const handleRevertToDraft = async (event: { id: string; status: string | null })
     store.setBanner('info', '已退回草稿')
   }
   revertBusyId.value = null
+}
+
+const handleInviteJudge = (eventId: string) => {
+  selectedEventId.value = eventId
+  inviteJudgeModalOpen.value = true
+}
+
+const handleJudgeInvited = (userId: string) => {
+  // The modal will handle the success message and close itself
+  // We could refresh judge data here if needed
+}
+
+const handleCloseInviteModal = () => {
+  inviteJudgeModalOpen.value = false
+  selectedEventId.value = null
 }
 
 useEventsReady(store)
@@ -144,6 +164,14 @@ useEventsReady(store)
               编辑页面
             </RouterLink>
             <template v-else-if="event.status === 'published'">
+              <button
+                class="btn btn--ghost btn--icon-text"
+                type="button"
+                @click="handleInviteJudge(event.id)"
+              >
+                <UserPlus :size="16" />
+                邀请评委
+              </button>
               <RouterLink 
                 class="btn btn--ghost btn--icon-text"
                 :to="`/events/${event.id}/admin`"
@@ -169,6 +197,14 @@ useEventsReady(store)
         </EventCard>
       </section>
     </template>
+
+    <!-- Judge Invitation Modal -->
+    <UserSearchModal
+      :event-id="selectedEventId || ''"
+      :is-open="inviteJudgeModalOpen && !!selectedEventId"
+      @close="handleCloseInviteModal"
+      @judge-invited="handleJudgeInvited"
+    />
 
   </main>
 </template>

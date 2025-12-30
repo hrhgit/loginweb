@@ -28,6 +28,35 @@
   --shadow: 0 18px 36px rgba(17, 35, 30, 0.09);
   --shadow-sm: 0 10px 24px rgba(17, 35, 30, 0.08);
 }
+
+/* Mobile-first responsive design */
+@media (max-width: 640px) {
+  :root {
+    font-size: 14px; /* Slightly smaller base font size on mobile */
+  }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  :root {
+    --border: rgba(18, 33, 30, 0.3);
+    --surface: rgba(255, 255, 255, 0.95);
+    --surface-strong: rgba(255, 255, 255, 1);
+  }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --transition-duration: 0s;
+  }
+  
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
 *,
 *:before,
 *:after {
@@ -87,6 +116,16 @@ img {
   flex-direction: column;
   gap: 22px;
 }
+
+/* Mobile app shell adjustments */
+@media (max-width: 640px) {
+  .app-shell {
+    width: min(1120px, 95vw);
+    padding: 80px 0 20px;
+    gap: 16px;
+  }
+}
+
 .app-header {
   position: fixed;
   top: 0;
@@ -99,6 +138,7 @@ img {
   -webkit-backdrop-filter: blur(12px);
   backdrop-filter: blur(12px);
 }
+
 .app-header__inner {
   width: min(1120px, 92vw);
   margin: 0 auto;
@@ -107,6 +147,15 @@ img {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+}
+
+/* Mobile header adjustments */
+@media (max-width: 640px) {
+  .app-header__inner {
+    width: min(1120px, 95vw);
+    padding: 10px 0;
+    gap: 12px;
+  }
 }
 .brand {
   display: flex;
@@ -264,17 +313,53 @@ img {
     transform 0.18s ease,
     border-color 0.18s ease,
     box-shadow 0.18s ease;
+  min-height: 40px; /* Better touch target */
+  text-decoration: none;
 }
+
 .btn:hover {
   border-color: #1f6f6d59;
   transform: translateY(-1px);
   box-shadow: 0 12px 24px #11231e14;
 }
+
+.btn:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .btn:disabled {
   cursor: not-allowed;
   opacity: 0.6;
   transform: none;
   box-shadow: none;
+}
+
+/* Mobile button improvements */
+@media (max-width: 640px) {
+  .btn {
+    min-height: 44px; /* iOS recommended touch target */
+    padding: 12px 16px;
+    font-size: 1rem;
+  }
+  
+  .btn--compact {
+    min-height: 40px;
+    padding: 10px 14px;
+  }
+  
+  .btn--icon {
+    min-width: 44px;
+    min-height: 44px;
+    padding: 12px;
+  }
+}
+
+/* Reduced motion support for buttons */
+@media (prefers-reduced-motion: reduce) {
+  .btn:hover {
+    transform: none;
+  }
 }
 .btn--ghost {
   background: transparent;
@@ -2283,6 +2368,42 @@ img {
   border-color: #1f6f6d8c;
   box-shadow: 0 0 0 4px var(--accent-soft);
 }
+
+/* Mobile form improvements */
+@media (max-width: 640px) {
+  .field input,
+  .field textarea,
+  .field select {
+    padding: 14px 16px;
+    font-size: 16px; /* Prevents zoom on iOS */
+    min-height: 44px; /* Better touch target */
+  }
+  
+  .field textarea {
+    min-height: 120px;
+  }
+  
+  .field--inline input[type="checkbox"] {
+    width: 20px;
+    height: 20px;
+  }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .field input,
+  .field textarea,
+  .field select {
+    border-width: 2px;
+  }
+  
+  .field input:focus,
+  .field textarea:focus,
+  .field select:focus {
+    border-width: 2px;
+    box-shadow: 0 0 0 2px var(--accent);
+  }
+}
 @keyframes shimmer {
   0% {
     background-position: 0% 0;
@@ -2395,16 +2516,26 @@ img {
 .field--error span {
   color: var(--danger);
 }
+
 .field--error input,
 .field--error textarea,
 .field--error select {
   border-color: var(--danger);
   box-shadow: 0 0 0 3px #b62d1c33;
 }
+
+.field--error input:focus,
+.field--error textarea:focus,
+.field--error select:focus {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 4px rgba(182, 45, 28, 0.2);
+}
+
 .field--error .tag-list {
   border-color: var(--danger);
   box-shadow: 0 0 0 3px #b62d1c33;
 }
+
 .input-error {
   border-color: var(--danger) !important;
   box-shadow: 0 0 0 3px #b62d1c33 !important;

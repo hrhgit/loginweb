@@ -217,9 +217,15 @@ const handleDeleteTeam = async () => {
   if (!team.value) return
   const confirmed = window.confirm('确定要删除该队伍吗？删除后将从组队大厅移除')
   if (!confirmed) return
+  
   const { error: deleteError } = await store.deleteTeam(eventId.value, team.value.id)
   if (deleteError) {
-    store.setBanner('error', deleteError)
+    // 检查是否是因为已提交作品而无法删除
+    if (deleteError.includes('submissions_team_id_fkey') || deleteError.includes('foreign key constraint')) {
+      store.setBanner('error', '该队伍已提交作品，请先删除作品后再删除队伍')
+    } else {
+      store.setBanner('error', deleteError)
+    }
     return
   }
   store.setBanner('info', '队伍已删除')
@@ -259,6 +265,23 @@ const handleCloseTeam = async () => {
   await store.loadTeams(eventId.value)
   store.setBanner('info', '队伍已标记为组队完成')
   closeTeamBusy.value = false
+}
+
+const reopenTeamBusy = ref(false)
+const handleReopenTeam = async () => {
+  if (!team.value) return
+  reopenTeamBusy.value = true
+  closeTeamError.value = ''
+  const { error } = await store.reopenTeam(team.value.id)
+  if (error) {
+    closeTeamError.value = error
+    store.setBanner('error', error)
+    reopenTeamBusy.value = false
+    return
+  }
+  await store.loadTeams(eventId.value)
+  store.setBanner('info', '队伍已重新开放组队')
+  reopenTeamBusy.value = false
 }
 
 const loadEvent = async () => {
@@ -343,7 +366,7 @@ watch(
         >
           {{ joinLabel }}
         </button>
-        <span v-else-if="isClosed" class="pill-badge pill-badge--ended">组队已完成</span>
+        <span v-else-if="isClosed && !isLeader" class="pill-badge pill-badge--ended">组队已完成</span>
         <button v-if="isLeader" class="btn btn--ghost" type="button" @click="handleEditTeam">
           编辑队伍
         </button>
@@ -355,6 +378,15 @@ watch(
           @click="handleCloseTeam"
         >
           {{ closeTeamBusy ? '标记中...' : '组队完成' }}
+        </button>
+        <button
+          v-if="isLeader && isClosed"
+          class="btn btn--ghost"
+          type="button"
+          :disabled="reopenTeamBusy"
+          @click="handleReopenTeam"
+        >
+          {{ reopenTeamBusy ? '开放中...' : '继续组队' }}
         </button>
         <button v-if="isLeader" class="btn btn--danger" type="button" @click="handleDeleteTeam">
           删除队伍

@@ -340,7 +340,6 @@ const sanitizedSubmissionUrl = computed(() => {
     // 优先使用数据库中存储的完整URL
     const storedUrl = submission.value.submission_url?.trim()
     if (storedUrl && storedUrl.includes('supabase.co/storage')) {
-      console.log('使用存储的完整URL:', storedUrl)
       return storedUrl
     }
     
@@ -348,25 +347,12 @@ const sanitizedSubmissionUrl = computed(() => {
     if (submission.value.submission_storage_path?.trim()) {
       const storagePath = submission.value.submission_storage_path.trim()
       
-      console.log('生成文件URL，路径:', storagePath)
-      console.log('路径结构分析:', {
-        parts: storagePath.split('/'),
-        isNewFormat: storagePath.split('/').length >= 3,
-        originalFileName: storagePath.split('/').pop()
-      })
-      
       const fileUrl = generateDownloadUrl(storagePath)
-      console.log('生成的文件URL:', fileUrl)
       
       if (fileUrl) {
         return fileUrl
       }
     }
-    
-    console.warn('无法生成有效的文件下载URL', {
-      storage_path: submission.value.submission_storage_path,
-      submission_url: submission.value.submission_url
-    })
   }
   
   return null
@@ -395,7 +381,6 @@ const generateCustomFileName = (): string => {
   const cleanProjectName = projectName.replace(/[\/\\:*?"<>|]/g, '-')
   
   const customFileName = `${cleanTeamName}-${cleanProjectName}${extension}`
-  console.log('生成自定义文件名:', customFileName)
   
   return customFileName
 }
@@ -403,8 +388,6 @@ const generateCustomFileName = (): string => {
 // 使用 Supabase 的 createSignedUrl 生成带自定义文件名的下载链接
 const generateSignedDownloadUrl = async (storagePath: string, customFileName: string): Promise<string | null> => {
   try {
-    console.log('生成签名下载URL:', { storagePath, customFileName })
-    
     // 创建带自定义文件名的签名URL (有效期60秒)
     const { data, error } = await supabase.storage
       .from('submission-files')
@@ -418,8 +401,6 @@ const generateSignedDownloadUrl = async (storagePath: string, customFileName: st
     }
     
     if (data?.signedUrl) {
-      console.log('签名URL生成成功:', data.signedUrl)
-      console.log('指定的下载文件名:', customFileName)
       return data.signedUrl
     }
     
@@ -441,7 +422,6 @@ const generateDownloadUrl = (storagePath: string): string | null => {
     const { data } = supabase.storage.from('submission-files').getPublicUrl(storagePath)
     
     if (data?.publicUrl) {
-      console.log('生成的文件URL:', data.publicUrl)
       return data.publicUrl
     }
     
@@ -479,17 +459,7 @@ const loadSubmissionData = async () => {
     }
 
     submission.value = found
-    
-    // 调试：检查文件路径和URL生成
-    if (found.link_mode === 'file' && found.submission_storage_path) {
-      console.log('作品文件信息:', {
-        storage_path: found.submission_storage_path,
-        submission_url: found.submission_url,
-        generated_url: generateDownloadUrl(found.submission_storage_path)
-      })
-    }
   } catch (err: any) {
-    console.error(err)
     error.value = err.message || '加载失败'
   } finally {
     loading.value = false
@@ -566,10 +536,6 @@ const handleCustomDownload = async () => {
   }
   
   const customFileName = generateCustomFileName()
-  console.log('开始生成签名下载链接:', {
-    storagePath: submission.value.submission_storage_path,
-    fileName: customFileName
-  })
   
   try {
     // 生成带自定义文件名的签名下载URL
@@ -587,13 +553,11 @@ const handleCustomDownload = async () => {
       link.click()
       document.body.removeChild(link)
       
-      console.log('下载已触发，文件名:', customFileName)
       store.setBanner('info', '文件下载已开始')
     } else {
       store.setBanner('error', '生成下载链接失败')
     }
   } catch (error) {
-    console.error('下载处理失败:', error)
     store.setBanner('error', '文件下载失败，请重试')
   }
 }

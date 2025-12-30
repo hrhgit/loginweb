@@ -29,6 +29,14 @@
         <Download :size="18" />
         作品文件
       </button>
+      <button 
+        class="tab-btn"
+        :class="{ active: activeTab === 'judges' }"
+        @click="activeTab = 'judges'"
+      >
+        <Users :size="18" />
+        评委管理
+      </button>
     </div>
 
     <section v-if="activeTab === 'forms'" class="admin-section">
@@ -118,6 +126,13 @@
           </div>
         </div>
       </div>
+    </section>
+
+    <section v-else-if="activeTab === 'judges'" class="admin-section">
+      <JudgeManagementPanel 
+        :event-id="eventId"
+        @invite-judge="handleInviteJudge"
+      />
     </section>
 
     <section v-else class="admin-section">
@@ -323,16 +338,26 @@
       </div>
     </section>
   </main>
+
+  <!-- Judge Invitation Modal -->
+  <UserSearchModal
+    :event-id="eventId"
+    :is-open="inviteJudgeModalOpen"
+    @close="handleCloseInviteModal"
+    @judge-invited="handleJudgeInvited"
+  />
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, Download, FileText, Loader2, User, ExternalLink, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-vue-next'
+import { ArrowLeft, Download, FileText, Loader2, User, ExternalLink, ChevronUp, ChevronDown, ChevronsUpDown, Users } from 'lucide-vue-next'
 import { useAppStore } from '../store/appStore'
 import { supabase } from '../lib/supabase'
 import { getEventDetailsFromDescription } from '../utils/eventDetails'
 import EnhancedDataTable from '../components/admin/EnhancedDataTable.vue'
+import JudgeManagementPanel from '../components/admin/JudgeManagementPanel.vue'
+import UserSearchModal from '../components/modals/UserSearchModal.vue'
 import { 
   convertToFlattenedRegistrations,
   generateExportFilename,
@@ -362,7 +387,10 @@ const itemsPerPage = 50
 const sortBy = ref<string>('')
 const sortOrder = ref<'asc' | 'desc'>('asc')
 
-const activeTab = ref<'forms' | 'files'>('forms')
+const activeTab = ref<'forms' | 'files' | 'judges'>('forms')
+
+// Judge invitation modal state
+const inviteJudgeModalOpen = ref(false)
 
 // Event questions for form parsing
 const eventQuestions = computed(() => {
@@ -715,6 +743,20 @@ const handleSort = (columnKey: string) => {
     sortBy.value = columnKey
     sortOrder.value = 'asc'
   }
+}
+
+// 处理邀请评委
+const handleInviteJudge = () => {
+  inviteJudgeModalOpen.value = true
+}
+
+const handleJudgeInvited = (userId: string) => {
+  // The modal will handle the success message and close itself
+  // We could refresh judge data here if needed
+}
+
+const handleCloseInviteModal = () => {
+  inviteJudgeModalOpen.value = false
 }
 
 onMounted(() => {

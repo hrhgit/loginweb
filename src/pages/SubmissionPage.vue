@@ -679,7 +679,6 @@ const closeSubmitModal = () => {
 }
 
 onMounted(async () => {
-  console.log('SubmissionPage mounted', { isEditMode: isEditMode.value, submissionId: submissionId.value })
   await store.refreshUser()
   await store.ensureEventsLoaded()
   

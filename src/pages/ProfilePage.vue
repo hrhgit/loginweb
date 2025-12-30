@@ -534,6 +534,27 @@ const handleUpdatePassword = async () => {
   passwordBusy.value = false
 }
 
+// Handle notification clicks with special handling for judge notifications
+const handleNotificationClick = async (notification: any) => {
+  // Check if this is a judge notification
+  if (notification.id.startsWith('judge-invited:') || notification.id.startsWith('judge-removed:')) {
+    // Extract event ID from notification ID
+    const parts = notification.id.split(':')
+    if (parts.length >= 2) {
+      const eventId = parts[1]
+      const redirectPath = await store.handleJudgeNotificationClick(notification.id, eventId)
+      await router.push(redirectPath)
+      return
+    }
+  }
+  
+  // For regular notifications, use the standard link
+  store.markNotificationRead(notification.id)
+  if (notification.link) {
+    await router.push(notification.link)
+  }
+}
+
 onMounted(async () => {
   await store.refreshUser()
   await store.loadMyProfile()
@@ -889,14 +910,13 @@ watch(
               </div>
               <p class="muted">{{ item.body }}</p>
               <div class="notification-item__actions">
-                <RouterLink
+                <button
                   v-if="item.link"
                   class="btn btn--ghost"
-                  :to="item.link"
-                  @click="store.markNotificationRead(item.id)"
+                  @click="handleNotificationClick(item)"
                 >
                   查看详情
-                </RouterLink>
+                </button>
               </div>
             </article>
           </div>

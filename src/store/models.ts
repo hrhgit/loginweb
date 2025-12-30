@@ -29,7 +29,6 @@ export type Profile = {
   username: string | null
   avatar_url: string | null
   roles: string[] | null
-  is_admin: boolean
 }
 
 export type UserContacts = {
@@ -170,4 +169,92 @@ export type SubmissionWithTeam = Submission & {
     id: string
     name: string
   } | null
+}
+
+// Judge Invitation System Types
+
+export type EventJudge = {
+  id: string
+  event_id: string
+  user_id: string
+  created_at: string
+  updated_at: string
+}
+
+export type JudgeWithProfile = EventJudge & {
+  profile: {
+    id: string
+    username: string | null
+    avatar_url: string | null
+    roles: string[] | null
+  }
+}
+
+export type JudgePermission = {
+  isJudge: boolean
+  isEventAdmin: boolean
+  canAccessJudgeWorkspace: boolean
+  canManageJudges: boolean
+}
+
+export type JudgeSubmissionView = {
+  id: string
+  project_name: string
+  intro: string
+  cover_path: string
+  video_link: string | null
+  submission_url: string | null
+  submission_storage_path: string | null
+  submission_password: string | null
+  team_name: string
+  created_at: string
+  updated_at: string
+}
+
+export type UserSearchResult = {
+  id: string
+  username: string
+  avatar_url: string | null
+  roles: string[] | null
+  isAlreadyJudge?: boolean
+}
+
+// Judge Error Types
+
+export const JudgeErrorCode = {
+  PERMISSION_DENIED: 'PERMISSION_DENIED',
+  USER_NOT_FOUND: 'USER_NOT_FOUND',
+  ALREADY_JUDGE: 'ALREADY_JUDGE',
+  EVENT_NOT_FOUND: 'EVENT_NOT_FOUND',
+  INVALID_OPERATION: 'INVALID_OPERATION'
+} as const
+
+export type JudgeErrorCode = typeof JudgeErrorCode[keyof typeof JudgeErrorCode]
+
+export interface JudgeError {
+  code: JudgeErrorCode
+  message: string
+  details?: any
+}
+
+// Judge API Interface Types
+
+export interface SearchUsersParams {
+  query: string
+  eventId: string
+  limit?: number
+}
+
+export interface InviteJudgeParams {
+  eventId: string
+  userId: string
+}
+
+export interface RemoveJudgeParams {
+  eventId: string
+  userId: string
+}
+
+export interface GetJudgesParams {
+  eventId: string
 }

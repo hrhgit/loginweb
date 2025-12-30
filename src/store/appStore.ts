@@ -21,6 +21,9 @@ import type {
   MyTeamRequest,
   MyTeamInvite,
   SubmissionWithTeam,
+  JudgeWithProfile,
+  JudgePermission,
+  UserSearchResult,
 } from './models'
 
 export type { AuthView, DisplayEvent, Event, EventStatus } from './models'
@@ -159,6 +162,70 @@ const submissionsByEventId = ref<Record<string, SubmissionWithTeam[]>>({})
 const submissionsLoading = ref(false)
 const submissionsError = ref('')
 
+// Judge-related state
+const judgesByEventId = ref<Record<string, JudgeWithProfile[]>>({})
+const judgePermissionsByEventId = ref<Record<string, JudgePermission>>({})
+const judgeWorkspaceLoading = ref(false)
+const judgeWorkspaceError = ref('')
+
+// Error handling utilities for judge operations
+const isNetworkError = (error: any): boolean => {
+  if (!error) return false
+  const message = error.message || error.toString()
+  return message.includes('网络') || 
+         message.includes('连接') || 
+         message.includes('timeout') ||
+         message.includes('fetch') ||
+         message.includes('NetworkError') ||
+         error.code === 'NETWORK_ERROR'
+}
+
+const getJudgeErrorMessage = (error: any, operation: string): string => {
+  if (!error) return `${operation}时发生未知错误`
+  
+  const message = error.message || error.toString()
+  
+  // UUID format errors
+  if (message.includes('invalid input syntax for type uuid') || message.includes('UUID格式')) {
+    return 'ID格式错误，请刷新页面后重试'
+  }
+  
+  // Network errors
+  if (isNetworkError(error)) {
+    return `网络连接失败，请检查网络后重试`
+  }
+  
+  // Permission errors
+  if (message.includes('permission') || message.includes('权限') || error.code === '42501') {
+    return '权限不足，请联系管理员'
+  }
+  
+  // Database constraint errors
+  if (message.includes('duplicate') || message.includes('重复') || error.code === '23505') {
+    return '该用户已经是评委'
+  }
+  
+  // Not found errors
+  if (message.includes('not found') || message.includes('不存在') || error.code === '23503') {
+    return '用户或活动不存在'
+  }
+  
+  // Rate limiting
+  if (message.includes('rate limit') || message.includes('频率限制')) {
+    return '操作过于频繁，请稍后再试'
+  }
+  
+  // Log the full error for debugging
+  console.error(`Judge operation error (${operation}):`, error)
+  
+  // Return original message if it's user-friendly, otherwise generic message
+  if (message.length < 100 && !message.includes('Error:') && !message.includes('Exception')) {
+    return message
+  }
+  
+  return `${operation}失败，请稍后重试`
+}
+
 const displayName = computed(() => {
   return profile.value?.username || user.value?.user_metadata?.full_name || '用户'
 })
@@ -247,6 +314,63 @@ const deleteReadNotifications = () => {
   if (next.length === notifications.value.length) return
   notifications.value = next
   persistNotifications()
+}
+
+// Judge notification helpers
+const createJudgeInvitedNotification = (eventId: string, eventTitle: string): NotificationItem => {
+  return {
+    id: `judge-invited:${eventId}:${user.value?.id}:${Date.now()}`,
+    title: '您被邀请为评委',
+    body: `您已被邀请为活动"${eventTitle}"的评委，现在可以访问评委工作台查看作品。`,
+    created_at: new Date().toISOString(),
+    read: false,
+    link: `/events/${eventId}?tab=judge` // Add tab parameter to indicate judge workspace
+  }
+}
+
+const createJudgeRemovedNotification = (eventId: string, eventTitle: string): NotificationItem => {
+  return {
+    id: `judge-removed:${eventId}:${user.value?.id}:${Date.now()}`,
+    title: '评委权限已撤销',
+    body: `您在活动"${eventTitle}"的评委权限已被撤销。`,
+    created_at: new Date().toISOString(),
+    read: false,
+    link: `/events/${eventId}` // Regular event page since they no longer have judge access
+  }
+}
+
+const pushJudgeNotification = (eventId: string, userId: string, type: 'invited' | 'removed') => {
+  const event = getEventById(eventId)
+  if (!event) return
+
+  // In a real implementation, this would be sent to the target user via a backend service
+  // For now, we only show notifications to the current user if they are the target
+  if (user.value?.id === userId) {
+    const notification = type === 'invited' 
+      ? createJudgeInvitedNotification(eventId, event.title)
+      : createJudgeRemovedNotification(eventId, event.title)
+    
+    pushNotification(notification)
+  }
+}
+
+// Handle judge notification clicks
+const handleJudgeNotificationClick = async (notificationId: string, eventId: string) => {
+  // Mark notification as read
+  markNotificationRead(notificationId)
+  
+  // Check if user still has judge permissions
+  const permission = await checkJudgePermission(eventId)
+  
+  // Return the appropriate route based on permissions
+  if (permission.canAccessJudgeWorkspace) {
+    // If judge workspace is implemented, redirect there
+    // For now, redirect to event detail with judge tab parameter
+    return `/events/${eventId}?tab=judge`
+  } else {
+    // If no judge permissions, redirect to regular event page
+    return `/events/${eventId}`
+  }
 }
 
 const normalizeTeamNeeds = (value: unknown) => {
@@ -819,6 +943,31 @@ const closeTeam = async (teamId: string) => {
   return { error: '' }
 }
 
+const reopenTeam = async (teamId: string) => {
+  if (!user.value) return { error: '请先登录' }
+  if (!teamId) return { error: '队伍不存在' }
+
+  const { error } = await supabase
+    .from('teams')
+    .update({ is_closed: false, updated_at: new Date().toISOString() })
+    .eq('id', teamId)
+    .eq('leader_id', user.value.id)
+
+  if (error) {
+    return { error: error.message }
+  }
+
+  // 更新本地缓存
+  const nextByEvent: Record<string, TeamLobbyTeam[]> = { ...teamsByEventId.value }
+  for (const [eventId, list] of Object.entries(nextByEvent)) {
+    nextByEvent[eventId] = list.map((team) =>
+      team.id === teamId ? { ...team, is_closed: false } : team,
+    )
+  }
+  teamsByEventId.value = nextByEvent
+  return { error: '' }
+}
+
 const removeTeamMember = async (teamId: string, memberId: string) => {
   if (!user.value) return { error: '请先登录' }
   if (!teamId || !memberId) return { error: '队伍不存在' }
@@ -1160,24 +1309,19 @@ const loadSubmissions = async (eventId: string) => {
 
     // 转换数据格式
     const submissions: SubmissionWithTeam[] = (data || []).map(item => {
-      console.log('Raw submission item:', item)
-      console.log('Teams data:', item.teams)
-      
       // 处理队伍数据 - Supabase 的 !inner 关联可能返回对象或数组
       let teamData = null
       if (item.teams) {
         if (Array.isArray(item.teams) && item.teams.length > 0) {
           // 如果是数组，取第一个
           teamData = { id: item.teams[0].id, name: item.teams[0].name }
-          console.log('Team data from array:', teamData)
         } else if (typeof item.teams === 'object' && !Array.isArray(item.teams) && 'id' in item.teams) {
           // 如果是单个对象
           teamData = { id: (item.teams as any).id, name: (item.teams as any).name }
-          console.log('Team data from object:', teamData)
         }
       }
       
-      const result = {
+      return {
         id: item.id,
         event_id: item.event_id,
         team_id: item.team_id,
@@ -1194,9 +1338,6 @@ const loadSubmissions = async (eventId: string) => {
         updated_at: item.updated_at,
         team: teamData
       }
-      
-      console.log('Processed submission:', result)
-      return result
     })
 
     submissionsByEventId.value = { ...submissionsByEventId.value, [eventId]: submissions }
@@ -1268,7 +1409,7 @@ const loadMyProfile = async () => {
   profileLoading.value = true
   const { data, error } = await supabase
     .from('profiles')
-    .select('id,username,avatar_url,roles,is_admin')
+    .select('id,username,avatar_url,roles')
     .eq('id', user.value.id)
     .maybeSingle()
 
@@ -1329,7 +1470,7 @@ const updateMyProfile = async (payload: Partial<Pick<Profile, 'username' | 'avat
       .from('profiles')
       .update(nextPayload)
       .eq('id', user.value.id)
-      .select('id,username,avatar_url,roles,is_admin')
+      .select('id,username,avatar_url,roles')
       .maybeSingle()
 
     if (error) {
@@ -1822,6 +1963,10 @@ const updateEventStatus = async (eventId: string, status: EventStatus, descripti
     return { data: null, error: '没有权限：仅管理员可更新活动' }
   }
 
+  // Get current event status for permission persistence tracking
+  const currentEvent = getEventById(eventId)
+  const oldStatus = currentEvent?.status
+
   const payload: { status: EventStatus; description?: string | null } = { status }
   if (description !== undefined) {
     payload.description = description
@@ -1841,6 +1986,9 @@ const updateEventStatus = async (eventId: string, status: EventStatus, descripti
   events.value = events.value.map((event) =>
     event.id === data.id ? { ...event, status: data.status, description: data.description ?? event.description } : event,
   )
+
+  // Handle judge permission persistence during event status changes
+  await handleEventStatusChange(eventId, status, oldStatus || undefined)
 
   return { data: data as { id: string; status: EventStatus; description: string | null }, error: '' }
 }
@@ -1985,6 +2133,682 @@ const toggleRegistration = async (event: DisplayEvent) => {
   registrationBusyEventId.value = null
 }
 
+// Judge-related functions
+
+const checkJudgePermission = async (eventId: string): Promise<JudgePermission> => {
+  if (!user.value || !eventId) {
+    return {
+      isJudge: false,
+      isEventAdmin: false,
+      canAccessJudgeWorkspace: false,
+      canManageJudges: false,
+    }
+  }
+
+  // Check if cached
+  const cached = judgePermissionsByEventId.value[eventId]
+  if (cached) {
+    return cached
+  }
+
+  try {
+    // Check if user is event admin (creator)
+    const event = getEventById(eventId)
+    const isEventAdmin = event?.created_by === user.value.id
+
+    // Check if user is a judge for this event
+    const { data: judgeRecord, error } = await supabase
+      .from('event_judges')
+      .select('id')
+      .eq('event_id', eventId)
+      .eq('user_id', user.value.id)
+      .maybeSingle()
+
+    if (error) {
+      console.warn('Failed to check judge permission:', error.message)
+      return {
+        isJudge: false,
+        isEventAdmin,
+        canAccessJudgeWorkspace: isEventAdmin,
+        canManageJudges: isEventAdmin,
+      }
+    }
+
+    const isJudge = Boolean(judgeRecord)
+    const permission: JudgePermission = {
+      isJudge,
+      isEventAdmin,
+      canAccessJudgeWorkspace: isEventAdmin || isJudge,
+      canManageJudges: isEventAdmin,
+    }
+
+    // Cache the result
+    judgePermissionsByEventId.value = {
+      ...judgePermissionsByEventId.value,
+      [eventId]: permission,
+    }
+
+    return permission
+  } catch (error: any) {
+    console.error('Error checking judge permission:', error)
+    return {
+      isJudge: false,
+      isEventAdmin: false,
+      canAccessJudgeWorkspace: false,
+      canManageJudges: false,
+    }
+  }
+}
+
+const loadEventJudges = async (eventId: string): Promise<JudgeWithProfile[]> => {
+  if (!eventId) {
+    judgesByEventId.value = { ...judgesByEventId.value, [eventId]: [] }
+    return []
+  }
+
+  // Check if user has permission to view judges
+  if (!user.value) {
+    judgesByEventId.value = { ...judgesByEventId.value, [eventId]: [] }
+    return []
+  }
+
+  try {
+    judgeWorkspaceLoading.value = true
+    judgeWorkspaceError.value = ''
+
+    const { data, error } = await supabase
+      .from('event_judges')
+      .select(`
+        id,
+        event_id,
+        user_id,
+        created_at,
+        updated_at,
+        profiles(
+          id,
+          username,
+          avatar_url,
+          roles
+        )
+      `)
+      .eq('event_id', eventId)
+      .order('created_at', { ascending: true })
+
+    if (error) {
+      const errorMessage = getJudgeErrorMessage(error, '加载评委列表')
+      judgeWorkspaceError.value = errorMessage
+      
+      // Only show banner for non-network errors to avoid spam
+      if (!isNetworkError(error)) {
+        setBanner('error', errorMessage)
+      }
+      
+      judgesByEventId.value = { ...judgesByEventId.value, [eventId]: [] }
+      return []
+    }
+
+    // Transform the data
+    const judges: JudgeWithProfile[] = (data || []).map((row: any) => ({
+      id: row.id,
+      event_id: row.event_id,
+      user_id: row.user_id,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+      profile: row.profiles ? {
+        id: row.profiles.id,
+        username: row.profiles.username || null,
+        avatar_url: row.profiles.avatar_url || null,
+        roles: Array.isArray(row.profiles.roles) ? row.profiles.roles : null,
+      } : {
+        id: row.user_id,
+        username: null,
+        avatar_url: null,
+        roles: null,
+      }
+    }))
+
+    // Cache the result
+    judgesByEventId.value = { ...judgesByEventId.value, [eventId]: judges }
+    judgeWorkspaceError.value = '' // Clear error on success
+    
+    return judges
+
+  } catch (error: any) {
+    console.error('Error loading event judges:', error)
+    const errorMessage = getJudgeErrorMessage(error, '加载评委列表')
+    judgeWorkspaceError.value = errorMessage
+    
+    // Only show banner for non-network errors
+    if (!isNetworkError(error)) {
+      setBanner('error', errorMessage)
+    }
+    
+    judgesByEventId.value = { ...judgesByEventId.value, [eventId]: [] }
+    return []
+  } finally {
+    judgeWorkspaceLoading.value = false
+  }
+}
+
+const searchUsersForJudge = async (query: string, eventId: string, limit = 20): Promise<UserSearchResult[]> => {
+  if (!user.value || !eventId || !query.trim()) {
+    return []
+  }
+
+  try {
+    // Check if user has permission to manage judges
+    const permission = await checkJudgePermission(eventId)
+    if (!permission.canManageJudges) {
+      setBanner('error', '您没有权限搜索用户')
+      return []
+    }
+
+    // Get existing judges for this event to mark them as already invited
+    const existingJudges = judgesByEventId.value[eventId] || []
+    const existingJudgeIds = new Set(existingJudges.map(judge => judge.user_id))
+
+    // Search for users by username (no exclusion filter)
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id, username, avatar_url, roles')
+      .ilike('username', `%${query.trim()}%`)
+      .limit(limit)
+
+    if (error) {
+      const errorMessage = getJudgeErrorMessage(error, '搜索用户')
+      throw new Error(errorMessage)
+    }
+
+    // Transform the data and add judge status
+    const users: UserSearchResult[] = (data || [])
+      .filter(row => row.username && row.username.trim()) // Only include users with usernames
+      .map(row => {
+        const isAlreadyJudge = existingJudgeIds.has(row.id)
+        return {
+          id: row.id,
+          username: row.username || '',
+          avatar_url: row.avatar_url || null,
+          roles: Array.isArray(row.roles) ? row.roles : null,
+          isAlreadyJudge, // Add judge status
+        }
+      })
+
+    return users
+
+  } catch (error: any) {
+    console.error('Error searching users for judge:', error)
+    const errorMessage = getJudgeErrorMessage(error, '搜索用户')
+    
+    // Re-throw with user-friendly message for component to handle
+    throw new Error(errorMessage)
+  }
+}
+
+const inviteJudge = async (eventId: string, userId: string): Promise<{ success: boolean; error?: string }> => {
+  if (!user.value || !eventId || !userId) {
+    return { success: false, error: '参数缺失' }
+  }
+
+  // Validate UUID format
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+  if (!uuidRegex.test(eventId)) {
+    console.error('Invalid eventId UUID format:', eventId)
+    return { success: false, error: '活动ID格式无效' }
+  }
+  if (!uuidRegex.test(userId)) {
+    console.error('Invalid userId UUID format:', userId)
+    return { success: false, error: '用户ID格式无效' }
+  }
+
+  try {
+    // Check if user has permission to manage judges
+    const permission = await checkJudgePermission(eventId)
+    if (!permission.canManageJudges) {
+      return { success: false, error: '您没有权限邀请评委' }
+    }
+
+    // Check if user is already a judge
+    const existingJudges = judgesByEventId.value[eventId] || []
+    const isAlreadyJudge = existingJudges.some(judge => judge.user_id === userId)
+    if (isAlreadyJudge) {
+      return { success: false, error: '该用户已经是评委' }
+    }
+
+    // Create judge record
+    const { data, error } = await supabase
+      .from('event_judges')
+      .insert({
+        event_id: eventId,
+        user_id: userId,
+      })
+      .select(`
+        id,
+        event_id,
+        user_id,
+        created_at,
+        updated_at,
+        profiles(
+          id,
+          username,
+          avatar_url,
+          roles
+        )
+      `)
+      .single()
+
+    if (error) {
+      const errorMessage = getJudgeErrorMessage(error, '邀请评委')
+      return { success: false, error: errorMessage }
+    }
+
+    // Transform and add to cache
+    const profileData = data.profiles as any
+    const newJudge: JudgeWithProfile = {
+      id: data.id,
+      event_id: data.event_id,
+      user_id: data.user_id,
+      created_at: data.created_at,
+      updated_at: data.updated_at,
+      profile: profileData ? {
+        id: profileData.id,
+        username: profileData.username || null,
+        avatar_url: profileData.avatar_url || null,
+        roles: Array.isArray(profileData.roles) ? profileData.roles : null,
+      } : {
+        id: data.user_id,
+        username: null,
+        avatar_url: null,
+        roles: null,
+      }
+    }
+
+    // Update cache
+    const currentJudges = judgesByEventId.value[eventId] || []
+    judgesByEventId.value = {
+      ...judgesByEventId.value,
+      [eventId]: [...currentJudges, newJudge]
+    }
+
+    // Send notification to the invited user
+    pushJudgeNotification(eventId, userId, 'invited')
+
+    return { success: true }
+
+  } catch (error: any) {
+    console.error('Error inviting judge:', error)
+    const errorMessage = getJudgeErrorMessage(error, '邀请评委')
+    return { success: false, error: errorMessage }
+  }
+}
+
+const removeJudge = async (eventId: string, userId: string): Promise<{ success: boolean; error?: string }> => {
+  if (!user.value || !eventId || !userId) {
+    return { success: false, error: '参数缺失' }
+  }
+
+  try {
+    // Check if user has permission to manage judges
+    const permission = await checkJudgePermission(eventId)
+    if (!permission.canManageJudges) {
+      return { success: false, error: '您没有权限移除评委' }
+    }
+
+    // Remove judge record
+    const { error } = await supabase
+      .from('event_judges')
+      .delete()
+      .eq('event_id', eventId)
+      .eq('user_id', userId)
+
+    if (error) {
+      const errorMessage = getJudgeErrorMessage(error, '移除评委')
+      return { success: false, error: errorMessage }
+    }
+
+    // Update cache
+    const currentJudges = judgesByEventId.value[eventId] || []
+    const updatedJudges = currentJudges.filter(judge => judge.user_id !== userId)
+    judgesByEventId.value = {
+      ...judgesByEventId.value,
+      [eventId]: updatedJudges
+    }
+
+    // Clear cached permissions for this user if they were removed
+    if (user.value.id === userId) {
+      const currentPermissions = { ...judgePermissionsByEventId.value }
+      delete currentPermissions[eventId]
+      judgePermissionsByEventId.value = currentPermissions
+    }
+
+    // Send notification to the removed user
+    pushJudgeNotification(eventId, userId, 'removed')
+
+    return { success: true }
+
+  } catch (error: any) {
+    console.error('Error removing judge:', error)
+    const errorMessage = getJudgeErrorMessage(error, '移除评委')
+    return { success: false, error: errorMessage }
+  }
+}
+
+// Permission persistence functions
+const validateJudgePermissionPersistence = async (eventId: string): Promise<boolean> => {
+  if (!user.value || !eventId) {
+    return false
+  }
+
+  try {
+    // Get the current event to check its status
+    const event = getEventById(eventId)
+    if (!event) {
+      return false
+    }
+
+    // Judge permissions should persist through all event states except when:
+    // 1. The event is deleted (handled by cascade delete in database)
+    // 2. The judge is explicitly removed
+    // 3. The user account is deleted/disabled (handled by cascade delete)
+    
+    // Check if the judge record still exists in the database
+    const { data: judgeRecord, error } = await supabase
+      .from('event_judges')
+      .select('id, created_at')
+      .eq('event_id', eventId)
+      .eq('user_id', user.value.id)
+      .maybeSingle()
+
+    if (error) {
+      console.warn('Failed to validate judge permission persistence:', error.message)
+      return false
+    }
+
+    // If judge record exists, permission should be valid regardless of event status
+    const hasValidPermission = Boolean(judgeRecord)
+    
+    // Update cached permission if it exists but doesn't match database state
+    const cachedPermission = judgePermissionsByEventId.value[eventId]
+    if (cachedPermission && cachedPermission.isJudge !== hasValidPermission) {
+      // Clear cache to force refresh on next permission check
+      const updatedPermissions = { ...judgePermissionsByEventId.value }
+      delete updatedPermissions[eventId]
+      judgePermissionsByEventId.value = updatedPermissions
+    }
+
+    return hasValidPermission
+  } catch (error: any) {
+    console.error('Error validating judge permission persistence:', error)
+    return false
+  }
+}
+
+const handleEventStatusChange = async (eventId: string, newStatus: EventStatus, oldStatus?: EventStatus) => {
+  if (!eventId) return
+
+  try {
+    // Judge permissions should persist through all event status changes
+    // This function ensures that judge permissions remain valid when events change status
+    
+    // Validate that judge permissions are still intact after status change
+    if (user.value) {
+      const isValidPermission = await validateJudgePermissionPersistence(eventId)
+      
+      // If user was a judge but permission is no longer valid, clear cache
+      const cachedPermission = judgePermissionsByEventId.value[eventId]
+      if (cachedPermission?.isJudge && !isValidPermission) {
+        const updatedPermissions = { ...judgePermissionsByEventId.value }
+        delete updatedPermissions[eventId]
+        judgePermissionsByEventId.value = updatedPermissions
+        
+        // Optionally notify user if they lost judge access unexpectedly
+        if (oldStatus && newStatus !== 'draft') {
+          console.warn(`Judge permission lost for event ${eventId} during status change from ${oldStatus} to ${newStatus}`)
+        }
+      }
+    }
+
+    // Refresh judge data for this event to ensure consistency
+    const currentJudges = judgesByEventId.value[eventId]
+    if (currentJudges && currentJudges.length > 0) {
+      // Reload judges to ensure data consistency
+      await loadEventJudges(eventId)
+    }
+
+  } catch (error: any) {
+    console.error('Error handling event status change for judge permissions:', error)
+  }
+}
+
+const refreshJudgePermissionCache = async (eventId: string) => {
+  if (!eventId) return
+
+  try {
+    // Clear cached permission to force fresh check
+    const updatedPermissions = { ...judgePermissionsByEventId.value }
+    delete updatedPermissions[eventId]
+    judgePermissionsByEventId.value = updatedPermissions
+
+    // Trigger fresh permission check
+    await checkJudgePermission(eventId)
+  } catch (error: any) {
+    console.error('Error refreshing judge permission cache:', error)
+  }
+}
+
+// Optimized caching and state management
+const judgeDataCacheTimestamps = ref<Record<string, number>>({})
+const JUDGE_CACHE_TTL = 5 * 60 * 1000 // 5 minutes cache TTL
+const judgeDataRefreshPromises = ref<Record<string, Promise<any>>>({})
+
+const isCacheValid = (eventId: string): boolean => {
+  const timestamp = judgeDataCacheTimestamps.value[eventId]
+  if (!timestamp) return false
+  return Date.now() - timestamp < JUDGE_CACHE_TTL
+}
+
+const setCacheTimestamp = (eventId: string) => {
+  judgeDataCacheTimestamps.value = {
+    ...judgeDataCacheTimestamps.value,
+    [eventId]: Date.now()
+  }
+}
+
+const optimizedLoadEventJudges = async (eventId: string, forceRefresh = false): Promise<JudgeWithProfile[]> => {
+  if (!eventId) {
+    judgesByEventId.value = { ...judgesByEventId.value, [eventId]: [] }
+    return []
+  }
+
+  // Return cached data if valid and not forcing refresh
+  if (!forceRefresh && isCacheValid(eventId)) {
+    const cached = judgesByEventId.value[eventId]
+    if (cached) {
+      return cached
+    }
+  }
+
+  // Prevent concurrent requests for the same event
+  const existingPromise = judgeDataRefreshPromises.value[eventId]
+  if (existingPromise) {
+    return existingPromise
+  }
+
+  // Create and cache the promise
+  const refreshPromise = loadEventJudges(eventId).then(judges => {
+    setCacheTimestamp(eventId)
+    // Clear the promise from cache
+    const updatedPromises = { ...judgeDataRefreshPromises.value }
+    delete updatedPromises[eventId]
+    judgeDataRefreshPromises.value = updatedPromises
+    return judges
+  }).catch(error => {
+    // Clear the promise from cache on error
+    const updatedPromises = { ...judgeDataRefreshPromises.value }
+    delete updatedPromises[eventId]
+    judgeDataRefreshPromises.value = updatedPromises
+    throw error
+  })
+
+  judgeDataRefreshPromises.value = {
+    ...judgeDataRefreshPromises.value,
+    [eventId]: refreshPromise
+  }
+
+  return refreshPromise
+}
+
+const optimizedCheckJudgePermission = async (eventId: string, forceRefresh = false): Promise<JudgePermission> => {
+  if (!user.value || !eventId) {
+    return {
+      isJudge: false,
+      isEventAdmin: false,
+      canAccessJudgeWorkspace: false,
+      canManageJudges: false,
+    }
+  }
+
+  // Return cached permission if valid and not forcing refresh
+  const cached = judgePermissionsByEventId.value[eventId]
+  if (!forceRefresh && cached) {
+    return cached
+  }
+
+  // Use the original checkJudgePermission function which handles caching
+  return checkJudgePermission(eventId)
+}
+
+// Real-time state synchronization
+let judgeRealtimeSubscription: any = null
+
+const startJudgeRealtimeSync = () => {
+  if (judgeRealtimeSubscription) return
+
+  // Subscribe to changes in event_judges table
+  judgeRealtimeSubscription = supabase
+    .channel('judge-changes')
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'event_judges'
+      },
+      async (payload) => {
+        const eventId = (payload.new as any)?.event_id || (payload.old as any)?.event_id
+        if (!eventId) return
+
+        // Invalidate cache for this event
+        const updatedTimestamps = { ...judgeDataCacheTimestamps.value }
+        delete updatedTimestamps[eventId]
+        judgeDataCacheTimestamps.value = updatedTimestamps
+
+        // Clear cached permissions
+        const updatedPermissions = { ...judgePermissionsByEventId.value }
+        delete updatedPermissions[eventId]
+        judgePermissionsByEventId.value = updatedPermissions
+
+        // Refresh data if this event is currently being viewed
+        const hasCurrentData = judgesByEventId.value[eventId]
+        if (hasCurrentData) {
+          try {
+            await optimizedLoadEventJudges(eventId, true)
+            // Also refresh permissions if current user might be affected
+            if (user.value && (
+              (payload.new as any)?.user_id === user.value.id || 
+              (payload.old as any)?.user_id === user.value.id
+            )) {
+              await optimizedCheckJudgePermission(eventId, true)
+            }
+          } catch (error) {
+            console.warn('Failed to refresh judge data after realtime update:', error)
+          }
+        }
+      }
+    )
+    .subscribe()
+}
+
+const stopJudgeRealtimeSync = () => {
+  if (judgeRealtimeSubscription) {
+    supabase.removeChannel(judgeRealtimeSubscription)
+    judgeRealtimeSubscription = null
+  }
+}
+
+// Batch operations for better performance
+const batchInvalidateJudgeCache = (eventIds: string[]) => {
+  const updatedTimestamps = { ...judgeDataCacheTimestamps.value }
+  const updatedPermissions = { ...judgePermissionsByEventId.value }
+  
+  eventIds.forEach(eventId => {
+    delete updatedTimestamps[eventId]
+    delete updatedPermissions[eventId]
+  })
+  
+  judgeDataCacheTimestamps.value = updatedTimestamps
+  judgePermissionsByEventId.value = updatedPermissions
+}
+
+const preloadJudgeDataForEvents = async (eventIds: string[]) => {
+  if (!user.value || eventIds.length === 0) return
+
+  // Only preload for events that don't have valid cache
+  const eventsToLoad = eventIds.filter(eventId => !isCacheValid(eventId))
+  
+  if (eventsToLoad.length === 0) return
+
+  // Load judge data for multiple events concurrently
+  const loadPromises = eventsToLoad.map(eventId => 
+    optimizedLoadEventJudges(eventId).catch(error => {
+      console.warn(`Failed to preload judge data for event ${eventId}:`, error)
+      return []
+    })
+  )
+
+  await Promise.all(loadPromises)
+}
+
+// Cleanup function for cache management
+const cleanupJudgeCache = () => {
+  const now = Date.now()
+  const updatedTimestamps: Record<string, number> = {}
+  const updatedJudges: Record<string, JudgeWithProfile[]> = {}
+  const updatedPermissions: Record<string, JudgePermission> = {}
+
+  // Keep only non-expired cache entries
+  Object.entries(judgeDataCacheTimestamps.value).forEach(([eventId, timestamp]) => {
+    if (now - timestamp < JUDGE_CACHE_TTL) {
+      updatedTimestamps[eventId] = timestamp
+      if (judgesByEventId.value[eventId]) {
+        updatedJudges[eventId] = judgesByEventId.value[eventId]
+      }
+      if (judgePermissionsByEventId.value[eventId]) {
+        updatedPermissions[eventId] = judgePermissionsByEventId.value[eventId]
+      }
+    }
+  })
+
+  judgeDataCacheTimestamps.value = updatedTimestamps
+  judgesByEventId.value = updatedJudges
+  judgePermissionsByEventId.value = updatedPermissions
+}
+
+// Periodic cache cleanup
+let cacheCleanupInterval: number | undefined
+
+const startCacheCleanup = () => {
+  if (cacheCleanupInterval) return
+  // Clean up cache every 10 minutes
+  cacheCleanupInterval = window.setInterval(cleanupJudgeCache, 10 * 60 * 1000)
+}
+
+const stopCacheCleanup = () => {
+  if (cacheCleanupInterval) {
+    window.clearInterval(cacheCleanupInterval)
+    cacheCleanupInterval = undefined
+  }
+}
+
 let initialized = false
 let authSubscription: Subscription | null = null
 
@@ -2002,6 +2826,10 @@ const init = async () => {
   void loadMyRegistrations()
   void loadMyPendingTeamActions()
 
+  // Start judge-related optimizations
+  startJudgeRealtimeSync()
+  startCacheCleanup()
+
   const { data: listener } = supabase.auth.onAuthStateChange(async (_event, session) => {
     if (!session) {
       user.value = null
@@ -2014,6 +2842,13 @@ const init = async () => {
       registrationsLoaded.value = false
       pendingRequestsCount.value = 0
       pendingInvitesCount.value = 0
+      
+      // Clear judge-related cache on logout
+      judgesByEventId.value = {}
+      judgePermissionsByEventId.value = {}
+      judgeDataCacheTimestamps.value = {}
+      judgeDataRefreshPromises.value = {}
+      
       void loadEvents()
       return
     }
@@ -2040,6 +2875,16 @@ const dispose = () => {
   authSubscription = null
   initialized = false
   stopNotificationTicker()
+  
+  // Clean up judge-related resources
+  stopJudgeRealtimeSync()
+  stopCacheCleanup()
+  
+  // Clear judge cache
+  judgesByEventId.value = {}
+  judgePermissionsByEventId.value = {}
+  judgeDataCacheTimestamps.value = {}
+  judgeDataRefreshPromises.value = {}
 }
 
 const store = proxyRefs({
@@ -2085,6 +2930,10 @@ const store = proxyRefs({
   createError,
   submissionsLoading,
   submissionsError,
+  judgesByEventId,
+  judgePermissionsByEventId,
+  judgeWorkspaceLoading,
+  judgeWorkspaceError,
   isAuthed,
   isAdmin,
   showDemoEvents,
@@ -2121,6 +2970,7 @@ const store = proxyRefs({
   createTeam,
   updateTeam,
   closeTeam,
+  reopenTeam,
   deleteTeam,
   removeTeamMember,
   updateTeamJoinRequestStatus,
@@ -2156,6 +3006,20 @@ const store = proxyRefs({
   registrationLabel,
   registrationVariant,
   toggleRegistration,
+  checkJudgePermission,
+  loadEventJudges,
+  searchUsersForJudge,
+  inviteJudge,
+  removeJudge,
+  validateJudgePermissionPersistence,
+  handleEventStatusChange,
+  refreshJudgePermissionCache,
+  optimizedLoadEventJudges,
+  optimizedCheckJudgePermission,
+  batchInvalidateJudgeCache,
+  preloadJudgeDataForEvents,
+  cleanupJudgeCache,
+  handleJudgeNotificationClick,
   init,
   dispose,
 })

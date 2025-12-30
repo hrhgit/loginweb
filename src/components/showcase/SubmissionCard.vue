@@ -4,7 +4,7 @@
     <div class="submission-card__cover">
       <img 
         v-if="coverUrl"
-        :src="coverUrl" 
+        v-lazy-load="coverUrl"
         :alt="submission.project_name"
         class="submission-card__image"
         @error="handleImageError"
@@ -38,7 +38,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { FileText } from 'lucide-vue-next'
-import { supabase } from '../../lib/supabase'
+import { vLazyLoad } from '../../directives/vLazyLoad'
 import type { SubmissionWithTeam } from '../../store/models'
 
 interface Props {
@@ -52,27 +52,24 @@ const emit = defineEmits<{
   'title-click': [submission: SubmissionWithTeam]
 }>()
 
-// 计算属性
+// 生成存储 URL 的辅助函数（避免在计算属性中调用）
+const generateStorageUrl = (path: string): string => {
+  if (!path) return ''
+  const trimmed = path.trim()
+  if (trimmed.startsWith('http')) return trimmed
+  // 使用固定的 URL 模式，避免调用 supabase API
+  const projectUrl = import.meta.env.VITE_SUPABASE_URL || ''
+  if (projectUrl && trimmed.includes('/')) {
+    return `${projectUrl}/storage/v1/object/public/public-assets/${trimmed}`
+  }
+  return ''
+}
+
+// 计算属性 - 只做简单的字符串检查
 const coverUrl = computed(() => {
   if (!props.submission.cover_path) return null
-  
   try {
-    const coverPath = props.submission.cover_path.trim()
-    
-    // 如果已经是完整的URL（向后兼容旧数据）
-    if (coverPath.startsWith('http')) {
-      return coverPath
-    }
-    
-    // 如果是存储路径，生成公共URL
-    if (coverPath.includes('/')) {
-      const { data } = supabase.storage
-        .from('public-assets')
-        .getPublicUrl(coverPath)
-      return data.publicUrl
-    }
-    
-    return null
+    return generateStorageUrl(props.submission.cover_path)
   } catch {
     return null
   }
@@ -90,27 +87,34 @@ const truncatedIntro = computed(() => {
 })
 
 const formatSubmissionTime = computed(() => {
-  const date = new Date(props.submission.created_at)
-  const now = new Date()
-  const diffMs = now.getTime() - date.getTime()
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
+  const createdAt = props.submission.created_at
+  if (!createdAt) return ''
   
-  if (diffDays === 0) {
-    const diffHours = Math.floor(diffMs / (1000 * 60 * 60))
-    if (diffHours === 0) {
-      const diffMinutes = Math.floor(diffMs / (1000 * 60))
-      return diffMinutes <= 1 ? '刚刚' : `${diffMinutes}分钟前`
+  try {
+    const date = new Date(createdAt)
+    const now = new Date()
+    const diffMs = now.getTime() - date.getTime()
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
+    
+    if (diffDays === 0) {
+      const diffHours = Math.floor(diffMs / (1000 * 60 * 60))
+      if (diffHours === 0) {
+        const diffMinutes = Math.floor(diffMs / (1000 * 60))
+        return diffMinutes <= 1 ? '刚刚' : `${diffMinutes}分钟前`
+      }
+      return `${diffHours}小时前`
+    } else if (diffDays === 1) {
+      return '昨天'
+    } else if (diffDays < 7) {
+      return `${diffDays}天前`
+    } else {
+      return date.toLocaleDateString('zh-CN', {
+        month: 'short',
+        day: 'numeric'
+      })
     }
-    return `${diffHours}小时前`
-  } else if (diffDays === 1) {
-    return '昨天'
-  } else if (diffDays < 7) {
-    return `${diffDays}天前`
-  } else {
-    return date.toLocaleDateString('zh-CN', {
-      month: 'short',
-      day: 'numeric'
-    })
+  } catch {
+    return ''
   }
 })
 
@@ -141,7 +145,7 @@ const handleImageError = (event: Event) => {
   border-radius: 16px;
   overflow: hidden;
   cursor: pointer;
-  transition: all 0.18s ease;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
   border: 1px solid var(--border);
 }
 

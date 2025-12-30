@@ -102,6 +102,7 @@
             v-for="team in myTeams"
             :key="team.teamId"
             class="team-card my-team-card"
+            @dblclick="navigateToTeamDetail(team.teamId)"
           >
             <div class="team-card__head">
               <div class="team-card__title-group">
@@ -124,14 +125,6 @@
               >
                 查看详情
               </RouterLink>
-              <template v-if="team.role === 'leader'">
-                <RouterLink 
-                  class="btn btn--ghost" 
-                  :to="`/events/${eventId}/team/${team.teamId}/edit`"
-                >
-                  编辑队伍
-                </RouterLink>
-              </template>
             </div>
           </article>
         </div>
@@ -225,7 +218,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { RouterLink } from 'vue-router'
+import { RouterLink, useRouter } from 'vue-router'
 import { useAppStore } from '../store/appStore'
 import type { MyTeamEntry, MyTeamRequest, MyTeamInvite } from '../store/models'
 
@@ -242,6 +235,7 @@ const props = defineProps<Props>()
 const emit = defineEmits<Emits>()
 
 const store = useAppStore()
+const router = useRouter()
 
 // Loading state
 const loading = ref(false)
@@ -342,6 +336,10 @@ const getStatusClass = (status: string) => {
 }
 
 // Action handlers
+const navigateToTeamDetail = (teamId: string) => {
+  router.push(`/events/${props.eventId}/team/${teamId}`)
+}
+
 const handleCancelRequest = async (request: MyTeamRequest) => {
   if (!store.user) return
   
