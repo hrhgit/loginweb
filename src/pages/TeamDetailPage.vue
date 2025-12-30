@@ -4,6 +4,11 @@ import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { X } from 'lucide-vue-next'
 import { useAppStore } from '../store/appStore'
 import { getRoleTagClass, sortRoleLabels } from '../utils/roleTags'
+import { 
+  handleErrorWithBanner, 
+  handleSuccessWithBanner,
+  teamErrorHandler 
+} from '../store/enhancedErrorHandling'
 
 const store = useAppStore()
 const route = useRoute()
@@ -106,7 +111,10 @@ const handleLeaveTeam = async () => {
     return
   }
   if (isLeader.value) {
-    store.setBanner('info', '队长无法退出队伍，请先转移队长或删除队伍')
+    handleSuccessWithBanner('队长无法退出队伍，请先转移队长或删除队伍', store.setBanner, { 
+      operation: 'leaveTeam',
+      component: 'team' 
+    })
     return
   }
   const confirmed = window.confirm('确定要退出队伍吗？退出后需重新申请加入')
@@ -116,13 +124,19 @@ const handleLeaveTeam = async () => {
   const { error: removeError } = await store.removeTeamMember(teamId.value, store.user.id)
   if (removeError) {
     memberActionError.value = removeError
-    store.setBanner('error', removeError)
+    handleErrorWithBanner(new Error(removeError), store.setBanner, { 
+      operation: 'leaveTeam',
+      component: 'team' 
+    })
     memberActionBusyId.value = null
     return
   }
   await store.loadTeamMembers(teamId.value)
   await store.loadTeams(eventId.value)
-  store.setBanner('info', '已退出队伍')
+  handleSuccessWithBanner('已退出队伍', store.setBanner, { 
+    operation: 'leaveTeam',
+    component: 'team' 
+  })
   memberActionBusyId.value = null
 }
 
@@ -142,13 +156,19 @@ const handleKickMember = async (memberId: string, name?: string) => {
   const { error: removeError } = await store.removeTeamMember(teamId.value, memberId)
   if (removeError) {
     memberActionError.value = removeError
-    store.setBanner('error', removeError)
+    handleErrorWithBanner(new Error(removeError), store.setBanner, { 
+      operation: 'kickMember',
+      component: 'team' 
+    })
     memberActionBusyId.value = null
     return
   }
   await store.loadTeamMembers(teamId.value)
   await store.loadTeams(eventId.value)
-  store.setBanner('info', '已移出队员')
+  handleSuccessWithBanner('已移出队员', store.setBanner, { 
+    operation: 'kickMember',
+    component: 'team' 
+  })
   memberActionBusyId.value = null
 }
 
@@ -159,20 +179,29 @@ const handleJoinTeam = async () => {
     return
   }
   if (!isRegistered.value) {
-    store.setBanner('info', '请先报名该活动后再申请加入队伍')
+    handleSuccessWithBanner('请先报名该活动后再申请加入队伍', store.setBanner, { 
+      operation: 'joinTeam',
+      component: 'team' 
+    })
     return
   }
   if (hasPendingInvite.value && myInvite.value) {
     joinSubmitBusy.value = true
     const { error: acceptError } = await store.acceptTeamInvite(myInvite.value.id, teamId.value)
     if (acceptError) {
-      store.setBanner('error', acceptError)
+      handleErrorWithBanner(new Error(acceptError), store.setBanner, { 
+        operation: 'acceptTeamInvite',
+        component: 'team' 
+      })
       joinSubmitBusy.value = false
       return
     }
     await store.loadTeamMembers(teamId.value)
     await store.loadTeams(eventId.value)
-    store.setBanner('info', '已加入队伍')
+    handleSuccessWithBanner('已加入队伍', store.setBanner, { 
+      operation: 'acceptTeamInvite',
+      component: 'team' 
+    })
     joinSubmitBusy.value = false
     return
   }
@@ -202,7 +231,10 @@ const submitJoinRequest = async () => {
     joinSubmitBusy.value = false
     return
   }
-  store.setBanner('info', '已提交入队申请')
+  handleSuccessWithBanner('已提交入队申请', store.setBanner, { 
+    operation: 'joinTeam',
+    component: 'team' 
+  })
   joinModalOpen.value = false
   joinMessage.value = ''
   joinSubmitBusy.value = false
@@ -222,13 +254,22 @@ const handleDeleteTeam = async () => {
   if (deleteError) {
     // 检查是否是因为已提交作品而无法删除
     if (deleteError.includes('submissions_team_id_fkey') || deleteError.includes('foreign key constraint')) {
-      store.setBanner('error', '该队伍已提交作品，请先删除作品后再删除队伍')
+      handleErrorWithBanner(new Error('该队伍已提交作品，请先删除作品后再删除队伍'), store.setBanner, { 
+        operation: 'deleteTeam',
+        component: 'team' 
+      })
     } else {
-      store.setBanner('error', deleteError)
+      handleErrorWithBanner(new Error(deleteError), store.setBanner, { 
+        operation: 'deleteTeam',
+        component: 'team' 
+      })
     }
     return
   }
-  store.setBanner('info', '队伍已删除')
+  handleSuccessWithBanner('队伍已删除', store.setBanner, { 
+    operation: 'deleteTeam',
+    component: 'team' 
+  })
   await router.push(`/events/${eventId.value}/team`)
 }
 
@@ -245,7 +286,10 @@ const handleRequest = async (requestId: string, status: 'approved' | 'rejected')
   await store.loadTeamJoinRequests(teamId.value)
   await store.loadTeamMembers(teamId.value)
   await store.loadTeams(eventId.value)
-  store.setBanner('info', status === 'approved' ? '已批准入队申请' : '已拒绝入队申请')
+  handleSuccessWithBanner(status === 'approved' ? '已批准入队申请' : '已拒绝入队申请', store.setBanner, { 
+    operation: 'handleTeamRequest',
+    component: 'team' 
+  })
   requestBusyId.value = null
 }
 
@@ -258,12 +302,18 @@ const handleCloseTeam = async () => {
   const { error } = await store.closeTeam(team.value.id)
   if (error) {
     closeTeamError.value = error
-    store.setBanner('error', error)
+    handleErrorWithBanner(new Error(error), store.setBanner, { 
+      operation: 'closeTeam',
+      component: 'team' 
+    })
     closeTeamBusy.value = false
     return
   }
   await store.loadTeams(eventId.value)
-  store.setBanner('info', '队伍已标记为组队完成')
+  handleSuccessWithBanner('队伍已标记为组队完成', store.setBanner, { 
+    operation: 'closeTeam',
+    component: 'team' 
+  })
   closeTeamBusy.value = false
 }
 
@@ -275,12 +325,18 @@ const handleReopenTeam = async () => {
   const { error } = await store.reopenTeam(team.value.id)
   if (error) {
     closeTeamError.value = error
-    store.setBanner('error', error)
+    handleErrorWithBanner(new Error(error), store.setBanner, { 
+      operation: 'reopenTeam',
+      component: 'team' 
+    })
     reopenTeamBusy.value = false
     return
   }
   await store.loadTeams(eventId.value)
-  store.setBanner('info', '队伍已重新开放组队')
+  handleSuccessWithBanner('队伍已重新开放组队', store.setBanner, { 
+    operation: 'reopenTeam',
+    component: 'team' 
+  })
   reopenTeamBusy.value = false
 }
 

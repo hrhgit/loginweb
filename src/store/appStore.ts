@@ -4,6 +4,18 @@ import { supabase } from '../lib/supabase'
 import { buildEventDescription, createDefaultEventDetails, generateId } from '../utils/eventDetails'
 import { demoEvents } from './demoEvents'
 import { EVENT_SELECT } from './eventSchema'
+import { 
+  enhancedErrorHandler, 
+  handleErrorWithBanner, 
+  handleSuccessWithBanner,
+  authErrorHandler,
+  formErrorHandler,
+  apiErrorHandler,
+  uploadErrorHandler,
+  teamErrorHandler,
+  eventErrorHandler,
+  profileErrorHandler
+} from './enhancedErrorHandling'
 import type {
   AuthView,
   DisplayEvent,
@@ -250,6 +262,9 @@ const setBanner = (type: 'info' | 'error', text: string) => {
   }, 2000) // 2 seconds then fade via transition
 }
 
+// Initialize enhanced error handler with setBanner callback
+enhancedErrorHandler.setBannerCallback(setBanner)
+
 const clearBanners = () => {
   bannerInfo.value = ''
   bannerError.value = ''
@@ -478,7 +493,7 @@ const loadTeamMemberCounts = async (teamIds: string[]) => {
     .in('team_id', teamIds)
 
   if (error) {
-    setBanner('error', error.message)
+    teamErrorHandler.handleError(error, { operation: 'loadTeamMemberCounts' })
     return counts
   }
 
@@ -503,7 +518,7 @@ const loadMyTeamMemberships = async (teamIds: string[]) => {
     .in('team_id', teamIds)
 
   if (error) {
-    setBanner('error', error.message)
+    teamErrorHandler.handleError(error, { operation: 'loadMyTeamMemberships' })
     return
   }
 
@@ -527,7 +542,7 @@ const loadMyTeamRequests = async (teamIds: string[]) => {
     .in('team_id', teamIds)
 
   if (error) {
-    setBanner('error', error.message)
+    teamErrorHandler.handleError(error, { operation: 'loadMyTeamRequests' })
     return
   }
 
@@ -556,7 +571,7 @@ const loadMyTeamInvite = async (teamId: string) => {
       myTeamInviteByTeamId.value = { ...myTeamInviteByTeamId.value, [teamId]: null }
       return null
     }
-    setBanner('error', error.message)
+    teamErrorHandler.handleError(error, { operation: 'loadMyTeamInvite' })
     return null
   }
 
@@ -575,7 +590,7 @@ const loadTeams = async (eventId: string) => {
     .order('created_at', { ascending: false })
 
   if (error) {
-    setBanner('error', error.message)
+    teamErrorHandler.handleError(error, { operation: 'loadTeams' })
     return cached
   }
 
@@ -610,7 +625,7 @@ const loadTeamSeekers = async (eventId: string) => {
     .order('created_at', { ascending: false })
 
   if (error) {
-    setBanner('error', error.message)
+    teamErrorHandler.handleError(error, { operation: 'loadTeamSeekers' })
     teamSeekersByEventId.value = { ...teamSeekersByEventId.value, [eventId]: [] }
     return []
   }
@@ -712,7 +727,7 @@ const loadTeamMembers = async (teamId: string) => {
         .eq('team_id', teamId)
         .order('joined_at', { ascending: true })
       if (fallbackError) {
-        setBanner('error', fallbackError.message)
+        teamErrorHandler.handleError(fallbackError, { operation: 'loadTeamMembers' })
         teamMembersByTeamId.value = { ...teamMembersByTeamId.value, [teamId]: [] }
         return []
       }
@@ -729,7 +744,7 @@ const loadTeamMembers = async (teamId: string) => {
       teamMembersByTeamId.value = { ...teamMembersByTeamId.value, [teamId]: nextMembers }
       return nextMembers
     }
-    setBanner('error', error.message)
+    teamErrorHandler.handleError(error, { operation: 'loadTeamMembers' })
     teamMembersByTeamId.value = { ...teamMembersByTeamId.value, [teamId]: [] }
     return []
   }
@@ -1302,7 +1317,7 @@ const loadSubmissions = async (eventId: string) => {
 
     if (error) {
       submissionsError.value = error.message
-      setBanner('error', error.message)
+      apiErrorHandler.handleError(error, { operation: 'loadSubmissions' })
       submissionsByEventId.value = { ...submissionsByEventId.value, [eventId]: [] }
       return []
     }
@@ -1345,7 +1360,7 @@ const loadSubmissions = async (eventId: string) => {
   } catch (err: any) {
     console.error('Failed to load submissions:', err)
     submissionsError.value = err.message || '加载作品失败'
-    setBanner('error', submissionsError.value)
+    apiErrorHandler.handleError(err, { operation: 'loadSubmissions' })
     submissionsByEventId.value = { ...submissionsByEventId.value, [eventId]: [] }
     return []
   } finally {
@@ -1373,7 +1388,10 @@ const maybePushProfileSetupNotification = () => {
   })
 
   if (added) {
-    setBanner('info', '欢迎加入！请完善个人信息')
+    handleSuccessWithBanner('欢迎加入！请完善个人信息', setBanner, { 
+      operation: 'onboarding', 
+      component: 'notification' 
+    })
   }
 }
 
@@ -1394,7 +1412,7 @@ const refreshUser = async () => {
   const { data, error } = await supabase.auth.getUser()
   if (error) {
     user.value = sessionUser
-    setBanner('error', error.message)
+    authErrorHandler.handleError(error, { operation: 'refreshUser' })
     return
   }
   user.value = data.user
@@ -1561,7 +1579,7 @@ const loadEvents = async () => {
 
   if (error) {
     eventsError.value = error.message
-    setBanner('error', error.message)
+    eventErrorHandler.handleError(error, { operation: 'loadEvents' })
     events.value = []
   } else {
     events.value = data as Event[]
@@ -1590,7 +1608,7 @@ const loadMyRegistrations = async () => {
 
   if (error) {
     registrationsLoading.value = false
-    setBanner('error', error.message)
+    authErrorHandler.handleError(error, { operation: 'loadMyRegistrations' })
     return
   }
 
@@ -1680,7 +1698,10 @@ const syncNotifications = () => {
       link,
     })
     if (added) {
-      setBanner('info', title)
+      handleSuccessWithBanner(title, setBanner, { 
+        operation: 'notification', 
+        component: 'notification' 
+      })
     }
   }
 
@@ -1835,7 +1856,7 @@ const handleSignOut = async () => {
   myTeamInviteByTeamId.value = {}
   void loadEvents()
   void supabase.auth.signOut().then(({ error }) => {
-    if (error) setBanner('error', error.message)
+    if (error) authErrorHandler.handleError(error, { operation: 'signOut' })
   })
   
   // 跳转到主页
@@ -1845,7 +1866,10 @@ const handleSignOut = async () => {
 
 const openCreateModal = () => {
   if (!isAdmin.value) {
-    setBanner('error', '没有权限：仅管理员可发起活动')
+    authErrorHandler.handleError(new Error('没有权限：仅管理员可发起活动'), { 
+      operation: 'openCreateModal',
+      component: 'modal' 
+    })
     return
   }
   createError.value = ''
@@ -1922,7 +1946,10 @@ const submitCreate = async () => {
     return null
   }
 
-  setBanner('info', '活动已保存为草稿，进入页面继续完善')
+  handleSuccessWithBanner('活动已保存为草稿，进入页面继续完善', setBanner, { 
+    operation: 'createEvent',
+    component: 'form' 
+  })
   createTitle.value = ''
   createStartTime.value = ''
   createEndTime.value = ''
@@ -1996,7 +2023,10 @@ const updateEventStatus = async (eventId: string, status: EventStatus, descripti
 const deleteDraftEvent = async (event: DisplayEvent) => {
   clearBanners()
   if (isDemoEvent(event)) {
-    setBanner('info', '这是前端临时活动，仅用于展示，无法删除')
+    handleSuccessWithBanner('这是前端临时活动，仅用于展示，无法删除', setBanner, { 
+      operation: 'deleteDraftEvent',
+      component: 'demo' 
+    })
     return { error: 'demo' }
   }
   if (!user.value) {
@@ -2005,28 +2035,40 @@ const deleteDraftEvent = async (event: DisplayEvent) => {
     return { error: 'auth' }
   }
   if (!isAdmin.value) {
-    setBanner('error', '没有权限：仅管理员可删除草稿')
+    authErrorHandler.handleError(new Error('没有权限：仅管理员可删除草稿'), { 
+      operation: 'deleteDraftEvent',
+      component: 'admin' 
+    })
     return { error: 'auth' }
   }
   if (event.status !== 'draft') {
-    setBanner('error', '只有草稿可以删除')
+    eventErrorHandler.handleError(new Error('只有草稿可以删除'), { 
+      operation: 'deleteDraftEvent',
+      component: 'validation' 
+    })
     return { error: 'status' }
   }
   if (event.created_by && event.created_by !== user.value.id) {
-    setBanner('error', '没有权限删除他人草稿')
+    authErrorHandler.handleError(new Error('没有权限删除他人草稿'), { 
+      operation: 'deleteDraftEvent',
+      component: 'permission' 
+    })
     return { error: 'auth' }
   }
 
   deleteBusyEventId.value = event.id
   const { error } = await supabase.from('events').delete().eq('id', event.id)
   if (error) {
-    setBanner('error', error.message)
+    eventErrorHandler.handleError(error, { operation: 'deleteDraftEvent' })
     deleteBusyEventId.value = null
     return { error: error.message }
   }
 
   events.value = events.value.filter((item) => item.id !== event.id)
-  setBanner('info', '草稿已删除')
+  handleSuccessWithBanner('草稿已删除', setBanner, { 
+    operation: 'deleteDraftEvent',
+    component: 'event' 
+  })
   deleteBusyEventId.value = null
   return { error: '' }
 }
@@ -2034,11 +2076,17 @@ const deleteDraftEvent = async (event: DisplayEvent) => {
 const submitRegistration = async (event: DisplayEvent, formResponse: Record<string, string | string[]>) => {
   clearBanners()
   if (isDemoEvent(event)) {
-    setBanner('info', '这是前端临时活动，仅用于展示，暂不支持报名')
+    handleSuccessWithBanner('这是前端临时活动，仅用于展示，暂不支持报名', setBanner, { 
+      operation: 'submitRegistration',
+      component: 'demo' 
+    })
     return { error: 'demo' }
   }
   if (event.status === 'draft') {
-    setBanner('info', '草稿活动暂不支持报名')
+    handleSuccessWithBanner('草稿活动暂不支持报名', setBanner, { 
+      operation: 'submitRegistration',
+      component: 'validation' 
+    })
     return { error: 'draft' }
   }
   if (!user.value) {
@@ -2048,7 +2096,10 @@ const submitRegistration = async (event: DisplayEvent, formResponse: Record<stri
   }
 
   if (myRegistrationByEventId.value[event.id]) {
-    setBanner('info', '你已报名该活动')
+    handleSuccessWithBanner('你已报名该活动', setBanner, { 
+      operation: 'submitRegistration',
+      component: 'validation' 
+    })
     return { error: '' }
   }
 
@@ -2065,7 +2116,7 @@ const submitRegistration = async (event: DisplayEvent, formResponse: Record<stri
     .single()
 
   if (error) {
-    setBanner('error', error.message)
+    eventErrorHandler.handleError(error, { operation: 'submitRegistration' })
     registrationBusyEventId.value = null
     return { error: error.message }
   }
@@ -2075,7 +2126,10 @@ const submitRegistration = async (event: DisplayEvent, formResponse: Record<stri
     ...myRegistrationByEventId.value,
     [row.event_id]: row.id,
   }
-  setBanner('info', '报名成功')
+  handleSuccessWithBanner('报名成功', setBanner, { 
+    operation: 'submitRegistration',
+    component: 'form' 
+  })
   registrationBusyEventId.value = null
   return { error: '' }
 }
@@ -2097,11 +2151,17 @@ const registrationVariant = (event: DisplayEvent) => {
 const toggleRegistration = async (event: DisplayEvent) => {
   clearBanners()
   if (isDemoEvent(event)) {
-    setBanner('info', '这是前端临时活动，仅用于展示，暂不支持报名')
+    handleSuccessWithBanner('这是前端临时活动，仅用于展示，暂不支持报名', setBanner, { 
+      operation: 'toggleRegistration',
+      component: 'demo' 
+    })
     return
   }
   if (event.status === 'draft') {
-    setBanner('info', '草稿活动暂不支持报名')
+    handleSuccessWithBanner('草稿活动暂不支持报名', setBanner, { 
+      operation: 'toggleRegistration',
+      component: 'validation' 
+    })
     return
   }
   if (!user.value) {
@@ -2114,7 +2174,10 @@ const toggleRegistration = async (event: DisplayEvent) => {
   registrationBusyEventId.value = event.id
 
   if (!existingId) {
-    setBanner('info', '请在活动详情页填写报名表')
+    handleSuccessWithBanner('请在活动详情页填写报名表', setBanner, { 
+      operation: 'toggleRegistration',
+      component: 'form' 
+    })
     registrationBusyEventId.value = null
     return
   }
@@ -2122,12 +2185,15 @@ const toggleRegistration = async (event: DisplayEvent) => {
   const { error } = await supabase.from('registrations').delete().eq('id', existingId)
 
   if (error) {
-    setBanner('error', error.message)
+    eventErrorHandler.handleError(error, { operation: 'toggleRegistration' })
   } else {
     const next = { ...myRegistrationByEventId.value }
     delete next[event.id]
     myRegistrationByEventId.value = next
-    setBanner('info', '已取消报名')
+    handleSuccessWithBanner('已取消报名', setBanner, { 
+      operation: 'toggleRegistration',
+      component: 'form' 
+    })
   }
 
   registrationBusyEventId.value = null
@@ -2240,7 +2306,7 @@ const loadEventJudges = async (eventId: string): Promise<JudgeWithProfile[]> => 
       
       // Only show banner for non-network errors to avoid spam
       if (!isNetworkError(error)) {
-        setBanner('error', errorMessage)
+        apiErrorHandler.handleError(error, { operation: 'loadEventJudges' })
       }
       
       judgesByEventId.value = { ...judgesByEventId.value, [eventId]: [] }
@@ -2280,7 +2346,7 @@ const loadEventJudges = async (eventId: string): Promise<JudgeWithProfile[]> => 
     
     // Only show banner for non-network errors
     if (!isNetworkError(error)) {
-      setBanner('error', errorMessage)
+      apiErrorHandler.handleError(error, { operation: 'loadEventJudges' })
     }
     
     judgesByEventId.value = { ...judgesByEventId.value, [eventId]: [] }
@@ -2299,7 +2365,10 @@ const searchUsersForJudge = async (query: string, eventId: string, limit = 20): 
     // Check if user has permission to manage judges
     const permission = await checkJudgePermission(eventId)
     if (!permission.canManageJudges) {
-      setBanner('error', '您没有权限搜索用户')
+      authErrorHandler.handleError(new Error('您没有权限搜索用户'), { 
+        operation: 'searchUsersForJudge',
+        component: 'judge' 
+      })
       return []
     }
 

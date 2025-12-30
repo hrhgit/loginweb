@@ -2552,19 +2552,358 @@ img {
   transform: translate(-50%) translateY(0);
   z-index: 39;
   width: min(860px, 92vw);
-  padding: 12px 16px;
+  padding: 16px;
   border: none;
   border-radius: 12px;
-  font-weight: 800;
+  font-weight: 600;
   letter-spacing: 0.01em;
-  text-align: center;
-  color: #0a2012f2;
-  background: #a8f2cc80;
   box-shadow: 0 10px 22px #11231e1a;
   -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
+  pointer-events: auto;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+/* Enhanced visual feedback on hover */
+.toast-notification:hover {
+  transform: translate(-50%) translateY(-2px);
+  box-shadow: 0 14px 28px #11231e20;
+  transition: all 0.2s ease;
+}
+
+/* Mobile responsiveness */
+@media (max-width: 640px) {
+  .toast-notification {
+    width: min(860px, 95vw);
+    top: 76px;
+    padding: 14px;
+  }
+}
+
+.toast-notification__content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.toast-notification__header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.toast-notification__icon {
+  font-size: 18px;
+  font-weight: bold;
+  flex-shrink: 0;
+  margin-top: 2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* Icon backgrounds for different message types */
+.toast-notification--success .toast-notification__icon {
+  background: rgba(10, 32, 18, 0.2);
+  color: #0a2012;
+}
+
+.toast-notification--info .toast-notification__icon {
+  background: rgba(27, 74, 90, 0.2);
+  color: #1b4a5a;
+}
+
+.toast-notification--warning .toast-notification__icon {
+  background: rgba(255, 255, 255, 0.25);
+  color: #ffffff;
+}
+
+.toast-notification--error .toast-notification__icon,
+.toast-notification--critical .toast-notification__icon {
+  background: rgba(255, 255, 255, 0.25);
+  color: #ffffff;
+}
+
+.toast-notification__message {
+  flex: 1;
+  line-height: 1.5;
+  text-align: left;
+}
+
+.toast-notification__close {
+  background: none;
+  border: none;
+  font-size: 16px;
+  font-weight: bold;
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 6px;
+  flex-shrink: 0;
+  opacity: 0.7;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+}
+
+.toast-notification__close:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.toast-notification__close:focus {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+  opacity: 1;
+}
+
+/* Enhanced close button for different message types */
+.toast-notification--success .toast-notification__close:hover {
+  background: rgba(10, 32, 18, 0.1);
+}
+
+.toast-notification--info .toast-notification__close:hover {
+  background: rgba(27, 74, 90, 0.1);
+}
+
+.toast-notification__suggestions {
+  margin-top: 8px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.toast-notification__suggestions-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  opacity: 0.9;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.toast-notification__suggestions-title::before {
+  content: '💡';
+  font-size: 16px;
+}
+
+.toast-notification__suggestions-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.4;
+  display: grid;
+  gap: 6px;
+}
+
+.toast-notification__suggestions-list li {
+  padding: 6px 12px;
+  padding-left: 20px;
+  position: relative;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  border-left: 3px solid rgba(255, 255, 255, 0.3);
+}
+
+.toast-notification__suggestions-list li::before {
+  content: '→';
+  position: absolute;
+  left: 6px;
+  top: 6px;
+  opacity: 0.7;
+  font-weight: bold;
+}
+
+/* Suggestions styling for different message types */
+.toast-notification--success .toast-notification__suggestions-list li {
+  background: rgba(10, 32, 18, 0.1);
+  border-left-color: rgba(10, 32, 18, 0.3);
+}
+
+.toast-notification--info .toast-notification__suggestions-list li {
+  background: rgba(27, 74, 90, 0.1);
+  border-left-color: rgba(27, 74, 90, 0.3);
+}
+
+.toast-notification__actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.toast-notification__retry-btn {
+  background: rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: inherit;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 80px;
+  justify-content: center;
+}
+
+.toast-notification__retry-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.3);
+  border-color: rgba(255, 255, 255, 0.4);
+  transform: translateY(-1px);
+}
+
+.toast-notification__retry-btn:focus {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.toast-notification__retry-btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.toast-notification__retry-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+  transform: none;
+}
+
+/* Loading state for retry button */
+.toast-notification__retry-btn--loading {
   pointer-events: none;
 }
+
+.toast-notification__retry-btn--loading::before {
+  content: '';
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: toast-retry-spin 0.8s linear infinite;
+}
+
+@keyframes toast-retry-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Enhanced retry button styles for different message types */
+.toast-notification--success .toast-notification__retry-btn {
+  background: rgba(10, 32, 18, 0.15);
+  border-color: rgba(10, 32, 18, 0.25);
+  color: #0a2012;
+}
+
+.toast-notification--success .toast-notification__retry-btn:hover:not(:disabled) {
+  background: rgba(10, 32, 18, 0.2);
+  border-color: rgba(10, 32, 18, 0.35);
+}
+
+.toast-notification--info .toast-notification__retry-btn {
+  background: rgba(27, 74, 90, 0.15);
+  border-color: rgba(27, 74, 90, 0.25);
+  color: #1b4a5a;
+}
+
+.toast-notification--info .toast-notification__retry-btn:hover:not(:disabled) {
+  background: rgba(27, 74, 90, 0.2);
+  border-color: rgba(27, 74, 90, 0.35);
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .toast-notification__retry-btn:hover:not(:disabled) {
+    transform: none;
+  }
+  
+  .toast-notification__retry-btn--loading::before {
+    animation: none;
+  }
+  
+  .toast-notification:hover {
+    transform: translate(-50%) translateY(0);
+  }
+}
+
+/* Success messages - green theme */
+.toast-notification--success {
+  color: #0a2012;
+  background: rgba(168, 242, 204, 0.85);
+  border: 1px solid rgba(10, 32, 18, 0.2);
+}
+
+.toast-notification--success .toast-notification__close {
+  color: #0a2012;
+}
+
+
+
+/* Info messages - blue theme */
+.toast-notification--info {
+  color: #1b4a5a;
+  background: rgba(168, 218, 242, 0.85);
+  border: 1px solid rgba(27, 74, 90, 0.2);
+}
+
+.toast-notification--info .toast-notification__close {
+  color: #1b4a5a;
+}
+
+
+
+/* Warning messages - orange theme */
+.toast-notification--warning {
+  color: #ffffff;
+  background: rgba(224, 122, 95, 0.92);
+  border: 1px solid rgba(224, 122, 95, 0.4);
+}
+
+.toast-notification--warning .toast-notification__close {
+  color: #ffffff;
+}
+
+
+
+/* Error messages - red theme */
+.toast-notification--error {
+  color: #ffffff;
+  background: rgba(182, 45, 28, 0.92);
+  border: 1px solid rgba(182, 45, 28, 0.4);
+}
+
+.toast-notification--error .toast-notification__close {
+  color: #ffffff;
+}
+
+
+
+/* Critical error messages - darker red theme */
+.toast-notification--critical {
+  color: #ffffff;
+  background: rgba(139, 0, 0, 0.95);
+  border: 1px solid rgba(139, 0, 0, 0.5);
+  box-shadow: 0 12px 28px rgba(139, 0, 0, 0.3);
+}
+
+.toast-notification--critical .toast-notification__close {
+  color: #ffffff;
+}
+
+
+
+/* Legacy support - remove the old .error class */
 .toast-notification.error {
   background: #a8f2cc80;
   color: #0a2012f2;

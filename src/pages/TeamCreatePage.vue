@@ -4,6 +4,11 @@ import { RouterLink, onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { Users } from 'lucide-vue-next'
 import { useAppStore } from '../store/appStore'
 import { getRoleTagClass, sortRoleLabels } from '../utils/roleTags'
+import { 
+  handleErrorWithBanner, 
+  handleSuccessWithBanner,
+  teamErrorHandler 
+} from '../store/enhancedErrorHandling'
 
 const store = useAppStore()
 const route = useRoute()
@@ -195,7 +200,10 @@ const submit = async () => {
     return
   }
 
-  store.setBanner('info', isEdit.value ? '队伍已更新' : '队伍已创建')
+  handleSuccessWithBanner(isEdit.value ? '队伍已更新' : '队伍已创建', store.setBanner, { 
+    operation: isEdit.value ? 'updateTeam' : 'createTeam',
+    component: 'team' 
+  })
   
   // Allow navigation after successful submission
   allowNavigation.value = true

@@ -38,6 +38,12 @@ import {
   type RegistrationQuestion,
 } from '../utils/eventDetails'
 import { getRoleTagClass, getRoleTagKey, sortRoleLabels } from '../utils/roleTags'
+import { 
+  handleErrorWithBanner, 
+  handleSuccessWithBanner,
+  teamErrorHandler,
+  eventErrorHandler 
+} from '../store/enhancedErrorHandling'
 
 const store = useAppStore()
 const route = useRoute()
@@ -473,7 +479,10 @@ const handleJoinTeam = async (teamId: string) => {
     return
   }
   if (!isRegistered.value) {
-    store.setBanner('info', '请先报名该活动后再申请加入队伍')
+    handleSuccessWithBanner('请先报名该活动后再申请加入队伍', store.setBanner, { 
+      operation: 'joinTeam',
+      component: 'team' 
+    })
     return
   }
   joinTargetTeamId.value = teamId
@@ -499,11 +508,17 @@ const toggleSeekerRole = (label: string, event: Event) => {
 const openSeekerModal = async () => {
   if (!event.value) return
   if (isDemo.value) {
-    store.setBanner('info', '展示活动暂不支持求组队')
+    handleSuccessWithBanner('展示活动暂不支持求组队', store.setBanner, { 
+      operation: 'openSeekerModal',
+      component: 'demo' 
+    })
     return
   }
   if (event.value.status !== 'published') {
-    store.setBanner('info', '仅进行中活动支持求组队')
+    handleSuccessWithBanner('仅进行中活动支持求组队', store.setBanner, { 
+      operation: 'openSeekerModal',
+      component: 'validation' 
+    })
     return
   }
   if (!store.user) {
@@ -512,7 +527,10 @@ const openSeekerModal = async () => {
     return
   }
   if (!isRegistered.value) {
-    store.setBanner('info', '请先报名该活动后再发布求组队')
+    handleSuccessWithBanner('请先报名该活动后再发布求组队', store.setBanner, { 
+      operation: 'openSeekerModal',
+      component: 'validation' 
+    })
     return
   }
   if (!store.contacts) {
@@ -560,7 +578,10 @@ const saveSeeker = async () => {
     seekerBusy.value = false
     return
   }
-  store.setBanner('info', myTeamSeeker.value ? '求组队卡片已更新' : '进行中求组队卡片')
+  handleSuccessWithBanner(myTeamSeeker.value ? '求组队卡片已更新' : '进行中求组队卡片', store.setBanner, { 
+    operation: 'saveTeamSeeker',
+    component: 'team' 
+  })
   seekerModalOpen.value = false
   seekerBusy.value = false
 }
@@ -571,10 +592,16 @@ const deleteSeeker = async (seekerId: string) => {
   if (!confirmed) return
   const { error: deleteError } = await store.deleteTeamSeeker(event.value.id, seekerId)
   if (deleteError) {
-    store.setBanner('error', deleteError)
+    handleErrorWithBanner(new Error(deleteError), store.setBanner, { 
+      operation: 'deleteTeamSeeker',
+      component: 'team' 
+    })
     return
   }
-  store.setBanner('info', '求组队卡片已删除')
+  handleSuccessWithBanner('求组队卡片已删除', store.setBanner, { 
+    operation: 'deleteTeamSeeker',
+    component: 'team' 
+  })
 }
 
 const handleInviteSeeker = (seekerId: string) => {
@@ -635,7 +662,10 @@ const submitInvite = async () => {
     return
   }
   const teamName = inviteTeamOptions.value.find((t) => t.id === inviteSelectedTeamId.value)?.name ?? '队伍'
-  store.setBanner('info', `已邀请 ${seekerDisplayName(inviteTarget.value)} 加入：${teamName}`)
+  handleSuccessWithBanner(`已邀请 ${seekerDisplayName(inviteTarget.value)} 加入：${teamName}`, store.setBanner, { 
+    operation: 'sendTeamInvite',
+    component: 'team' 
+  })
   inviteBusy.value = false
   closeInviteModal()
 }
@@ -662,7 +692,10 @@ const submitJoinRequest = async () => {
     joinSubmitBusy.value = false
     return
   }
-  store.setBanner('info', '已提交入队申请')
+  handleSuccessWithBanner('已提交入队申请', store.setBanner, { 
+    operation: 'requestJoinTeam',
+    component: 'team' 
+  })
   joinModalOpen.value = false
   joinTargetTeamId.value = null
   joinMessage.value = ''
@@ -796,15 +829,24 @@ const closeRegistrationForm = () => {
 const openTeamCreate = async () => {
   if (!event.value) return
   if (isDemo.value) {
-    store.setBanner('info', '展示活动不支持创建队伍')
+    handleSuccessWithBanner('展示活动不支持创建队伍', store.setBanner, { 
+      operation: 'createTeam',
+      component: 'demo' 
+    })
     return
   }
   if (event.value.status !== 'published') {
-    store.setBanner('info', '仅进行中活动支持创建队伍')
+    handleSuccessWithBanner('仅进行中活动支持创建队伍', store.setBanner, { 
+      operation: 'createTeam',
+      component: 'validation' 
+    })
     return
   }
   if (!isRegistered.value) {
-    store.setBanner('info', '请先报名该活动后再创建队伍')
+    handleSuccessWithBanner('请先报名该活动后再创建队伍', store.setBanner, { 
+      operation: 'createTeam',
+      component: 'validation' 
+    })
     return
   }
   if (!store.user) {
@@ -990,7 +1032,7 @@ const handleRevertToDraft = async () => {
   store.clearBanners()
   const { error } = await store.updateEventStatus(event.value.id, 'draft')
   if (error) {
-    store.setBanner('error', error)
+    eventErrorHandler.handleError(new Error(error), { operation: 'revertToDraft' })
   } else {
     event.value = { ...event.value, status: 'draft' }
     store.setBanner('info', '已退回草稿（仅你可见，可在“我发起的活动”中继续编辑）')
@@ -1113,7 +1155,10 @@ const saveFormEdit = async () => {
   if (error) {
     formSaveError.value = error.message
   } else {
-    store.setBanner('info', '报名表单已更新')
+    handleSuccessWithBanner('报名表单已更新', store.setBanner, { 
+      operation: 'updateRegistrationForm',
+      component: 'form' 
+    })
     applyFormResponse(response)
     formEditMode.value = false
   }
