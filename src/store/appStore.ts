@@ -1470,14 +1470,14 @@ const updateMyProfile = async (payload: Partial<Pick<Profile, 'username' | 'avat
 
   try {
     const nextPayload = { ...payload }
-    // Handle avatar upload if data URL is provided
+    // Handle avatar upload if data URL is provided (fallback for non-pre-uploaded avatars)
     if (nextPayload.avatar_url && nextPayload.avatar_url.startsWith('data:image')) {
       const blob = dataURLtoBlob(nextPayload.avatar_url)
       if (!blob) {
         throw new Error('无效的头像图片格式')
       }
 
-      const filePath = `${user.value.id}/avatar.jpg`
+      const filePath = `${user.value.id}/avatar-${Date.now()}.jpg`
       
       // Parallel operations: upload and get URL simultaneously
       const uploadPromise = supabase.storage.from('avatars').upload(filePath, blob, {
@@ -1494,6 +1494,7 @@ const updateMyProfile = async (payload: Partial<Pick<Profile, 'username' | 'avat
 
       nextPayload.avatar_url = urlData.publicUrl
     }
+    // 如果avatar_url是HTTP URL，说明已经预上传了，直接使用
 
     const { data, error } = await supabase
       .from('profiles')
