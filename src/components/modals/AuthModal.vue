@@ -34,17 +34,25 @@ const store = useAppStore()
         </div>
 
         <form class="form" @submit.prevent="store.submitAuth">
-          <label v-if="store.authView === 'sign_up'" class="field">
-            <span>全名</span>
+          <label v-if="store.authView === 'sign_up'" class="field" :class="{ 'field--error': store.authError }">
+            <span>用户名</span>
             <input v-model="store.authFullName" type="text" autocomplete="name" placeholder="例如 王大明" required />
+            <small class="field-hint">用户名将用于登录，2-20个字符，支持中文、字母、数字和下划线</small>
           </label>
 
-          <label class="field">
-            <span>电子邮箱</span>
-            <input v-model="store.authEmail" type="email" autocomplete="email" placeholder="you@example.com" required />
+          <label class="field" :class="{ 'field--error': store.authError }">
+            <span>{{ store.authView === 'sign_in' ? '邮箱或用户名' : '电子邮箱' }}</span>
+            <input 
+              v-model="store.authEmail" 
+              :type="store.authView === 'sign_in' ? 'text' : 'email'" 
+              :autocomplete="store.authView === 'sign_in' ? 'username' : 'email'" 
+              :placeholder="store.authView === 'sign_in' ? '邮箱或用户名' : 'you@example.com'" 
+              required 
+            />
+            <small v-if="store.authView === 'sign_in'" class="field-hint">可以使用邮箱地址或用户名登录</small>
           </label>
 
-          <label class="field">
+          <label class="field" :class="{ 'field--error': store.authError }">
             <span>密码</span>
             <input
               v-model="store.authPassword"
@@ -56,8 +64,10 @@ const store = useAppStore()
             />
           </label>
 
-          <p v-if="store.authError" class="alert error">{{ store.authError }}</p>
-          <p v-if="store.authInfo" class="alert info">{{ store.authInfo }}</p>
+          <div v-if="store.authError || store.authInfo" class="auth-feedback">
+            <p v-if="store.authError" class="alert error">{{ store.authError }}</p>
+            <p v-if="store.authInfo" class="alert info">{{ store.authInfo }}</p>
+          </div>
 
           <button class="btn btn--primary btn--full" type="submit" :disabled="store.authBusy">
             {{ store.authBusy ? '处理中..' : store.authView === 'sign_in' ? '登录' : '立即注册' }}
@@ -71,3 +81,51 @@ const store = useAppStore()
     </div>
   </teleport>
 </template>
+
+<style scoped>
+.auth-feedback {
+  margin: 0.75rem 0;
+}
+
+.auth-feedback .alert {
+  margin: 0;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+
+.auth-feedback .alert.error {
+  background-color: rgba(182, 45, 28, 0.1);
+  border: 1px solid rgba(182, 45, 28, 0.2);
+  color: var(--danger);
+}
+
+.auth-feedback .alert.info {
+  background-color: rgba(31, 111, 109, 0.1);
+  border: 1px solid rgba(31, 111, 109, 0.2);
+  color: var(--accent);
+}
+
+.field--error input {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 1px rgba(182, 45, 28, 0.1);
+}
+
+.field--error input:focus {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 2px rgba(182, 45, 28, 0.2);
+}
+
+.field-hint {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+  line-height: 1.3;
+}
+
+.field--error .field-hint {
+  color: var(--danger);
+}
+</style>

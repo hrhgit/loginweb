@@ -2,6 +2,8 @@ import { computed, proxyRefs, ref } from 'vue'
 import type { Subscription, User } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
 import { buildEventDescription, createDefaultEventDetails, generateId } from '../utils/eventDetails'
+import { getLocalizedAuthError } from '../utils/authErrorMessages'
+import { signInWithEmailOrUsername, validateUsername, checkUsernameExists } from '../utils/authHelpers'
 import { demoEvents } from './demoEvents'
 import { EVENT_SELECT } from './eventSchema'
 import { 
@@ -1430,7 +1432,7 @@ const loadMyProfile = async () => {
   profileLoading.value = true
   const { data, error } = await supabase
     .from('profiles')
-    .select('id,username,avatar_url,roles')
+    .select('id,username,email,avatar_url,roles')
     .eq('id', user.value.id)
     .maybeSingle()
 
@@ -1824,31 +1826,89 @@ const submitAuth = async () => {
   authInfo.value = ''
   authBusy.value = true
 
-  if (authView.value === 'sign_in') {
-    const { error } = await supabase.auth.signInWithPassword({
-      email: authEmail.value,
-      password: authPassword.value,
-    })
-    if (error) authError.value = error.message
-  } else {
-    const { data, error } = await supabase.auth.signUp({
-      email: authEmail.value,
-      password: authPassword.value,
-      options: {
-        data: {
-          full_name: authFullName.value,
+  try {
+    if (authView.value === 'sign_in') {
+      // 使用增强的登录函数，支持邮箱或用户名
+      const { data, error } = await signInWithEmailOrUsername(
+        authEmail.value.trim(),
+        authPassword.value
+      )
+      
+      if (error) {
+        // 使用增强的认证错误处理
+        const localizedError = getLocalizedAuthError(error)
+        authError.value = localizedError.message
+        
+        // 记录错误到增强错误处理系统
+        authErrorHandler.handleError(error, {
+          operation: 'login',
+          component: 'auth-modal',
+          additionalData: {
+            emailOrUsername: authEmail.value,
+            errorCode: error.status || error.code
+          }
+        })
+      }
+    } else {
+      // 注册逻辑
+      const trimmedFullName = authFullName.value.trim()
+      const trimmedEmail = authEmail.value.trim()
+      
+      // 验证用户名格式
+      const usernameValidation = validateUsername(trimmedFullName)
+      if (!usernameValidation.isValid) {
+        authError.value = usernameValidation.message || '用户名格式不正确'
+        return
+      }
+      
+      // 检查用户名是否已存在
+      const usernameExists = await checkUsernameExists(trimmedFullName)
+      if (usernameExists) {
+        authError.value = '该用户名已被使用，请选择其他用户名'
+        return
+      }
+
+      const { data, error } = await supabase.auth.signUp({
+        email: trimmedEmail,
+        password: authPassword.value,
+        options: {
+          data: {
+            full_name: trimmedFullName,
+          },
         },
-      },
-    })
+      })
 
-    if (error) {
-      authError.value = error.message
-    } else if (data.user && !data.session) {
-      authInfo.value = '已发送验证邮件，请完成邮箱确认后再登录'
+      if (error) {
+        // 使用增强的认证错误处理
+        const localizedError = getLocalizedAuthError(error)
+        authError.value = localizedError.message
+        
+        // 记录错误到增强错误处理系统
+        authErrorHandler.handleError(error, {
+          operation: 'register',
+          component: 'auth-modal',
+          additionalData: {
+            email: trimmedEmail,
+            fullName: trimmedFullName,
+            errorCode: error.status || error.code
+          }
+        })
+      } else if (data.user && !data.session) {
+        authInfo.value = '已发送验证邮件，请完成邮箱确认后再登录'
+      }
     }
+  } catch (unexpectedError) {
+    // 处理意外错误
+    console.error('Unexpected auth error:', unexpectedError)
+    authError.value = '系统错误，请稍后重试'
+    
+    authErrorHandler.handleError(unexpectedError, {
+      operation: authView.value === 'sign_in' ? 'login' : 'register',
+      component: 'auth-modal'
+    })
+  } finally {
+    authBusy.value = false
   }
-
-  authBusy.value = false
 }
 
 const handleSignOut = async () => {

@@ -60,16 +60,15 @@ const cancelEdit = () => {
 }
 
 const handleAvatarSave = (data: { dataUrl: string; uploadedUrl?: string; uploadedPath?: string }) => {
+  // 优先使用上传后的URL，否则使用dataUrl
+  const finalAvatarUrl = data.uploadedUrl || data.dataUrl
+  
   // 立即更新乐观UI
-  optimisticAvatarUrl.value = data.dataUrl
-  // 如果预上传成功，使用上传后的URL，否则使用dataUrl
-  avatarUrl.value = data.uploadedUrl || data.dataUrl
-  // 存储上传路径，用于后续数据库更新
-  if (data.uploadedPath) {
-    // 可以存储路径信息，但这里我们主要使用URL
-  }
+  optimisticAvatarUrl.value = finalAvatarUrl
+  // 更新本地头像URL
+  avatarUrl.value = finalAvatarUrl
   // 更新store中的头像用于导航栏显示
-  store.setOptimisticAvatar(data.dataUrl)
+  store.setOptimisticAvatar(finalAvatarUrl)
 }
 
 const passwordBusy = ref(false)
@@ -1149,6 +1148,16 @@ watch(
 
       </div>
     </div>
+
+    <!-- Global Modals -->
+    <Teleport to="body">
+      <AvatarCropperModal
+        v-if="showAvatarCropper"
+        :initial-image="avatarPreview"
+        @close="showAvatarCropper = false"
+        @save="handleAvatarSave"
+      />
+    </Teleport>
   </main>
 </template>
 

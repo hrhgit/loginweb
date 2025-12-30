@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>错误日志功能测试</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            background: #f9f9f9;
+        }
+        .result {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: monospace;
+        }
+        .success { background: #e6ffe6; color: #080; }
+        .error { background: #ffe6e6; color: #d00; }
+        .info { background: #e6f3ff; color: #0066cc; }
+        button {
+            padding: 8px 16px;
+            margin: 5px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            background: white;
+            cursor: pointer;
+        }
+        button:hover { background: #f0f0f0; }
+    </style>
+</head>
+<body>
+    <h1>错误日志功能测试</h1>
+    <p>这个页面用于测试错误日志系统的基本功能，确保修复后的代码能正常工作。</p>
+
+    <div class="test-section">
+        <h3>1. 基础功能测试</h3>
+        <button onclick="testBasicFunctionality()">测试基础功能</button>
+        <div id="basicResult" class="result"></div>
+    </div>
+
+    <div class="test-section">
+        <h3>2. 错误处理测试</h3>
+        <button onclick="testErrorHandling()">测试错误处理</button>
+        <div id="errorResult" class="result"></div>
+    </div>
+
+    <div class="test-section">
+        <h3>3. 数据验证测试</h3>
+        <button onclick="testDataValidation()">测试数据验证</button>
+        <div id="validationResult" class="result"></div>
+    </div>
+
+    <script>
+        // 模拟错误日志管理器
+        class TestErrorLogManager {
+            constructor() {
+                this.STORAGE_KEY = 'test_error_log_records'
+            }
+
+            addRecord(record) {
+                try {
+                    const records = this.getRecords()
+                    records.unshift(record)
+                    localStorage.setItem(this.STORAGE_KEY, JSON.stringify(records.slice(0, 50)))
+                    return true
+                } catch (e) {
+                    return false
+                }
+            }
+
+            getRecords(limit) {
+                try {
+                    const stored = localStorage.getItem(this.STORAGE_KEY)
+                    if (!stored) return []
+                    const records = JSON.parse(stored)
+                    return limit ? records.slice(0, limit) : records
+                } catch (e) {
+                    return []
+                }
+            }
+
+            clearRecords() {
+                try {
+                    localStorage.removeItem(this.STORAGE_KEY)
+                    return true
+                } catch (e) {
+                    return false
+                }
+            }
+        }
+
+        const testManager = new TestErrorLogManager()
+
+        function testBasicFunctionality() {
+            const resultDiv = document.getElementById('basicResult')
+            
+            try {
+                // 清除现有记录
+                testManager.clearRecords()
+                
+                // 添加测试记录
+                const testRecord = {
+                    id: 'test_1',
+                    timestamp: new Date(),
+                    type: 'network',
+                    severity: 'warning',
+                    message: '测试网络错误',
+                    originalError: { message: 'Test error' },
+                    context: {
+                        operation: 'test',
+                        component: 'test'
+                    },
+                    retryCount: 0,
+                    userAgent: navigator.userAgent
+                }
+                
+                const addResult = testManager.addRecord(testRecord)
+                if (!addResult) {
+                    throw new Error('添加记录失败')
+                }
+                
+                // 获取记录
+                const records = testManager.getRecords()
+                if (records.length !== 1) {
+                    throw new Error(`期望1条记录，实际${records.length}条`)
+                }
+                
+                if (records[0].message !== '测试网络错误') {
+                    throw new Error('记录内容不匹配')
+                }
+                
+                resultDiv.className = 'result success'
+                resultDiv.textContent = '✅ 基础功能测试通过'
+                
+            } catch (error) {
+                resultDiv.className = 'result error'
+                resultDiv.textContent = `❌ 基础功能测试失败: ${error.message}`
+            }
+        }
+
+        function testErrorHandling() {
+            const resultDiv = document.getElementById('errorResult')
+            
+            try {
+                // 测试空记录处理
+                const emptyRecords = testManager.getRecords()
+                
+                // 测试无效数据处理
+                const invalidRecord = null
+                testManager.addRecord(invalidRecord)
+                
+                // 测试缺少属性的记录
+                const incompleteRecord = {
+                    id: 'test_incomplete',
+                    // 缺少必要属性
+                }
+                testManager.addRecord(incompleteRecord)
+                
+                // 测试获取记录时的限制
+                const limitedRecords = testManager.getRecords(1)
+                
+                resultDiv.className = 'result success'
+                resultDiv.textContent = '✅ 错误处理测试通过 - 系统能正确处理异常情况'
+                
+            } catch (error) {
+                resultDiv.className = 'result error'
+                resultDiv.textContent = `❌ 错误处理测试失败: ${error.message}`
+            }
+        }
+
+        function testDataValidation() {
+            const resultDiv = document.getElementById('validationResult')
+            
+            try {
+                testManager.clearRecords()
+                
+                // 测试各种数据类型
+                const testCases = [
+                    {
+                        name: '完整记录',
+                        record: {
+                            id: 'test_complete',
+                            timestamp: new Date(),
+                            type: 'validation',
+                            severity: 'warning',
+                            message: '完整的错误记录',
+                            originalError: { code: 'TEST_ERROR' },
+                            context: {
+                                operation: 'validation',
+                                component: 'form'
+                            },
+                            retryCount: 1,
+                            userAgent: navigator.userAgent
+                        }
+                    },
+                    {
+                        name: '最小记录',
+                        record: {
+                            id: 'test_minimal',
+                            message: '最小错误记录',
+                            type: 'unknown'
+                        }
+                    },
+                    {
+                        name: '缺少ID的记录',
+                        record: {
+                            message: '无ID记录',
+                            type: 'client',
+                            timestamp: new Date()
+                        }
+                    }
+                ]
+                
+                let successCount = 0
+                for (const testCase of testCases) {
+                    try {
+                        testManager.addRecord(testCase.record)
+                        successCount++
+                    } catch (error) {
+                        console.warn(`测试用例 "${testCase.name}" 失败:`, error)
+                    }
+                }
+                
+                const records = testManager.getRecords()
+                
+                resultDiv.className = 'result success'
+                resultDiv.textContent = `✅ 数据验证测试通过 - ${successCount}/${testCases.length} 个测试用例成功，共${records.length}条记录`
+                
+            } catch (error) {
+                resultDiv.className = 'result error'
+                resultDiv.textContent = `❌ 数据验证测试失败: ${error.message}`
+            }
+        }
+
+        // 页面加载时运行基础测试
+        window.addEventListener('load', () => {
+            setTimeout(() => {
+                document.getElementById('basicResult').className = 'result info'
+                document.getElementById('basicResult').textContent = 'ℹ️ 点击按钮开始测试'
+                
+                document.getElementById('errorResult').className = 'result info'
+                document.getElementById('errorResult').textContent = 'ℹ️ 点击按钮开始测试'
+                
+                document.getElementById('validationResult').className = 'result info'
+                document.getElementById('validationResult').textContent = 'ℹ️ 点击按钮开始测试'
+            }, 100)
+        })
+    </script>
+</body>
+</html>

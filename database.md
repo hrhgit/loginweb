@@ -14,6 +14,7 @@
 ### `profiles` (用户资料表)
 - `id` (uuid, PK): 关联 auth.users.id
 - `username` (text): 用户昵称 (最少3个字符)
+- `email` (text): 用户邮箱 (从 auth.users 同步，支持用户名登录)
 - `avatar_url` (text): 头像地址
 - `roles` (user_role[]): 职能标签数组（可多选：programmer / planner / artist / audio）
 - `updated_at` (timestamptz): 更新时间

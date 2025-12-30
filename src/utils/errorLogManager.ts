@@ -495,11 +495,39 @@ export class ErrorLogManager {
     for (const [index, error] of report.errors.entries()) {
       lines.push(`${index + 1}. [${this.getErrorTypeLabel(error.type)}] ${error.message}`)
       lines.push(`   时间: ${new Date(error.timestamp).toLocaleString()}`)
+      lines.push(`   错误ID: ${error.id}`)
       lines.push(`   组件: ${error.context.component}`)
       lines.push(`   操作: ${error.context.operation}`)
+      lines.push(`   严重程度: ${error.severity}`)
       if (error.retryCount > 0) {
         lines.push(`   重试次数: ${error.retryCount}`)
       }
+      
+      // 添加技术详情
+      if (error.originalError) {
+        lines.push(`   技术信息:`)
+        try {
+          const errorDetails = JSON.stringify(error.originalError, null, 2)
+          // 将每行缩进
+          const indentedDetails = errorDetails.split('\n').map(line => `     ${line}`).join('\n')
+          lines.push(indentedDetails)
+        } catch {
+          lines.push(`     ${String(error.originalError)}`)
+        }
+      }
+      
+      // 添加上下文详情
+      if (error.context.additionalData) {
+        lines.push(`   上下文数据:`)
+        try {
+          const contextDetails = JSON.stringify(error.context.additionalData, null, 2)
+          const indentedContext = contextDetails.split('\n').map(line => `     ${line}`).join('\n')
+          lines.push(indentedContext)
+        } catch {
+          lines.push(`     ${String(error.context.additionalData)}`)
+        }
+      }
+      
       lines.push('')
     }
     

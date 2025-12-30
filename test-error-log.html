@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>错误日志系统测试</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+        }
+        .result {
+            margin: 10px 0;
+            padding: 10px;
+            background: #f5f5f5;
+            border-radius: 4px;
+        }
+        .success { background: #e6ffe6; color: #080; }
+        .error { background: #ffe6e6; color: #d00; }
+        button {
+            padding: 8px 16px;
+            margin: 5px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            background: white;
+            cursor: pointer;
+        }
+        button:hover { background: #f0f0f0; }
+        .log-display {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 4px;
+            padding: 10px;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <h1>错误日志系统测试</h1>
+    <p>这个页面用于测试错误日志系统的功能。</p>
+
+    <div class="test-section">
+        <h3>1. 生成测试错误</h3>
+        <button onclick="generateNetworkError()">生成网络错误</button>
+        <button onclick="generatePermissionError()">生成权限错误</button>
+        <button onclick="generateValidationError()">生成验证错误</button>
+        <button onclick="generateTimeoutError()">生成超时错误</button>
+        <div id="errorResult" class="result"></div>
+    </div>
+
+    <div class="test-section">
+        <h3>2. 查看错误日志</h3>
+        <button onclick="viewErrorLog()">查看错误记录</button>
+        <button onclick="getStorageInfo()">查看存储信息</button>
+        <button onclick="generateReport()">生成反馈报告</button>
+        <div id="logResult" class="result"></div>
+        <div id="logDisplay" class="log-display" style="display: none;"></div>
+    </div>
+
+    <div class="test-section">
+        <h3>3. 管理错误日志</h3>
+        <button onclick="clearErrorLog()">清除所有记录</button>
+        <button onclick="copyReport()">复制错误报告</button>
+        <div id="manageResult" class="result"></div>
+    </div>
+
+    <script type="module">
+        // 模拟错误处理系统的核心功能
+        class MockErrorLogManager {
+            constructor() {
+                this.STORAGE_KEY = 'error_log_records'
+                this.SESSION_KEY = 'error_log_session'
+                this.sessionId = this.getOrCreateSessionId()
+            }
+
+            getOrCreateSessionId() {
+                let sessionId = sessionStorage.getItem(this.SESSION_KEY)
+                if (!sessionId) {
+                    sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+                    sessionStorage.setItem(this.SESSION_KEY, sessionId)
+                }
+                return sessionId
+            }
+
+            addRecord(error) {
+                try {
+                    const records = this.getRecords()
+                    records.unshift(error)
+                    
+                    // 限制记录数量
+                    const limitedRecords = records.slice(0, 50)
+                    
+                    localStorage.setItem(this.STORAGE_KEY, JSON.stringify(limitedRecords))
+                    return true
+                } catch (e) {
+                    console.error('Failed to save error record:', e)
+                    return false
+                }
+            }
+
+            getRecords(limit) {
+                try {
+                    const stored = localStorage.getItem(this.STORAGE_KEY)
+                    if (!stored) return []
+                    
+                    const records = JSON.parse(stored)
+                    return limit ? records.slice(0, limit) : records
+                } catch (e) {
+                    console.error('Failed to get error records:', e)
+                    return []
+                }
+            }
+
+            clearRecords() {
+                try {
+                    localStorage.removeItem(this.STORAGE_KEY)
+                    return true
+                } catch (e) {
+                    console.error('Failed to clear error records:', e)
+                    return false
+                }
+            }
+
+            getStorageInfo() {
+                const records = this.getRecords()
+                const stored = localStorage.getItem(this.STORAGE_KEY) || ''
+                
+                return {
+                    recordCount: records.length,
+                    used: new Blob([stored]).size,
+                    limit: 1024 * 1024 // 1MB
+                }
+            }
+
+            generateFeedbackReport() {
+                const records = this.getRecords()
+                const environment = {
+                    userAgent: navigator.userAgent,
+                    url: window.location.href,
+                    timestamp: new Date().toISOString(),
+                    sessionId: this.sessionId
+                }
+
+                const summary = records.length === 0 
+                    ? '暂无错误记录' 
+                    : `共有 ${records.length} 条错误记录`
+
+                return {
+                    summary,
+                    errors: records,
+                    environment,
+                    timestamp: new Date()
+                }
+            }
+
+            async copyToClipboard() {
+                try {
+                    const report = this.generateFeedbackReport()
+                    const text = this.formatReportForClipboard(report)
+                    
+                    if (navigator.clipboard && navigator.clipboard.writeText) {
+                        await navigator.clipboard.writeText(text)
+                        return true
+                    } else {
+                        // 降级处理
+                        const textArea = document.createElement('textarea')
+                        textArea.value = text
+                        textArea.style.position = 'fixed'
+                        textArea.style.left = '-999999px'
+                        document.body.appendChild(textArea)
+                        textArea.select()
+                        
+                        const result = document.execCommand('copy')
+                        document.body.removeChild(textArea)
+                        return result
+                    }
+                } catch (error) {
+                    console.error('Failed to copy to clipboard:', error)
+                    return false
+                }
+            }
+
+            formatReportForClipboard(report) {
+                const lines = [
+                    '=== 错误反馈报告 ===',
+                    '',
+                    `生成时间: ${report.timestamp.toLocaleString()}`,
+                    `会话ID: ${report.environment.sessionId}`,
+                    `页面地址: ${report.environment.url}`,
+                    `浏览器: ${report.environment.userAgent}`,
+                    '',
+                    '=== 错误摘要 ===',
+                    report.summary,
+                    '',
+                    '=== 详细错误记录 ===',
+                    ''
+                ]
+                
+                for (const [index, error] of report.errors.entries()) {
+                    lines.push(`${index + 1}. [${error.type}] ${error.message}`)
+                    lines.push(`   时间: ${new Date(error.timestamp).toLocaleString()}`)
+                    lines.push(`   组件: ${error.context.component}`)
+                    lines.push(`   操作: ${error.context.operation}`)
+                    lines.push('')
+                }
+                
+                return lines.join('\n')
+            }
+        }
+
+        // 创建全局实例
+        window.errorLogManager = new MockErrorLogManager()
+
+        // 测试函数
+        window.generateNetworkError = function() {
+            const error = {
+                id: `error_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                timestamp: new Date(),
+                type: 'network',
+                severity: 'warning',
+                message: '网络连接失败，请检查网络后重试',
+                originalError: { message: 'Failed to fetch', code: 'NETWORK_ERROR' },
+                context: {
+                    operation: 'login',
+                    component: 'auth'
+                },
+                retryCount: 0,
+                userAgent: navigator.userAgent
+            }
+            
+            const success = window.errorLogManager.addRecord(error)
+            document.getElementById('errorResult').innerHTML = success 
+                ? '<span class="success">✅ 网络错误已记录</span>'
+                : '<span class="error">❌ 记录失败</span>'
+        }
+
+        window.generatePermissionError = function() {
+            const error = {
+                id: `error_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                timestamp: new Date(),
+                type: 'permission',
+                severity: 'fatal',
+                message: '权限不足，请联系管理员',
+                originalError: { message: 'Forbidden', code: '403' },
+                context: {
+                    operation: 'delete',
+                    component: 'event'
+                },
+                retryCount: 0,
+                userAgent: navigator.userAgent
+            }
+            
+            const success = window.errorLogManager.addRecord(error)
+            document.getElementById('errorResult').innerHTML = success 
+                ? '<span class="success">✅ 权限错误已记录</span>'
+                : '<span class="error">❌ 记录失败</span>'
+        }
+
+        window.generateValidationError = function() {
+            const error = {
+                id: `error_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                timestamp: new Date(),
+                type: 'validation',
+                severity: 'warning',
+                message: '输入信息有误，请检查后重试',
+                originalError: { message: 'Validation failed: username is required' },
+                context: {
+                    operation: 'register',
+                    component: 'form'
+                },
+                retryCount: 0,
+                userAgent: navigator.userAgent
+            }
+            
+            const success = window.errorLogManager.addRecord(error)
+            document.getElementById('errorResult').innerHTML = success 
+                ? '<span class="success">✅ 验证错误已记录</span>'
+                : '<span class="error">❌ 记录失败</span>'
+        }
+
+        window.generateTimeoutError = function() {
+            const error = {
+                id: `error_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                timestamp: new Date(),
+                type: 'timeout',
+                severity: 'warning',
+                message: '操作超时，请稍后重试',
+                originalError: { message: 'Request timeout', code: 'TIMEOUT' },
+                context: {
+                    operation: 'upload',
+                    component: 'file'
+                },
+                retryCount: 2,
+                userAgent: navigator.userAgent
+            }
+            
+            const success = window.errorLogManager.addRecord(error)
+            document.getElementById('errorResult').innerHTML = success 
+                ? '<span class="success">✅ 超时错误已记录</span>'
+                : '<span class="error">❌ 记录失败</span>'
+        }
+
+        window.viewErrorLog = function() {
+            const records = window.errorLogManager.getRecords()
+            const logDisplay = document.getElementById('logDisplay')
+            const logResult = document.getElementById('logResult')
+            
+            if (records.length === 0) {
+                logResult.innerHTML = '<span class="error">暂无错误记录</span>'
+                logDisplay.style.display = 'none'
+                return
+            }
+            
+            logResult.innerHTML = `<span class="success">找到 ${records.length} 条错误记录</span>`
+            
+            const formattedRecords = records.map((record, index) => 
+                `${index + 1}. [${record.type}] ${record.message}\n` +
+                `   时间: ${new Date(record.timestamp).toLocaleString()}\n` +
+                `   操作: ${record.context.operation} | 组件: ${record.context.component}\n` +
+                `   重试: ${record.retryCount} 次\n`
+            ).join('\n')
+            
+            logDisplay.textContent = formattedRecords
+            logDisplay.style.display = 'block'
+        }
+
+        window.getStorageInfo = function() {
+            const info = window.errorLogManager.getStorageInfo()
+            const formatBytes = (bytes) => {
+                if (bytes === 0) return '0 B'
+                const k = 1024
+                const sizes = ['B', 'KB', 'MB']
+                const i = Math.floor(Math.log(bytes) / Math.log(k))
+                return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
+            }
+            
+            document.getElementById('logResult').innerHTML = 
+                `<span class="success">存储信息: ${info.recordCount} 条记录, ` +
+                `使用 ${formatBytes(info.used)} / ${formatBytes(info.limit)}</span>`
+        }
+
+        window.generateReport = function() {
+            const report = window.errorLogManager.generateFeedbackReport()
+            const logDisplay = document.getElementById('logDisplay')
+            
+            const reportText = window.errorLogManager.formatReportForClipboard(report)
+            
+            document.getElementById('logResult').innerHTML = 
+                '<span class="success">✅ 反馈报告已生成</span>'
+            
+            logDisplay.textContent = reportText
+            logDisplay.style.display = 'block'
+        }
+
+        window.clearErrorLog = function() {
+            if (!confirm('确定要清除所有错误记录吗？此操作不可撤销。')) {
+                return
+            }
+            
+            const success = window.errorLogManager.clearRecords()
+            document.getElementById('manageResult').innerHTML = success 
+                ? '<span class="success">✅ 所有错误记录已清除</span>'
+                : '<span class="error">❌ 清除失败</span>'
+            
+            // 隐藏日志显示
+            document.getElementById('logDisplay').style.display = 'none'
+        }
+
+        window.copyReport = async function() {
+            const success = await window.errorLogManager.copyToClipboard()
+            document.getElementById('manageResult').innerHTML = success 
+                ? '<span class="success">✅ 错误报告已复制到剪贴板</span>'
+                : '<span class="error">❌ 复制失败，请手动选择文本</span>'
+        }
+    </script>
+</body>
+</html>

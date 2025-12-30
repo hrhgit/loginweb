@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>测试页脚错误日志功能</title>
+    <style>
+        body {
+            font-family: 'Work Sans', sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #f7f3ec;
+            color: #1f2421;
+        }
+        .test-container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 24px;
+            border-radius: 16px;
+            border: 1px solid rgba(18, 33, 30, 0.12);
+        }
+        .test-section {
+            margin-bottom: 24px;
+            padding: 16px;
+            background: rgba(255, 255, 255, 0.86);
+            border-radius: 12px;
+            border: 1px solid rgba(18, 33, 30, 0.06);
+        }
+        .btn {
+            padding: 10px 16px;
+            border: none;
+            border-radius: 8px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.18s ease;
+            margin-right: 8px;
+            margin-bottom: 8px;
+        }
+        .btn--primary {
+            background: #1f6f6d;
+            color: white;
+        }
+        .btn--primary:hover {
+            transform: translateY(-1px);
+        }
+        .result {
+            margin-top: 12px;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 0.9rem;
+        }
+        .success {
+            background: #d1fae5;
+            color: #065f46;
+            border: 1px solid #10b981;
+        }
+        .error {
+            background: #fee2e2;
+            color: #b91c1c;
+            border: 1px solid #ef4444;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <h1>测试页脚错误日志功能</h1>
+        <p>这个页面用于测试新的页脚错误日志功能。现在错误日志已经从个人主页移动到了页面底部。</p>
+
+        <div class="test-section">
+            <h3>测试步骤</h3>
+            <ol>
+                <li>点击下面的按钮生成一些测试错误记录</li>
+                <li>打开主应用 (http://localhost:5174)</li>
+                <li>查看页面底部的页脚，应该能看到一个小的错误日志图标</li>
+                <li>点击页脚的错误日志图标，应该能打开错误日志模态框</li>
+                <li>验证错误日志模态框能正常显示错误记录</li>
+            </ol>
+        </div>
+
+        <div class="test-section">
+            <h3>1. 生成测试错误记录</h3>
+            <button class="btn btn--primary" onclick="generateNetworkError()">生成网络错误</button>
+            <button class="btn btn--primary" onclick="generateValidationError()">生成验证错误</button>
+            <button class="btn btn--primary" onclick="generatePermissionError()">生成权限错误</button>
+            <button class="btn btn--primary" onclick="generateMultipleErrors()">生成多个错误</button>
+            <div id="generateResult" class="result" style="display: none;"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>2. 查看错误记录</h3>
+            <button class="btn btn--primary" onclick="viewErrorRecords()">查看本地错误记录</button>
+            <button class="btn btn--primary" onclick="clearErrorRecords()">清除错误记录</button>
+            <div id="viewResult" class="result" style="display: none;"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>3. 测试说明</h3>
+            <p><strong>新的错误日志位置：</strong></p>
+            <ul>
+                <li>✅ 错误日志已从个人主页侧边栏移除</li>
+                <li>✅ 错误日志现在位于页面底部页脚的右侧</li>
+                <li>✅ 使用小的警告图标，不太起眼但容易找到</li>
+                <li>✅ 即使用户未登录也能访问错误日志</li>
+                <li>✅ 保持了原有的错误日志功能</li>
+            </ul>
+        </div>
+    </div>
+
+    <script type="module">
+        // 模拟错误日志管理器的基本功能
+        class TestErrorLogManager {
+            constructor() {
+                this.STORAGE_KEY = 'error_log_records'
+                this.MAX_RECORDS = 50
+                this.MAX_STORAGE_SIZE = 1024 * 1024 // 1MB
+            }
+
+            addRecord(errorRecord) {
+                try {
+                    const records = this.getRecords()
+                    
+                    // 添加时间戳和ID
+                    const record = {
+                        ...errorRecord,
+                        id: `error_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                        timestamp: new Date().toISOString(),
+                        userAgent: navigator.userAgent
+                    }
+                    
+                    records.unshift(record)
+                    
+                    // 限制记录数量
+                    if (records.length > this.MAX_RECORDS) {
+                        records.splice(this.MAX_RECORDS)
+                    }
+                    
+                    localStorage.setItem(this.STORAGE_KEY, JSON.stringify(records))
+                    return true
+                } catch (error) {
+                    console.error('添加错误记录失败:', error)
+                    return false
+                }
+            }
+
+            getRecords() {
+                try {
+                    const stored = localStorage.getItem(this.STORAGE_KEY)
+                    return stored ? JSON.parse(stored) : []
+                } catch (error) {
+                    console.error('获取错误记录失败:', error)
+                    return []
+                }
+            }
+
+            clearRecords() {
+                try {
+                    localStorage.removeItem(this.STORAGE_KEY)
+                    return true
+                } catch (error) {
+                    console.error('清除错误记录失败:', error)
+                    return false
+                }
+            }
+
+            getStorageInfo() {
+                const records = this.getRecords()
+                const dataSize = new Blob([JSON.stringify(records)]).size
+                
+                return {
+                    recordCount: records.length,
+                    used: dataSize,
+                    limit: this.MAX_STORAGE_SIZE
+                }
+            }
+        }
+
+        // 创建全局实例
+        window.testErrorLogManager = new TestErrorLogManager()
+
+        // 测试函数
+        window.generateNetworkError = function() {
+            const error = {
+                type: 'network',
+                severity: 'error',
+                message: '网络连接失败，请检查网络设置',
+                originalError: {
+                    name: 'NetworkError',
+                    message: 'Failed to fetch',
+                    code: 'NETWORK_ERROR'
+                },
+                context: {
+                    operation: '获取活动列表',
+                    component: 'EventsPage',
+                    url: '/api/events'
+                }
+            }
+            
+            const success = window.testErrorLogManager.addRecord(error)
+            const resultDiv = document.getElementById('generateResult')
+            resultDiv.style.display = 'block'
+            resultDiv.className = success ? 'result success' : 'result error'
+            resultDiv.textContent = success ? '✅ 网络错误已记录' : '❌ 记录失败'
+        }
+
+        window.generateValidationError = function() {
+            const error = {
+                type: 'validation',
+                severity: 'warning',
+                message: '用户名格式不正确，请输入2-20个字符',
+                originalError: {
+                    name: 'ValidationError',
+                    message: 'Username validation failed',
+                    field: 'username'
+                },
+                context: {
+                    operation: '更新个人资料',
+                    component: 'ProfilePage',
+                    field: 'username'
+                }
+            }
+            
+            const success = window.testErrorLogManager.addRecord(error)
+            const resultDiv = document.getElementById('generateResult')
+            resultDiv.style.display = 'block'
+            resultDiv.className = success ? 'result success' : 'result error'
+            resultDiv.textContent = success ? '✅ 验证错误已记录' : '❌ 记录失败'
+        }
+
+        window.generatePermissionError = function() {
+            const error = {
+                type: 'permission',
+                severity: 'error',
+                message: '权限不足，只有管理员可以执行此操作',
+                originalError: {
+                    name: 'PermissionError',
+                    message: 'Insufficient permissions',
+                    code: 'PERMISSION_DENIED'
+                },
+                context: {
+                    operation: '创建活动',
+                    component: 'CreateEventModal',
+                    requiredRole: 'admin'
+                }
+            }
+            
+            const success = window.testErrorLogManager.addRecord(error)
+            const resultDiv = document.getElementById('generateResult')
+            resultDiv.style.display = 'block'
+            resultDiv.className = success ? 'result success' : 'result error'
+            resultDiv.textContent = success ? '✅ 权限错误已记录' : '❌ 记录失败'
+        }
+
+        window.generateMultipleErrors = function() {
+            const errors = [
+                {
+                    type: 'timeout',
+                    severity: 'error',
+                    message: '请求超时，请稍后重试',
+                    context: { operation: '上传头像', component: 'AvatarCropper' }
+                },
+                {
+                    type: 'server',
+                    severity: 'error',
+                    message: '服务器内部错误',
+                    context: { operation: '保存队伍信息', component: 'TeamCreatePage' }
+                },
+                {
+                    type: 'client',
+                    severity: 'warning',
+                    message: '浏览器不支持此功能',
+                    context: { operation: '文件上传', component: 'SubmissionPage' }
+                }
+            ]
+            
+            let successCount = 0
+            errors.forEach(error => {
+                if (window.testErrorLogManager.addRecord(error)) {
+                    successCount++
+                }
+            })
+            
+            const resultDiv = document.getElementById('generateResult')
+            resultDiv.style.display = 'block'
+            resultDiv.className = successCount === errors.length ? 'result success' : 'result error'
+            resultDiv.textContent = `✅ 成功生成 ${successCount}/${errors.length} 条错误记录`
+        }
+
+        window.viewErrorRecords = function() {
+            const records = window.testErrorLogManager.getRecords()
+            const storageInfo = window.testErrorLogManager.getStorageInfo()
+            
+            const resultDiv = document.getElementById('viewResult')
+            resultDiv.style.display = 'block'
+            resultDiv.className = 'result success'
+            
+            if (records.length === 0) {
+                resultDiv.textContent = '📝 暂无错误记录'
+            } else {
+                resultDiv.innerHTML = `
+                    <strong>📊 错误记录统计：</strong><br>
+                    记录数量: ${storageInfo.recordCount}<br>
+                    存储使用: ${(storageInfo.used / 1024).toFixed(1)} KB / ${(storageInfo.limit / 1024).toFixed(0)} KB<br><br>
+                    <strong>最近的错误：</strong><br>
+                    ${records.slice(0, 3).map(record => 
+                        `• ${record.type}: ${record.message} (${new Date(record.timestamp).toLocaleString()})`
+                    ).join('<br>')}
+                    ${records.length > 3 ? `<br>... 还有 ${records.length - 3} 条记录` : ''}
+                `
+            }
+        }
+
+        window.clearErrorRecords = function() {
+            if (!confirm('确定要清除所有错误记录吗？')) {
+                return
+            }
+            
+            const success = window.testErrorLogManager.clearRecords()
+            const resultDiv = document.getElementById('viewResult')
+            resultDiv.style.display = 'block'
+            resultDiv.className = success ? 'result success' : 'result error'
+            resultDiv.textContent = success ? '✅ 所有错误记录已清除' : '❌ 清除失败'
+        }
+    </script>
+</body>
+</html>

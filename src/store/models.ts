@@ -27,6 +27,7 @@ export type DisplayEvent = Event & {
 export type Profile = {
   id: string
   username: string | null
+  email: string | null
   avatar_url: string | null
   roles: string[] | null
 }
