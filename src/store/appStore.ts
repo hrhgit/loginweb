@@ -6,15 +6,11 @@ import { demoEvents } from './demoEvents'
 import { EVENT_SELECT } from './eventSchema'
 import { 
   enhancedErrorHandler, 
-  handleErrorWithBanner, 
   handleSuccessWithBanner,
   authErrorHandler,
-  formErrorHandler,
   apiErrorHandler,
-  uploadErrorHandler,
   teamErrorHandler,
-  eventErrorHandler,
-  profileErrorHandler
+  eventErrorHandler
 } from './enhancedErrorHandling'
 import type {
   AuthView,

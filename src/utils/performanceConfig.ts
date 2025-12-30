@@ -218,9 +218,9 @@ export class PerformanceConfigManager {
 
   private getEnvironmentConfig(): PerformanceConfig {
     // 检测环境
-    if (process.env.NODE_ENV === 'production') {
+    if (import.meta.env.PROD) {
       return { ...PRODUCTION_PERFORMANCE_CONFIG }
-    } else if (process.env.NODE_ENV === 'development') {
+    } else if (import.meta.env.DEV) {
       return { ...DEVELOPMENT_PERFORMANCE_CONFIG }
     }
     return { ...DEFAULT_PERFORMANCE_CONFIG }

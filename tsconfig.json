@@ -22,12 +22,18 @@
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true
   },
-  "include": ["src"],
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.vue",
+    "src/**/*.d.ts"
+  ],
   "exclude": [
     "**/*.test.ts",
-    "**/*.spec.ts",
+    "**/*.spec.ts", 
     "**/*.property.test.ts",
     "src/tests/**/*",
-    "vitest.config.ts"
+    "vitest.config.ts",
+    "src/**/*.integration.test.ts",
+    "src/**/*.example.ts"
   ]
 }
