@@ -1829,7 +1829,7 @@ const submitAuth = async () => {
   try {
     if (authView.value === 'sign_in') {
       // 使用增强的登录函数，支持邮箱或用户名
-      const { data, error } = await signInWithEmailOrUsername(
+      const { error } = await signInWithEmailOrUsername(
         authEmail.value.trim(),
         authPassword.value
       )
