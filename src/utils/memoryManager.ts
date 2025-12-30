@@ -34,6 +34,10 @@ export interface NetworkCleanupCallbacks {
   clearCache?: () => void
   getCacheStats?: () => { totalSize: number; entryCount: number }
   getNetworkStats?: () => NetworkMemoryStats
+  clearBackgroundTasks?: () => void
+  clearUpdateBatches?: () => void
+  getBackgroundStats?: () => { activeWorkers: number; queuedTasks: number; activeOperations: number }
+  getUpdateBatchStats?: () => { pendingBatches: number; activeTimeouts: number; totalRenders: number }
 }
 
 export class MemoryManager {

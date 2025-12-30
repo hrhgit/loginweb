@@ -8,14 +8,14 @@ import NetworkStatusIndicator from '../components/feedback/NetworkStatusIndicato
 import LoadingStateIndicator from '../components/feedback/LoadingStateIndicator.vue'
 import { teamSizeLabel, formatDateRange, locationLabel } from '../utils/eventFormat'
 import { getEventSummaryText } from '../utils/eventDetails'
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 
 const store = useAppStore()
 const router = useRouter()
 const eventSummary = (description: string | null) => getEventSummaryText(description)
 
 // Network-aware features
-const isNetworkAwareLoading = computed(() => 
+const isLoading = computed(() => 
   store.eventsLoading || store.networkAwareLoading
 )
 
@@ -29,6 +29,18 @@ const loadingMessage = computed(() => {
   return '正在加载活动列表...'
 })
 
+// 防止闪烁：只有在真正需要加载且没有数据时才显示加载状态
+const shouldShowLoading = computed(() => {
+  // 如果已经有数据，即使在加载中也不显示加载状态（避免闪烁）
+  if (store.publicEvents.length > 0) return false
+  
+  // 如果数据已加载完成且没有数据，不显示加载状态（显示空状态）
+  if (store.eventsLoaded && store.publicEvents.length === 0) return false
+  
+  // 只有在真正加载中且没有数据时才显示加载状态
+  return isLoading.value
+})
+
 const shouldIgnoreCardNav = (event: MouseEvent) => {
   const target = event.target as HTMLElement | null
   if (!target) return false
@@ -40,12 +52,18 @@ const handleCardDblClick = (event: MouseEvent, eventId: string) => {
   void router.push(`/events/${eventId}`)
 }
 
+// 优化的刷新逻辑 - 避免闪烁
+const isRefreshing = ref(false)
+
 // Network-aware refresh function
 const handleRefresh = async () => {
   try {
+    isRefreshing.value = true
     await store.loadEvents()
   } catch (error) {
     console.error('Failed to refresh events:', error)
+  } finally {
+    isRefreshing.value = false
   }
 }
 
@@ -79,10 +97,10 @@ useEventsReady(store)
           class="btn btn--ghost btn--icon-text" 
           type="button" 
           @click="handleRefresh" 
-          :disabled="isNetworkAwareLoading"
+          :disabled="isLoading || isRefreshing"
         >
-          <RefreshCw :size="18" :class="{ 'spin': isNetworkAwareLoading }" />
-          <span>{{ isNetworkAwareLoading ? '刷新中...' : '刷新' }}</span>
+          <RefreshCw :size="18" :class="{ 'spin': isLoading || isRefreshing }" />
+          <span>{{ (isLoading || isRefreshing) ? '刷新中...' : '刷新' }}</span>
         </button>
         <button v-if="store.isAdmin" class="btn btn--primary btn--icon-text" type="button" @click="store.openCreateModal">
           <Plus :size="18" />
@@ -96,9 +114,9 @@ useEventsReady(store)
       <RouterLink class="page-tab" to="/events/mine">我发起的活动</RouterLink>
     </nav>
 
-    <!-- Enhanced Loading State -->
+    <!-- Enhanced Loading State - 只在真正需要时显示 -->
     <LoadingStateIndicator
-      v-if="isNetworkAwareLoading"
+      v-if="shouldShowLoading"
       :visible="true"
       :message="loadingMessage"
       variant="card"
@@ -107,12 +125,14 @@ useEventsReady(store)
       :progress="store.networkRetryCount > 0 ? (store.networkRetryCount / 3) * 100 : undefined"
     />
 
-    <section v-else-if="store.eventsLoading" class="skeleton-grid" aria-label="loading">
+    <!-- 骨架屏加载状态 - 作为备用 -->
+    <section v-else-if="isLoading && !store.eventsLoaded" class="skeleton-grid" aria-label="loading">
       <div v-for="n in 6" :key="n" class="skeleton-card"></div>
     </section>
 
+    <!-- 内容区域 -->
     <template v-else>
-      <section v-if="store.publicEvents.length === 0" class="empty-state">
+      <section v-if="store.publicEvents.length === 0 && !isLoading" class="empty-state">
         <h2>暂时还没有公开活动</h2>
         <p class="muted">活动发布后会出现在这里你可以先准备好活动流程与页面风格</p>
         <div class="empty-state__actions">

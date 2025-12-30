@@ -218,14 +218,33 @@ const loadMyTeams = async () => {
 const loadExistingSubmission = async () => {
   if (!isEditMode.value || !submissionId.value) return
   
+  // 先检查缓存，避免不必要的加载状态
+  await store.loadSubmissions(eventId.value)
+  const submissions = store.getSubmissionsForEvent(eventId.value)
+  const cachedSubmission = submissions.find(s => s.id === submissionId.value)
+  
+  if (cachedSubmission) {
+    // 有缓存数据时直接使用，不显示加载状态
+    loadSubmissionError.value = ''
+    
+    // 检查权限：只有提交者可以编辑
+    if (cachedSubmission.submitted_by !== store.user?.id) {
+      loadSubmissionError.value = '您没有权限编辑此作品'
+      return
+    }
+    
+    // 直接填充数据，不显示加载状态
+    await populateFormData(cachedSubmission)
+    return
+  }
+
+  // 只有在没有缓存数据时才显示加载状态
   isLoadingSubmission.value = true
   loadSubmissionError.value = ''
   
   try {
-    // 确保submissions已加载
+    // 重新加载数据
     await store.loadSubmissions(eventId.value)
-    
-    // 从缓存中获取作品数据
     const submissions = store.getSubmissionsForEvent(eventId.value)
     const submission = submissions.find(s => s.id === submissionId.value)
     
@@ -240,46 +259,7 @@ const loadExistingSubmission = async () => {
       return
     }
     
-    originalSubmission.value = submission
-    
-    // 预填充表单数据
-    projectName.value = submission.project_name || ''
-    teamId.value = submission.team_id || ''
-    intro.value = submission.intro || ''
-    videoLink.value = submission.video_link || ''
-    linkMode.value = submission.link_mode || 'link'
-    submissionLink.value = submission.submission_url || ''
-    submissionPassword.value = submission.submission_password || ''
-    
-    // 处理封面
-    if (submission.cover_path) {
-      hasExistingCover.value = true
-      uploadedCoverPath.value = submission.cover_path
-      
-      // 生成封面预览URL
-      if (submission.cover_path.startsWith('http')) {
-        existingCoverUrl.value = submission.cover_path
-        coverPreview.value = submission.cover_path
-      } else {
-        const { data } = supabase.storage.from('public-assets').getPublicUrl(submission.cover_path)
-        existingCoverUrl.value = data.publicUrl
-        coverPreview.value = data.publicUrl
-      }
-    }
-    
-    // 处理作品文件
-    if (submission.link_mode === 'file' && submission.submission_storage_path) {
-      hasExistingSubmissionFile.value = true
-      uploadedSubmissionPath.value = submission.submission_storage_path
-      uploadedSubmissionUrl.value = submission.submission_url || ''
-      
-      // 提取文件名
-      const pathParts = submission.submission_storage_path.split('/')
-      existingSubmissionFileName.value = pathParts[pathParts.length - 1] || '已有文件'
-    }
-    
-    // 更新快照以避免误报更改
-    syncSavedSnapshot()
+    await populateFormData(submission)
     
   } catch (err: any) {
     console.error('Failed to load submission:', err)
@@ -287,6 +267,50 @@ const loadExistingSubmission = async () => {
   } finally {
     isLoadingSubmission.value = false
   }
+}
+
+// 提取表单数据填充逻辑
+const populateFormData = async (submission: any) => {
+  originalSubmission.value = submission
+  
+  // 预填充表单数据
+  projectName.value = submission.project_name || ''
+  teamId.value = submission.team_id || ''
+  intro.value = submission.intro || ''
+  videoLink.value = submission.video_link || ''
+  linkMode.value = submission.link_mode || 'link'
+  submissionLink.value = submission.submission_url || ''
+  submissionPassword.value = submission.submission_password || ''
+  
+  // 处理封面
+  if (submission.cover_path) {
+    hasExistingCover.value = true
+    uploadedCoverPath.value = submission.cover_path
+    
+    // 生成封面预览URL
+    if (submission.cover_path.startsWith('http')) {
+      existingCoverUrl.value = submission.cover_path
+      coverPreview.value = submission.cover_path
+    } else {
+      const { data } = supabase.storage.from('public-assets').getPublicUrl(submission.cover_path)
+      existingCoverUrl.value = data.publicUrl
+      coverPreview.value = data.publicUrl
+    }
+  }
+  
+  // 处理作品文件
+  if (submission.link_mode === 'file' && submission.submission_storage_path) {
+    hasExistingSubmissionFile.value = true
+    uploadedSubmissionPath.value = submission.submission_storage_path
+    uploadedSubmissionUrl.value = submission.submission_url || ''
+    
+    // 提取文件名
+    const pathParts = submission.submission_storage_path.split('/')
+    existingSubmissionFileName.value = pathParts[pathParts.length - 1] || '已有文件'
+  }
+  
+  // 更新快照以避免误报更改
+  syncSavedSnapshot()
 }
 
 // Update pickCover to upload immediately
@@ -717,7 +741,22 @@ onUnmounted(() => {
 
 <template>
   <main class="submission-page">
-    <section class="submission-hero">
+    <!-- 编辑模式加载状态 -->
+    <section v-if="isLoadingSubmission" class="detail-loading">
+      <div class="skeleton-card"></div>
+      <div class="skeleton-card"></div>
+    </section>
+
+    <!-- 加载错误状态 -->
+    <section v-else-if="loadSubmissionError" class="empty-state">
+      <h2>无法加载作品</h2>
+      <p class="muted">{{ loadSubmissionError }}</p>
+      <button class="btn btn--ghost" type="button" @click="handleCancel">返回活动</button>
+    </section>
+
+    <!-- 正常内容 -->
+    <template v-else>
+      <section class="submission-hero">
       <div class="submission-hero__main">
         <div class="submission-hero__head-row">
           <p class="detail-eyebrow">{{ isEditMode ? '编辑作品' : '作品提交' }}</p>
@@ -949,6 +988,7 @@ onUnmounted(() => {
         </div>
       </div>
     </div>
+    </template>
   </main>
 </template>
 

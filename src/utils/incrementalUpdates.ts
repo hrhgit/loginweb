@@ -5,7 +5,6 @@
  * optimizing data usage and improving user experience.
  */
 
-import { ref, computed, type Ref } from 'vue'
 import { cacheManager } from './cacheManager'
 import { networkManager } from './networkManager'
 import { dataUsageOptimizer } from './dataUsageOptimizer'
@@ -44,7 +43,7 @@ export interface IncrementalState<T = any> {
  * Incremental Updates Manager - Main class for handling incremental updates
  */
 export class IncrementalUpdatesManager<T = any> {
-  private state: Ref<IncrementalState<T>>
+  private state: IncrementalState<T>
   private config: IncrementalUpdateConfig
   private updateQueue: UpdateDelta<T>[] = []
   private batchTimer: number | null = null
@@ -59,41 +58,41 @@ export class IncrementalUpdatesManager<T = any> {
       ...config
     }
 
-    this.state = ref<IncrementalState<T>>({
+    this.state = {
       lastUpdateTimestamp: Date.now(),
       version: 1,
       data: initialData,
       pendingUpdates: []
-    })
+    }
   }
 
   // Getters
   get currentData(): T {
-    return this.state.value.data
+    return this.state.data
   }
 
   get version(): number {
-    return this.state.value.version
+    return this.state.version
   }
 
   get lastUpdateTimestamp(): number {
-    return this.state.value.lastUpdateTimestamp
+    return this.state.lastUpdateTimestamp
   }
 
   get hasPendingUpdates(): boolean {
-    return this.state.value.pendingUpdates.length > 0 || this.updateQueue.length > 0
+    return this.state.pendingUpdates.length > 0 || this.updateQueue.length > 0
   }
 
   // Update Operations
   applyUpdate(delta: UpdateDelta<T>): void {
     if (this.config.trackChanges) {
-      this.state.value.pendingUpdates.push(delta)
+      this.state.pendingUpdates.push(delta)
     }
 
     // Apply the update to current data
-    this.state.value.data = this.applyDeltaToData(this.state.value.data, delta)
-    this.state.value.version++
-    this.state.value.lastUpdateTimestamp = Date.now()
+    this.state.data = this.applyDeltaToData(this.state.data, delta)
+    this.state.version++
+    this.state.lastUpdateTimestamp = Date.now()
 
     // Notify listeners
     this.notifyChangeListeners(delta)
@@ -126,7 +125,7 @@ export class IncrementalUpdatesManager<T = any> {
     fetcher: (lastTimestamp: number, version: number) => Promise<UpdateDelta<T>[]>,
     useCache: boolean = true
   ): Promise<UpdateDelta<T>[]> {
-    const cacheKey = `incremental_${this.state.value.lastUpdateTimestamp}_${this.state.value.version}`
+    const cacheKey = `incremental_${this.state.lastUpdateTimestamp}_${this.state.version}`
     
     if (useCache) {
       const cached = await cacheManager.get<UpdateDelta<T>[]>(cacheKey)
@@ -137,7 +136,7 @@ export class IncrementalUpdatesManager<T = any> {
     }
 
     try {
-      const updates = await fetcher(this.state.value.lastUpdateTimestamp, this.state.value.version)
+      const updates = await fetcher(this.state.lastUpdateTimestamp, this.state.version)
       
       // Cache the updates if enabled
       if (useCache && updates.length > 0) {
@@ -166,9 +165,9 @@ export class IncrementalUpdatesManager<T = any> {
     try {
       // Prepare sync payload
       const payload = {
-        lastTimestamp: this.state.value.lastUpdateTimestamp,
-        version: this.state.value.version,
-        pendingUpdates: batchUpdates ? this.getBatchedUpdates() : this.state.value.pendingUpdates
+        lastTimestamp: this.state.lastUpdateTimestamp,
+        version: this.state.version,
+        pendingUpdates: batchUpdates ? this.getBatchedUpdates() : this.state.pendingUpdates
       }
 
       // Compress payload if enabled and data saving allows
@@ -196,11 +195,11 @@ export class IncrementalUpdatesManager<T = any> {
 
       // Update version if provided
       if (response.newVersion) {
-        this.state.value.version = response.newVersion
+        this.state.version = response.newVersion
       }
 
       // Clear pending updates after successful sync
-      this.state.value.pendingUpdates = []
+      this.state.pendingUpdates = []
 
     } catch (error) {
       console.error('Failed to sync with server:', error)
@@ -239,7 +238,7 @@ export class IncrementalUpdatesManager<T = any> {
   // Batching Operations
   getBatchedUpdates(): UpdateBatch<T>[] {
     const batches: UpdateBatch<T>[] = []
-    const updates = [...this.state.value.pendingUpdates]
+    const updates = [...this.state.pendingUpdates]
 
     for (let i = 0; i < updates.length; i += this.config.batchSize) {
       const batchUpdates = updates.slice(i, i + this.config.batchSize)
@@ -256,8 +255,8 @@ export class IncrementalUpdatesManager<T = any> {
   }
 
   flushPendingUpdates(): UpdateDelta<T>[] {
-    const pending = [...this.state.value.pendingUpdates]
-    this.state.value.pendingUpdates = []
+    const pending = [...this.state.pendingUpdates]
+    this.state.pendingUpdates = []
     return pending
   }
 
@@ -273,15 +272,15 @@ export class IncrementalUpdatesManager<T = any> {
 
   // State Management
   getSnapshot(): IncrementalState<T> {
-    return JSON.parse(JSON.stringify(this.state.value))
+    return JSON.parse(JSON.stringify(this.state))
   }
 
   restoreFromSnapshot(snapshot: IncrementalState<T>): void {
-    this.state.value = snapshot
+    this.state = snapshot
   }
 
   reset(newData: T): void {
-    this.state.value = {
+    this.state = {
       lastUpdateTimestamp: Date.now(),
       version: 1,
       data: newData,
@@ -307,11 +306,11 @@ export class IncrementalUpdatesManager<T = any> {
   }
 
   private getCurrentDataAtPath(path?: string): T | undefined {
-    if (!path) return this.state.value.data
+    if (!path) return this.state.data
 
     // Simple path resolution - in real implementation would handle nested object paths
     try {
-      return path.split('.').reduce((obj: any, key) => obj?.[key], this.state.value.data)
+      return path.split('.').reduce((obj: any, key) => obj?.[key], this.state.data)
     } catch {
       return undefined
     }
@@ -407,6 +406,3 @@ export function applyIncrementalUpdate<T>(
   manager.applyUpdate(delta)
   return manager.currentData
 }
-
-// Export types for external use
-export type { UpdateDelta, IncrementalUpdateConfig, UpdateBatch, IncrementalState }

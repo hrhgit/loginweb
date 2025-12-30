@@ -74,17 +74,21 @@ const loadJudgePermission = async () => {
 
 const loadEvent = async (id: string) => {
   if (!id) return
-  loading.value = true
-  error.value = ''
-
+  
   try {
+    // 先检查缓存，避免不必要的加载状态
     await store.ensureEventsLoaded()
     const cached = store.getEventById(id)
+    
     if (cached) {
+      // 有缓存数据时直接使用，不显示加载状态
       event.value = cached
-      loading.value = false
       return
     }
+
+    // 只有在没有缓存数据时才显示加载状态
+    loading.value = true
+    error.value = ''
 
     const { data, error: fetchError } = await store.fetchEventById(id)
     if (fetchError) {
@@ -99,8 +103,13 @@ const loadEvent = async (id: string) => {
 }
 
 onMounted(async () => {
-  await store.refreshUser()
-  await loadEvent(eventId.value)
+  // 并行加载用户信息、事件数据和权限检查
+  await Promise.all([
+    store.refreshUser(),
+    loadEvent(eventId.value)
+  ])
+  
+  // 权限检查需要在用户信息加载后进行
   await loadJudgePermission()
 
   // If user doesn't have access, redirect after a short delay

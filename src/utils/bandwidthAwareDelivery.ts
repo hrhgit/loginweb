@@ -17,6 +17,8 @@ export interface ContentDeliveryOptions {
   fallbackToCache: boolean
 }
 
+type QualityLevel = 'low' | 'medium' | 'high'
+
 export interface AdaptiveContent {
   url: string
   quality: 'low' | 'medium' | 'high'
@@ -107,7 +109,7 @@ export class BandwidthAwareDeliveryManager {
 
     // Apply image quality preference
     if (userPrefs.imageQuality !== 'auto') {
-      options.quality = userPrefs.imageQuality
+      options.quality = userPrefs.imageQuality as QualityLevel
     }
 
     return options
@@ -127,7 +129,9 @@ export class BandwidthAwareDeliveryManager {
     const format = this.getOptimalImageFormat(deliveryOptions.format, networkState)
     
     // Determine optimal quality and dimensions
-    const quality = deliveryOptions.quality
+    const quality: QualityLevel = deliveryOptions.quality === 'auto' 
+      ? this.getCurrentBandwidthProfile(networkState).recommendedQuality 
+      : deliveryOptions.quality
     const dimensions = this.getOptimalDimensions(quality, deliveryOptions.maxSize)
 
     // Build adaptive URL (this would integrate with your CDN/image service)

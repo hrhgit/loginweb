@@ -5,7 +5,7 @@
  * content delivery, and data compression for large payloads.
  */
 
-import { ref, computed, type Ref } from 'vue'
+import { ref, type Ref } from 'vue'
 import { networkManager, type NetworkState } from './networkManager'
 import { cacheManager } from './cacheManager'
 import { dataCompressionManager } from './dataCompressionUtils'
@@ -316,7 +316,7 @@ export class DataUsageOptimizer {
   }
 
   private setupNetworkListener(): void {
-    networkManager.addNetworkStateListener((state: NetworkState) => {
+    networkManager.addNetworkStateListener((_state: NetworkState) => {
       // Auto-adjust preferences based on network conditions
       if (this.bandwidthConfig.adaptiveQuality && this.preferences.value.imageQuality === 'auto') {
         // Trigger reactive updates by accessing computed properties

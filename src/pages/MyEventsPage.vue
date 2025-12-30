@@ -28,6 +28,18 @@ const selectedEventId = ref<string | null>(null)
 // 添加初始化状态跟踪
 const isInitializing = ref(true)
 
+// 防止闪烁的加载状态管理
+const shouldShowLoading = computed(() => {
+  // 如果已经有数据，即使在加载中也不显示加载状态（避免闪烁）
+  if (myEvents.value.length > 0) return false
+  
+  // 如果数据已加载完成且没有数据，不显示加载状态（显示空状态）
+  if (store.eventsLoaded && myEvents.value.length === 0) return false
+  
+  // 只有在真正加载中且没有数据时才显示加载状态
+  return store.eventsLoading || isInitializing.value
+})
+
 onMounted(async () => {
   // 确保 store 已经初始化
   await store.init()
@@ -72,7 +84,7 @@ const handleInviteJudge = (eventId: string) => {
   inviteJudgeModalOpen.value = true
 }
 
-const handleJudgeInvited = (userId: string) => {
+const handleJudgeInvited = (_userId: string) => {
   // The modal will handle the success message and close itself
   // We could refresh judge data here if needed
 }
@@ -109,7 +121,7 @@ useEventsReady(store)
     </nav>
 
 
-    <section v-if="store.eventsLoading || isInitializing" class="skeleton-grid" aria-label="loading">
+    <section v-if="shouldShowLoading" class="skeleton-grid" aria-label="loading">
       <div v-for="n in 6" :key="n" class="skeleton-card"></div>
     </section>
 

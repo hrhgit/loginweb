@@ -5,7 +5,6 @@ import { X } from 'lucide-vue-next'
 import { useAppStore } from '../store/appStore'
 import { getRoleTagClass, sortRoleLabels } from '../utils/roleTags'
 import { 
-  handleErrorWithBanner, 
   handleSuccessWithBanner,
   teamErrorHandler 
 } from '../store/enhancedErrorHandling'
@@ -124,9 +123,9 @@ const handleLeaveTeam = async () => {
   const { error: removeError } = await store.removeTeamMember(teamId.value, store.user.id)
   if (removeError) {
     memberActionError.value = removeError
-    handleErrorWithBanner(new Error(removeError), store.setBanner, { 
+    teamErrorHandler.handleError(new Error(removeError), { 
       operation: 'leaveTeam',
-      component: 'team' 
+      additionalData: { teamId: teamId.value, userId: store.user.id }
     })
     memberActionBusyId.value = null
     return
@@ -156,9 +155,9 @@ const handleKickMember = async (memberId: string, name?: string) => {
   const { error: removeError } = await store.removeTeamMember(teamId.value, memberId)
   if (removeError) {
     memberActionError.value = removeError
-    handleErrorWithBanner(new Error(removeError), store.setBanner, { 
+    teamErrorHandler.handleError(new Error(removeError), { 
       operation: 'kickMember',
-      component: 'team' 
+      additionalData: { teamId: teamId.value, memberId, memberName: name }
     })
     memberActionBusyId.value = null
     return
@@ -189,9 +188,9 @@ const handleJoinTeam = async () => {
     joinSubmitBusy.value = true
     const { error: acceptError } = await store.acceptTeamInvite(myInvite.value.id, teamId.value)
     if (acceptError) {
-      handleErrorWithBanner(new Error(acceptError), store.setBanner, { 
+      teamErrorHandler.handleError(new Error(acceptError), { 
         operation: 'acceptTeamInvite',
-        component: 'team' 
+        additionalData: { inviteId: myInvite.value.id, teamId: teamId.value }
       })
       joinSubmitBusy.value = false
       return
@@ -254,14 +253,14 @@ const handleDeleteTeam = async () => {
   if (deleteError) {
     // 检查是否是因为已提交作品而无法删除
     if (deleteError.includes('submissions_team_id_fkey') || deleteError.includes('foreign key constraint')) {
-      handleErrorWithBanner(new Error('该队伍已提交作品，请先删除作品后再删除队伍'), store.setBanner, { 
+      teamErrorHandler.handleError(new Error('该队伍已提交作品，请先删除作品后再删除队伍'), { 
         operation: 'deleteTeam',
-        component: 'team' 
+        additionalData: { teamId: team.value.id, eventId: eventId.value, reason: 'has_submissions' }
       })
     } else {
-      handleErrorWithBanner(new Error(deleteError), store.setBanner, { 
+      teamErrorHandler.handleError(new Error(deleteError), { 
         operation: 'deleteTeam',
-        component: 'team' 
+        additionalData: { teamId: team.value.id, eventId: eventId.value }
       })
     }
     return
@@ -302,9 +301,9 @@ const handleCloseTeam = async () => {
   const { error } = await store.closeTeam(team.value.id)
   if (error) {
     closeTeamError.value = error
-    handleErrorWithBanner(new Error(error), store.setBanner, { 
+    teamErrorHandler.handleError(new Error(error), { 
       operation: 'closeTeam',
-      component: 'team' 
+      additionalData: { teamId: team.value.id }
     })
     closeTeamBusy.value = false
     return
@@ -325,9 +324,9 @@ const handleReopenTeam = async () => {
   const { error } = await store.reopenTeam(team.value.id)
   if (error) {
     closeTeamError.value = error
-    handleErrorWithBanner(new Error(error), store.setBanner, { 
+    teamErrorHandler.handleError(new Error(error), { 
       operation: 'reopenTeam',
-      component: 'team' 
+      additionalData: { teamId: team.value.id }
     })
     reopenTeamBusy.value = false
     return
@@ -342,22 +341,39 @@ const handleReopenTeam = async () => {
 
 const loadEvent = async () => {
   if (!eventId.value) return
+  
+  // 先检查缓存，避免不必要的加载状态
+  await store.ensureEventsLoaded()
+  const cached = store.getEventById(eventId.value)
+  
+  if (cached) {
+    // 有缓存数据时直接使用，不显示加载状态
+    event.value = cached
+    await store.loadTeams(eventId.value)
+    await store.loadTeamMembers(teamId.value)
+    if (isLeader.value) {
+      await store.loadTeamJoinRequests(teamId.value)
+    }
+    if (store.user) {
+      await store.loadMyTeamInvite(teamId.value)
+    }
+    if (!team.value) {
+      error.value = '未找到该队伍'
+    }
+    return
+  }
+
+  // 只有在没有缓存数据时才显示加载状态
   loading.value = true
   error.value = ''
 
-  await store.ensureEventsLoaded()
-  const cached = store.getEventById(eventId.value)
-  if (cached) {
-    event.value = cached
-  } else {
-    const { data, error: fetchError } = await store.fetchEventById(eventId.value)
-    if (fetchError) {
-      error.value = fetchError
-      loading.value = false
-      return
-    }
-    event.value = data
+  const { data, error: fetchError } = await store.fetchEventById(eventId.value)
+  if (fetchError) {
+    error.value = fetchError
+    loading.value = false
+    return
   }
+  event.value = data
 
   await store.loadTeams(eventId.value)
   await store.loadTeamMembers(teamId.value)
@@ -452,12 +468,13 @@ watch(
       <p v-if="closeTeamError" class="alert error">{{ closeTeamError }}</p>
     </section>
 
-    <section v-if="loading" class="detail-loading">
+    <!-- 只有在真正需要加载且没有数据时才显示加载状态 -->
+    <section v-if="loading && !team" class="detail-loading">
       <div class="skeleton-card"></div>
       <div class="skeleton-card"></div>
     </section>
 
-    <section v-else-if="error" class="empty-state">
+    <section v-else-if="error && !team" class="empty-state">
       <h2>无法查看队伍</h2>
       <p class="muted">{{ error }}</p>
       <RouterLink class="btn btn--ghost" :to="`/events/${eventId}/team`">返回</RouterLink>

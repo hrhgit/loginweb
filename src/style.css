@@ -601,6 +601,7 @@ img {
   overflow: hidden;
   display: -webkit-box;
   -webkit-line-clamp: 3;
+  line-clamp: 3;
   -webkit-box-orient: vertical;
 }
 .activity-card__meta {
@@ -1150,18 +1151,19 @@ img {
     grid-template-columns: 1fr;
   }
 }
-.showcase-grid {
+/* 使用更具体的选择器提高优先级 */
+.virtual-card-grid .showcase-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 24px;
 }
-@media (max-width: 1200px) {
-  .showcase-grid {
+@media (max-width: 980px) {
+  .virtual-card-grid .showcase-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 @media (max-width: 640px) {
-  .showcase-grid {
+  .virtual-card-grid .showcase-grid {
     grid-template-columns: 1fr;
     gap: 16px;
   }

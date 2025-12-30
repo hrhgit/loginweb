@@ -814,19 +814,7 @@ export class ErrorHandlerAPI {
    * 获取错误日志
    */
   getErrorLog(): ErrorRecord[] {
-    // Always try to get from error log manager first
-    try {
-      const { errorLogManager } = require('./errorLogManager')
-      const records = errorLogManager.getRecords()
-      // If we have records from the manager, return them
-      if (records.length > 0) {
-        return records
-      }
-    } catch (error) {
-      // If error log manager is not available, fall back to memory log
-    }
-    
-    // Return memory log as fallback
+    // Return memory log
     return [...this.inMemoryErrorLog]
   }
 
@@ -834,13 +822,7 @@ export class ErrorHandlerAPI {
    * 清除错误日志
    */
   clearErrorLog(): void {
-    try {
-      const { errorLogManager } = require('./errorLogManager')
-      errorLogManager.clearRecords()
-    } catch (error) {
-      // 降级到内存日志
-      this.inMemoryErrorLog = []
-    }
+    this.inMemoryErrorLog = []
     console.log('Error log cleared')
   }
 
@@ -985,23 +967,11 @@ export class ErrorHandlerAPI {
   }
 
   private saveErrorRecord(errorRecord: ErrorRecord): void {
-    // Always try to use the error log manager first
-    try {
-      const { errorLogManager } = require('./errorLogManager')
-      errorLogManager.addRecord(errorRecord)
-    } catch (error) {
-      // Fallback to in-memory log only if error log manager is not available
-      this.inMemoryErrorLog.unshift(errorRecord)
-      // Keep log size limited
-      if (this.inMemoryErrorLog.length > 50) {
-        this.inMemoryErrorLog = this.inMemoryErrorLog.slice(0, 50)
-      }
-      console.warn('Error record saved to memory fallback:', {
-        id: errorRecord.id,
-        type: errorRecord.type,
-        message: errorRecord.message,
-        timestamp: errorRecord.timestamp
-      })
+    // Save to in-memory log
+    this.inMemoryErrorLog.unshift(errorRecord)
+    // Keep log size limited
+    if (this.inMemoryErrorLog.length > 50) {
+      this.inMemoryErrorLog = this.inMemoryErrorLog.slice(0, 50)
     }
   }
 

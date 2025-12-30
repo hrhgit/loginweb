@@ -5,7 +5,7 @@
  * to prevent excessive re-rendering during high-frequency updates
  */
 
-import { updateBatcher, type UpdateCallback } from './updateBatcher'
+import { updateBatcher } from './updateBatcher'
 import { backgroundProcessor } from './backgroundProcessor'
 
 // Update types for different data entities

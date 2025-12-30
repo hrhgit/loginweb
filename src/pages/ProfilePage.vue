@@ -21,6 +21,7 @@ const isEditing = ref(false)
 
 const activeTab = computed(() => props.tab)
 const saveBusy = ref(false)
+const loading = ref(true) // 添加页面加载状态
 const saveError = ref('')
 const profileErrors = ref<Record<string, string>>({})
 const passwordErrors = ref<Record<string, string>>({})
@@ -584,13 +585,24 @@ const handleNotificationClick = async (notification: any) => {
 }
 
 onMounted(async () => {
-  await store.refreshUser()
-  await store.loadMyProfile()
-  await store.loadMyContacts()
-  await store.ensureEventsLoaded()
-  await store.ensureRegistrationsLoaded()
-  void loadMyTeamsOverview()
-  syncProfileForm()
+  try {
+    // 并行加载用户相关数据
+    await Promise.all([
+      store.refreshUser(),
+      store.loadMyProfile(),
+      store.loadMyContacts(),
+      store.ensureEventsLoaded(),
+      store.ensureRegistrationsLoaded()
+    ])
+    
+    // 异步加载团队信息（不阻塞主要内容显示）
+    void loadMyTeamsOverview()
+    
+    // 同步表单数据
+    syncProfileForm()
+  } finally {
+    loading.value = false
+  }
 })
 
 watch(
@@ -641,22 +653,30 @@ watch(
 
 <template>
   <main class="main profile-page">
-    <section class="page-head">
-      <div>
-        <h1>个人中心</h1>
-        <p class="muted">管理你的资料、账号以及参与的活动</p>
-      </div>
+    <!-- 页面加载状态 -->
+    <section v-if="loading" class="detail-loading">
+      <div class="skeleton-card"></div>
+      <div class="skeleton-card"></div>
     </section>
 
-    <section v-if="!isAuthed" class="empty-state">
-      <h2>请先登录</h2>
-      <p class="muted">登录后才能查看和编辑个人资料</p>
-      <div class="empty-state__actions">
-        <button class="btn btn--primary" type="button" @click="store.openAuth('sign_in')">登录</button>
-      </div>
-    </section>
+    <!-- 主要内容 -->
+    <template v-else>
+      <section class="page-head">
+        <div>
+          <h1>个人中心</h1>
+          <p class="muted">管理你的资料、账号以及参与的活动</p>
+        </div>
+      </section>
 
-    <div v-else class="profile-layout">
+      <section v-if="!isAuthed" class="empty-state">
+        <h2>请先登录</h2>
+        <p class="muted">登录后才能查看和编辑个人资料</p>
+        <div class="empty-state__actions">
+          <button class="btn btn--primary" type="button" @click="store.openAuth('sign_in')">登录</button>
+        </div>
+      </section>
+
+      <div v-else class="profile-layout">
       <!-- Sidebar -->
       <aside class="profile-sidebar">
         <nav class="sidebar-nav">
@@ -1158,6 +1178,7 @@ watch(
         @save="handleAvatarSave"
       />
     </Teleport>
+    </template>
   </main>
 </template>
 

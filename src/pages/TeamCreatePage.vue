@@ -5,9 +5,7 @@ import { Users } from 'lucide-vue-next'
 import { useAppStore } from '../store/appStore'
 import { getRoleTagClass, sortRoleLabels } from '../utils/roleTags'
 import { 
-  handleErrorWithBanner, 
-  handleSuccessWithBanner,
-  teamErrorHandler 
+  handleSuccessWithBanner
 } from '../store/enhancedErrorHandling'
 
 const store = useAppStore()
@@ -23,6 +21,7 @@ const editingTeam = computed(() =>
 )
 
 const busy = ref(false)
+const loading = ref(true) // 添加页面加载状态
 const error = ref('')
 const fieldErrors = ref<Record<string, string>>({})
 
@@ -226,46 +225,59 @@ onBeforeRouteLeave(() => {
 const handleBeforeUnload = (event: BeforeUnloadEvent) => {
   if (!isDirty.value) return
   event.preventDefault()
-  event.returnValue = ''
+  // Modern browsers ignore the returnValue, but we still prevent default
+  return ''
 }
 
 onMounted(async () => {
   // Add beforeunload event listener
   window.addEventListener('beforeunload', handleBeforeUnload)
   
-  await store.refreshUser()
-  await store.loadMyContacts()
-  await store.ensureEventsLoaded()
-  await store.loadTeams(eventId.value)
+  try {
+    // 先检查基础状态，避免显示错误的初始状态
+    await store.refreshUser()
+    
+    if (!store.isAuthed) {
+      error.value = '请先登录后创建队伍'
+      return
+    }
+    
+    // 并行加载所需数据，提高加载速度
+    await Promise.all([
+      store.loadMyContacts(),
+      store.ensureEventsLoaded(),
+      store.loadTeams(eventId.value)
+    ])
 
-  if (isEdit.value && editingTeam.value) {
-    teamName.value = editingTeam.value.name
-    leaderQq.value = editingTeam.value.leader_qq
-    teamIntro.value = editingTeam.value.intro
-    teamNeeds.value = [...editingTeam.value.needs]
-    teamExtra.value = editingTeam.value.extra
-    // Initialize saved snapshot after loading existing team data
-    syncSavedSnapshot()
-  } else {
-    syncLeaderQq()
-    // Initialize saved snapshot for new team creation
-    syncSavedSnapshot()
-  }
+    // 检查活动状态
+    if (!event.value) {
+      error.value = '活动不存在'
+      return
+    }
+    if (store.isDemoEvent(event.value)) {
+      error.value = '展示活动不支持创建队伍'
+      return
+    }
+    if (event.value.status !== 'published') {
+      error.value = '仅进行中活动支持创建队伍'
+      return
+    }
 
-  if (!store.isAuthed) {
-    error.value = '请先登录后创建队伍'
-    return
-  }
-  if (!event.value) {
-    error.value = '活动不存在'
-    return
-  }
-  if (store.isDemoEvent(event.value)) {
-    error.value = '展示活动不支持创建队伍'
-    return
-  }
-  if (event.value.status !== 'published') {
-    error.value = '仅进行中活动支持创建队伍'
+    // 填充表单数据（编辑模式或新建模式）
+    if (isEdit.value && editingTeam.value) {
+      teamName.value = editingTeam.value.name
+      leaderQq.value = editingTeam.value.leader_qq
+      teamIntro.value = editingTeam.value.intro
+      teamNeeds.value = [...editingTeam.value.needs]
+      teamExtra.value = editingTeam.value.extra
+    } else {
+      syncLeaderQq()
+    }
+    
+    // Initialize saved snapshot after all data is loaded and form is populated
+    syncSavedSnapshot()
+  } finally {
+    loading.value = false
   }
 })
 
@@ -276,7 +288,15 @@ onBeforeUnmount(() => {
 
 <template>
   <main class="main">
-    <section class="page-head">
+    <!-- 加载状态 -->
+    <section v-if="loading" class="detail-loading">
+      <div class="skeleton-card"></div>
+      <div class="skeleton-card"></div>
+    </section>
+
+    <!-- 主要内容 -->
+    <template v-else>
+      <section class="page-head">
       <div>
         <h1>{{ isEdit ? '编辑队伍' : '创建队伍' }}</h1>
         <p class="muted">填写队伍信息，用于组队大厅展示</p>
@@ -384,6 +404,7 @@ onBeforeUnmount(() => {
         </div>
       </form>
     </section>
+    </template>
   </main>
 </template>
 

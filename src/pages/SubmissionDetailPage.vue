@@ -1,13 +1,13 @@
 <template>
   <main class="showcase-page">
-    <!-- Loading State -->
-    <div v-if="loading" class="state-display" role="status" aria-live="polite">
+    <!-- 只有在真正需要加载且没有数据时才显示加载状态 -->
+    <div v-if="loading && !submission" class="state-display" role="status" aria-live="polite">
       <Loader2 class="spin" :size="32" aria-hidden="true" />
       <p class="state-text">加载作品详情中...</p>
     </div>
 
     <!-- Error State -->
-    <div v-else-if="error" class="state-display" role="alert" aria-live="assertive">
+    <div v-else-if="error && !submission" class="state-display" role="alert" aria-live="assertive">
       <AlertCircle :size="48" class="state-icon error-icon" aria-hidden="true" />
       <h2 class="state-title">加载失败</h2>
       <p class="state-message">{{ error }}</p>
@@ -441,18 +441,35 @@ const getFileExtension = (path: string) => {
 
 // Data loading
 const loadSubmissionData = async () => {
-  loading.value = true
   error.value = ''
 
   try {
-    // Load submissions and teams in parallel for better performance
+    // 先检查缓存，避免不必要的加载状态
     await Promise.all([
       store.loadSubmissions(eventId.value),
       store.loadTeams(eventId.value)
     ])
     
-    const submissions = store.getSubmissionsForEvent(eventId.value)
-    const found = submissions.find(s => s.id === submissionId.value)
+    const cachedSubmissions = store.getSubmissionsForEvent(eventId.value)
+    const cachedSubmission = cachedSubmissions.find(s => s.id === submissionId.value)
+    
+    if (cachedSubmission) {
+      // 有缓存数据时直接使用，不显示加载状态
+      submission.value = cachedSubmission
+      return
+    }
+
+    // 只有在没有缓存数据时才显示加载状态
+    loading.value = true
+    
+    // 重新加载数据
+    await Promise.all([
+      store.loadSubmissions(eventId.value),
+      store.loadTeams(eventId.value)
+    ])
+    
+    const allSubmissions = store.getSubmissionsForEvent(eventId.value)
+    const found = allSubmissions.find(s => s.id === submissionId.value)
     
     if (!found) {
       error.value = '未找到该作品'

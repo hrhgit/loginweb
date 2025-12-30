@@ -17,7 +17,6 @@ export default defineConfig({
           
           // Feature-based chunks
           'admin-features': [
-            './src/pages/EventAdminPageSimple.vue',
             './src/pages/EventAdminPage.vue',
             './src/components/admin/JudgeManagementPanel.vue',
             './src/components/admin/JudgeWorkspace.vue',

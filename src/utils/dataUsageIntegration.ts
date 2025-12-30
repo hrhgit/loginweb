@@ -50,18 +50,13 @@ export class DataUsageIntegrationManager {
       priority?: 'high' | 'medium' | 'low'
     } = {}
   ): Promise<{ data: T; optimization: OptimizationResult }> {
-    const startTime = Date.now()
     let dataSaved = 0
     let compressionRatio = 0
-    let cacheHit = false
-    let incrementalUpdate = false
-    let networkOptimized = false
 
     // 1. Check if we should use incremental updates
     if (options.useIncremental !== false) {
       const incrementalResult = await this.tryIncrementalUpdate<T>(url, options)
       if (incrementalResult) {
-        incrementalUpdate = true
         return {
           data: incrementalResult,
           optimization: {
@@ -79,7 +74,6 @@ export class DataUsageIntegrationManager {
     if (options.useCache !== false) {
       const cached = await cacheManager.get<T>(`optimized:${url}`)
       if (cached) {
-        cacheHit = true
         dataUsageOptimizer.recordDataUsage(JSON.stringify(cached).length, true)
         return {
           data: cached,
@@ -107,7 +101,6 @@ export class DataUsageIntegrationManager {
       // Compress request data if applicable
       let requestData = optimizedOptions.data
       if (optimizedOptions.useCompression && requestData) {
-        const originalSize = JSON.stringify(requestData).length
         const compressionResult = await dataCompressionManager.compress(JSON.stringify(requestData))
         
         if (compressionResult.compressionRatio > 0) {
@@ -122,8 +115,6 @@ export class DataUsageIntegrationManager {
         ...optimizedOptions,
         data: requestData
       })
-
-      networkOptimized = true
 
       // Cache the result
       if (options.useCache !== false) {
@@ -279,7 +270,7 @@ export class DataUsageIntegrationManager {
 
   private async tryIncrementalUpdate<T>(
     url: string,
-    options: any
+    _options: any
   ): Promise<T | null> {
     // Check if we have an incremental manager for this URL
     const manager = this.incrementalManagers.get(url)

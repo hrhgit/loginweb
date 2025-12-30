@@ -5,7 +5,7 @@
  * Validates: Requirements 3.5
  */
 
-import { ref, type Ref } from 'vue'
+import { ref } from 'vue'
 import { registerNetworkCleanup } from './memoryManager'
 
 export interface BatchConfig {
@@ -24,7 +24,7 @@ export type UpdateCallback<T = any> = (updates: T[]) => void
 
 export class UpdateBatcher {
   private pendingUpdates: Map<string, any[]> = new Map()
-  private batchTimeouts: Map<string, NodeJS.Timeout> = new Map()
+  private batchTimeouts: Map<string, ReturnType<typeof setTimeout>> = new Map()
   private updateCallbacks: Map<string, UpdateCallback> = new Map()
   private batchConfigs: Map<string, BatchConfig> = new Map()
   private renderCount = 0

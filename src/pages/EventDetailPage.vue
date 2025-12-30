@@ -44,7 +44,6 @@ import { truncateTeamIntro, truncateSeekerIntro } from '../utils/textUtils'
 import { 
   handleErrorWithBanner, 
   handleSuccessWithBanner,
-  teamErrorHandler,
   eventErrorHandler 
 } from '../store/enhancedErrorHandling'
 
@@ -231,7 +230,7 @@ const loadSubmissionsData = async () => {
   await store.loadSubmissions(eventId.value)
 }
 
-const handleSubmissionClick = (submission: any) => {
+const handleSubmissionClick = (_submission: any) => {
   // Handle single click - currently no action, reserved for future functionality
 }
 
@@ -1197,21 +1196,25 @@ const loadRegistrationCount = async (id: string) => {
 
 const loadEvent = async (id: string) => {
   if (!id) return
-  loading.value = true
-  error.value = ''
-
+  
+  // 先检查是否有缓存数据，避免不必要的加载状态
   await store.ensureEventsLoaded()
   const cached = store.getEventById(id)
+  
   if (cached) {
+    // 有缓存数据时，直接使用，不显示加载状态
     event.value = cached
     loadDetails()
     await store.loadTeams(id)
     await store.loadTeamSeekers(id)
     await loadRegistrationFormResponse()
     await loadRegistrationCount(id)
-    loading.value = false
     return
   }
+
+  // 只有在没有缓存数据时才显示加载状态
+  loading.value = true
+  error.value = ''
 
   const { data, error: fetchError } = await store.fetchEventById(id)
   if (fetchError) {
@@ -1229,10 +1232,21 @@ const loadEvent = async (id: string) => {
 }
 
 onMounted(async () => {
+  // 先初始化基础数据，避免闪烁
   await store.refreshUser()
   await store.ensureEventsLoaded()
   await store.ensureRegistrationsLoaded()
+  
+  // 检查是否已有事件数据（可能来自路由缓存）
+  const currentEvent = store.getEventById(eventId.value)
+  if (currentEvent && !event.value) {
+    event.value = currentEvent
+    loadDetails()
+  }
+  
+  // 加载事件详情
   await loadEvent(eventId.value)
+  
   if (eventId.value) {
     await loadSubmissionsData()
     await loadJudgePermission()
@@ -1273,12 +1287,13 @@ watch(isRegistered, async (value) => {
 
 <template>
   <main class="detail-page">
-    <section v-if="loading" class="detail-loading">
+    <!-- 只有在真正需要加载且没有数据时才显示加载状态 -->
+    <section v-if="loading && !event" class="detail-loading">
       <div class="skeleton-card"></div>
       <div class="skeleton-card"></div>
     </section>
 
-    <section v-else-if="error" class="empty-state">
+    <section v-else-if="error && !event" class="empty-state">
       <h2>活动未找到</h2>
       <p class="muted">{{ error }}</p>
       <RouterLink class="btn btn--ghost" to="/events">返回活动页</RouterLink>

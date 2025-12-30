@@ -22,6 +22,7 @@ import {
 import { cacheManager } from '../utils/cacheManager'
 import { performanceMonitor } from '../utils/performanceMonitor'
 import { offlineManager } from '../utils/offlineManager'
+import { stateCache } from '../utils/simpleStateCache'
 import type {
   AuthView,
   DisplayEvent,
@@ -61,19 +62,19 @@ type NotificationItem = {
   link?: string
 }
 
-const user = ref<User | null>(null)
-const events = ref<Event[]>([])
+const user = ref<User | null>(stateCache.get('user') || null)
+const events = ref<Event[]>(stateCache.get('events') || [])
 const eventsLoading = ref(false)
-const eventsLoaded = ref(false)
+const eventsLoaded = ref(stateCache.get('eventsLoaded') || false)
 const eventsError = ref('')
 
 const bannerInfo = ref('')
 const bannerError = ref('')
 
 const registrationsLoading = ref(false)
-const registrationsLoaded = ref(false)
+const registrationsLoaded = ref(stateCache.get('registrationsLoaded') || false)
 const registrationBusyEventId = ref<string | null>(null)
-const myRegistrationByEventId = ref<Record<string, string>>({})
+const myRegistrationByEventId = ref<Record<string, string>>(stateCache.get('myRegistrations') || {})
 
 const deleteBusyEventId = ref<string | null>(null)
 
@@ -1612,6 +1613,11 @@ const refreshUser = async () => {
     return
   }
   user.value = data.user
+  
+  // 缓存用户信息
+  if (user.value) {
+    stateCache.set('user', user.value, 60) // 缓存1小时
+  }
 }
 
 const loadMyProfile = async () => {
@@ -1811,6 +1817,10 @@ const loadEvents = async () => {
       events.value = []
     } else {
       events.value = data as Event[]
+      
+      // 缓存数据到本地存储
+      stateCache.set('events', events.value, 5) // 缓存5分钟
+      stateCache.set('eventsLoaded', true, 5)
     }
 
     eventsLoading.value = false
@@ -1826,6 +1836,9 @@ const loadEvents = async () => {
 }
 
 const ensureEventsLoaded = async () => {
+  // 如果有缓存数据且未过期，直接返回
+  if (eventsLoaded.value && events.value.length > 0) return
+  
   if (eventsLoaded.value || eventsLoading.value) return
   await loadEvents()
 }
@@ -1855,6 +1868,11 @@ const loadMyRegistrations = async () => {
     myRegistrationByEventId.value = next
     registrationsLoading.value = false
     registrationsLoaded.value = true
+    
+    // 缓存注册数据
+    stateCache.set('myRegistrations', next, 10) // 缓存10分钟
+    stateCache.set('registrationsLoaded', true, 10)
+    
     syncNotifications()
     
     return next
@@ -1866,6 +1884,9 @@ const loadMyRegistrations = async () => {
 }
 
 const ensureRegistrationsLoaded = async () => {
+  // 如果有缓存数据且未过期，直接返回
+  if (registrationsLoaded.value && Object.keys(myRegistrationByEventId.value).length > 0) return
+  
   if (registrationsLoaded.value || registrationsLoading.value || !user.value) return
   await loadMyRegistrations()
 }
@@ -2162,6 +2183,10 @@ const submitAuth = async () => {
 
 const handleSignOut = async () => {
   clearBanners()
+  
+  // 清除状态缓存
+  stateCache.clear()
+  
   user.value = null
   profile.value = null
   contacts.value = null
@@ -3250,10 +3275,7 @@ const init = async () => {
     }
   })
 
-  // Initialize performance monitoring
-  performanceMonitor.startMeasurement('page_load')
-  
-  // Track initial page load performance
+  // 简化：移除性能监控初始化，只记录基本的页面加载时间
   const pageLoadStart = performance.now()
 
   await refreshUser()
@@ -3272,10 +3294,8 @@ const init = async () => {
   startJudgeRealtimeSync()
   startCacheCleanup()
 
-  // Record page load performance
-  const pageLoadEnd = performance.now()
-  performanceMetrics.value.pageLoadTime = pageLoadEnd - pageLoadStart
-  performanceMonitor.endMeasurement('page_load')
+  // 简化：只记录页面加载时间
+  performanceMetrics.value.pageLoadTime = performance.now() - pageLoadStart
 
   const { data: listener } = supabase.auth.onAuthStateChange(async (_event, session) => {
     if (!session) {

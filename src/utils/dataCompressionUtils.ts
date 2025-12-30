@@ -60,7 +60,7 @@ export class DataCompressionManager {
     // Skip compression if data is too small
     if (originalSize < opts.minSize) {
       return {
-        compressed: inputArray.buffer,
+        compressed: inputArray.buffer as ArrayBuffer,
         originalSize,
         compressedSize: originalSize,
         compressionRatio: 0,
@@ -83,7 +83,7 @@ export class DataCompressionManager {
     } catch (error) {
       console.warn('Compression failed, returning original data:', error)
       return {
-        compressed: inputArray.buffer,
+        compressed: inputArray.buffer as ArrayBuffer,
         originalSize,
         compressedSize: originalSize,
         compressionRatio: 0,
@@ -182,7 +182,7 @@ export class DataCompressionManager {
       offset += chunk.length
     }
 
-    return result.buffer
+    return result.buffer as ArrayBuffer
   }
 
   private async performDecompression(

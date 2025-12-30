@@ -671,29 +671,47 @@ const validateAndScroll = (): boolean => {
 
 const loadEvent = async (id: string) => {
   if (!id) return
-  loading.value = true
+  
   loadError.value = ''
   store.clearBanners()
 
   await store.refreshUser()
   if (!store.user) {
     loadError.value = '请先登录后再编辑活动'
-    loading.value = false
     return
   }
 
+  // 先检查缓存，避免不必要的加载状态
   await store.loadEvents()
   const cached = store.getEventById(id)
+  
   if (cached) {
+    // 有缓存数据时直接使用，不显示加载状态
     event.value = cached
-  } else {
-    const { data, error } = await store.fetchEventById(id)
-    if (error) {
-      loadError.value = error
-      event.value = null
-    } else {
-      event.value = data
+    
+    // 检查权限和状态
+    if (store.isDemoEvent(cached)) {
+      loadError.value = '演示活动不支持编辑'
+      return
+    } else if (!store.isAdmin || cached.created_by !== store.user.id) {
+      loadError.value = '没有权限编辑此活动'
+      return
     }
+    
+    // 填充表单数据
+    populateFormData(cached)
+    return
+  }
+
+  // 只有在没有缓存数据时才显示加载状态
+  loading.value = true
+  
+  const { data, error } = await store.fetchEventById(id)
+  if (error) {
+    loadError.value = error
+    event.value = null
+  } else {
+    event.value = data
   }
 
   if (!event.value) {
@@ -704,32 +722,38 @@ const loadEvent = async (id: string) => {
     loadError.value = '没有权限编辑此活动'
   }
 
-  if (!loadError.value) {
-    summary.value = getEventSummary(event.value?.description ?? null)
-    applyDetailsToForm(getEventDetailsFromDescription(event.value?.description ?? null))
-
-    // Populate new refs
-    editTitle.value = event.value?.title ?? ''
-    editStartTime.value = event.value?.start_time ? event.value.start_time.substring(0, 16) : '' // format for datetime-local
-    editEndTime.value = event.value?.end_time ? event.value.end_time.substring(0, 16) : '' // format for datetime-local
-    editRegistrationStartTime.value = event.value?.registration_start_time
-      ? event.value.registration_start_time.substring(0, 16)
-      : ''
-    editRegistrationEndTime.value = event.value?.registration_end_time
-      ? event.value.registration_end_time.substring(0, 16)
-      : ''
-    editSubmissionStartTime.value = event.value?.submission_start_time
-      ? event.value.submission_start_time.substring(0, 16)
-      : ''
-    editSubmissionEndTime.value = event.value?.submission_end_time
-      ? event.value.submission_end_time.substring(0, 16)
-      : ''
-    editLocation.value = event.value?.location ?? ''
-    editTeamMaxSize.value = event.value?.team_max_size?.toString() ?? ''
-    syncSavedSnapshot()
+  if (!loadError.value && event.value) {
+    populateFormData(event.value)
   }
 
   loading.value = false
+}
+
+// 提取表单数据填充逻辑
+const populateFormData = (eventData: AppEvent) => {
+  summary.value = getEventSummary(eventData.description ?? null)
+  applyDetailsToForm(getEventDetailsFromDescription(eventData.description ?? null))
+
+  // Populate new refs
+  editTitle.value = eventData.title ?? ''
+  editStartTime.value = eventData.start_time ? eventData.start_time.substring(0, 16) : ''
+  editEndTime.value = eventData.end_time ? eventData.end_time.substring(0, 16) : ''
+  editRegistrationStartTime.value = eventData.registration_start_time
+    ? eventData.registration_start_time.substring(0, 16)
+    : ''
+  editRegistrationEndTime.value = eventData.registration_end_time
+    ? eventData.registration_end_time.substring(0, 16)
+    : ''
+  editSubmissionStartTime.value = eventData.submission_start_time
+    ? eventData.submission_start_time.substring(0, 16)
+    : ''
+  editSubmissionEndTime.value = eventData.submission_end_time
+    ? eventData.submission_end_time.substring(0, 16)
+    : ''
+  editLocation.value = eventData.location ?? ''
+  editTeamMaxSize.value = eventData.team_max_size?.toString() ?? ''
+  
+  syncSavedSnapshot()
 }
 
 const handleSave = async (nextStatus: EventStatus) => {
@@ -875,6 +899,11 @@ const handleDeleteDraft = async () => {
 }
 
 onMounted(async () => {
+  // 添加事件监听器
+  window.addEventListener('beforeunload', handleBeforeUnload)
+  document.addEventListener('click', closeLinkMenu)
+  
+  // 初始化表单和加载数据
   applyDetailsToForm(createDefaultEventDetails())
   await loadEvent(eventId.value)
 })
@@ -901,11 +930,6 @@ onBeforeRouteLeave(() => {
 const closeLinkMenu = () => {
   activeLinkMenuQuestionId.value = null
 }
-
-onMounted(() => {
-  window.addEventListener('beforeunload', handleBeforeUnload)
-  document.addEventListener('click', closeLinkMenu)
-})
 
 onBeforeUnmount(() => {
   window.removeEventListener('beforeunload', handleBeforeUnload)

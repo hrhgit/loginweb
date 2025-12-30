@@ -22,7 +22,7 @@ const router = createRouter({
     { path: '/events/:id/team/:teamId/edit', name: 'event-team-edit', component: () => import('./pages/TeamCreatePage.vue') },
     { path: '/events/:id/team/:teamId', name: 'event-team-detail', component: () => import('./pages/TeamDetailPage.vue') },
     { path: '/events/:id/showcase', name: 'event-detail-showcase', component: EventDetailPage, props: { tab: 'showcase' } },
-    { path: '/events/:id/admin', name: 'event-admin', component: () => import('./pages/EventAdminPageSimple.vue') },
+    { path: '/events/:id/admin', name: 'event-admin', component: () => import('./pages/EventAdminPage.vue') },
     { path: '/admin/dashboard', name: 'admin-dashboard', component: () => import('./pages/AdminDashboardPage.vue') },
     {
       path: '/events/:eventId/judge',

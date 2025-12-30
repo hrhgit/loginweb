@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, Download, FileText, Loader2, CheckCircle, AlertCircle, User } from 'lucide-vue-next'
+import { ArrowLeft, Download, FileText, Loader2, CheckCircle, AlertCircle, User, ExternalLink, ChevronUp, ChevronDown, ChevronsUpDown, Users } from 'lucide-vue-next'
 import { useAppStore } from '../store/appStore'
 import { supabase } from '../lib/supabase'
 import { getEventDetailsFromDescription } from '../utils/eventDetails'
 import EnhancedDataTable from '../components/admin/EnhancedDataTable.vue'
 import TableEnhancements from '../components/admin/TableEnhancements.vue'
+import JudgeManagementPanel from '../components/admin/JudgeManagementPanel.vue'
+import UserSearchModal from '../components/modals/UserSearchModal.vue'
 import { 
   convertToFlattenedRegistrations,
   generateExportFilename,
@@ -30,6 +32,7 @@ import {
   type PaginationOptions
 } from '../utils/downloadUtils'
 import { generateFormResponseTable } from '../utils/formResponseParser'
+import * as XLSX from 'xlsx'
 
 const route = useRoute()
 const router = useRouter()
@@ -65,6 +68,16 @@ const selectedSubmissions = ref<string[]>([])
 const downloadPaused = ref(false)
 const canPauseResume = ref(false)
 const downloadController = ref<AbortController | null>(null)
+
+// Download mode selection
+const downloadMode = ref<'simple' | 'advanced'>('advanced')
+
+// Sorting state for file list
+const sortBy = ref<string>('')
+const sortOrder = ref<'asc' | 'desc'>('asc')
+
+// Judge invitation modal state
+const inviteJudgeModalOpen = ref(false)
 
 // Event questions for form parsing
 const eventQuestions = computed(() => {
@@ -121,14 +134,68 @@ const tableEnhancementData = computed(() => {
 })
 
 // Pagination computed properties
+const sortedSubmissions = computed(() => {
+  let sorted = [...submissions.value]
+  
+  if (sortBy.value) {
+    sorted.sort((a, b) => {
+      let aValue: any
+      let bValue: any
+      
+      switch (sortBy.value) {
+        case 'project_name':
+          aValue = a.project_name || ''
+          bValue = b.project_name || ''
+          break
+        case 'team_name':
+          aValue = a.teams?.name || ''
+          bValue = b.teams?.name || ''
+          break
+        case 'link_mode':
+          aValue = a.link_mode || ''
+          bValue = b.link_mode || ''
+          break
+        case 'created_at':
+          aValue = new Date(a.created_at)
+          bValue = new Date(b.created_at)
+          break
+        default:
+          return 0
+      }
+      
+      if (typeof aValue === 'string' && typeof bValue === 'string') {
+        return sortOrder.value === 'asc' 
+          ? aValue.localeCompare(bValue)
+          : bValue.localeCompare(aValue)
+      }
+      
+      if (aValue instanceof Date && bValue instanceof Date) {
+        return sortOrder.value === 'asc' 
+          ? aValue.getTime() - bValue.getTime()
+          : bValue.getTime() - aValue.getTime()
+      }
+      
+      return sortOrder.value === 'asc' ? aValue - bValue : bValue - aValue
+    })
+  }
+  
+  return sorted
+})
+
+// Filter for file submissions only (for advanced download)
+const fileSubmissions = computed(() => 
+  sortedSubmissions.value.filter(sub => sub.link_mode === 'file')
+)
+
 const paginatedSubmissions = computed(() => {
   const paginationOptions: PaginationOptions = {
     page: currentPage.value,
     pageSize: pageSize.value,
-    total: submissions.value.length
+    total: downloadMode.value === 'advanced' ? fileSubmissions.value.length : sortedSubmissions.value.length
   }
   
-  return paginateFiles(submissions.value, paginationOptions)
+  const sourceData = downloadMode.value === 'advanced' ? fileSubmissions.value : sortedSubmissions.value
+  return paginateFiles(sourceData, paginationOptions)
 })
 
 const totalPages = computed(() => paginatedSubmissions.value.totalPages)
@@ -167,45 +234,61 @@ const estimatedDownloadTime = computed(() => {
   return estimateDownloadTime(selectedSubmissions.value.length)
 })
 
-const activeTab = ref<'forms' | 'files'>('forms')
+const activeTab = ref<'forms' | 'files' | 'judges'>('forms')
 
 const loadData = async () => {
   if (!eventId.value) return
-  loading.value = true
   
   try {
+    // 先检查缓存，避免不必要的加载状态
     await store.ensureEventsLoaded()
+    const cached = store.getEventById(eventId.value)
     
-    // Check if event exists and user has permission
-    const currentEvent = event.value
-    
-    if (!currentEvent) {
-      // Try to fetch the event directly if not found in displayedEvents
-      const { data: fetchedEvent, error: fetchError } = await store.fetchEventById(eventId.value)
+    if (cached) {
+      // 检查权限
+      if (cached.created_by !== store.user?.id && !store.isAdmin) {
+        console.error('EventAdminPage - Permission denied for cached event')
+        store.setBanner('error', '您没有管理此活动的权限')
+        router.replace('/events/mine')
+        return
+      }
       
-      if (fetchError || !fetchedEvent) {
-        console.error('EventAdminPage - Event not found or error:', fetchError)
-        store.setBanner('error', `活动不存在或您没有访问权限: ${fetchError || '未知错误'}`)
-        router.replace('/events/mine')
-        return
-      }
-      // Check if user is the creator or admin
-      if (fetchedEvent.created_by !== store.user?.id && !store.isAdmin) {
-        console.error('EventAdminPage - Permission denied for fetched event')
-        store.setBanner('error', '您没有管理此活动的权限')
-        router.replace('/events/mine')
-        return
-      }
-    } else {
-      // Check permissions for existing event
-      if (currentEvent.created_by !== store.user?.id && !store.isAdmin) {
-        console.error('EventAdminPage - Permission denied for existing event')
-        store.setBanner('error', '您没有管理此活动的权限')
-        router.replace('/events/mine')
-        return
-      }
+      // 异步加载管理数据
+      await loadAdminData()
+      return
+    }
+
+    // 只有在没有缓存数据时才显示加载状态
+    loading.value = true
+    
+    // Try to fetch the event directly if not found in displayedEvents
+    const { data: fetchedEvent, error: fetchError } = await store.fetchEventById(eventId.value)
+    
+    if (fetchError || !fetchedEvent) {
+      console.error('EventAdminPage - Event not found or error:', fetchError)
+      store.setBanner('error', `活动不存在或您没有访问权限: ${fetchError || '未知错误'}`)
+      router.replace('/events/mine')
+      return
+    }
+    // Check if user is the creator or admin
+    if (fetchedEvent.created_by !== store.user?.id && !store.isAdmin) {
+      console.error('EventAdminPage - Permission denied for fetched event')
+      store.setBanner('error', '您没有管理此活动的权限')
+      router.replace('/events/mine')
+      return
     }
     
+    await loadAdminData()
+  } catch (err: any) {
+    console.error('Error loading admin data:', err)
+    store.setBanner('error', '加载管理数据失败: ' + err.message)
+  } finally {
+    loading.value = false
+  }
+}
+
+const loadAdminData = async () => {
+  try {
     // Load registrations with profile data
     const { data: regData, error: regError } = await supabase
       .from('registrations')
@@ -234,12 +317,11 @@ const loadData = async () => {
       generateRegistrationPreview()
     }
 
-    // Load submissions with team info
+    // Load submissions with team info (include all types, not just files)
     const { data: subData, error: subError } = await supabase
       .from('submissions')
       .select('*, teams(name)')
       .eq('event_id', eventId.value)
-      .eq('link_mode', 'file') // Only interested in file submissions for batch download
       .order('created_at', { ascending: true })
       
     if (subError) throw subError
@@ -248,8 +330,6 @@ const loadData = async () => {
   } catch (err: any) {
     console.error('Error loading admin data:', err)
     store.setBanner('error', '加载管理数据失败: ' + err.message)
-  } finally {
-    loading.value = false
   }
 }
 
@@ -330,17 +410,55 @@ const downloadForms = () => {
   }
 
   try {
-    // Convert to flattened format
-    const flattenedData = convertToFlattenedRegistrations(registrations.value)
+    // 使用我们的表单解析逻辑生成数据
+    const tableData = formResponseTable.value
     
-    // Generate filename using utility function
-    const filename = generateExportFilename(event.value?.title || '活动', 'registration')
-    
-    // Export using enhanced Excel utility
-    exportRegistrationsToExcel(flattenedData, filename, {
-      sheetName: '报名数据',
-      autoWidth: true
-    })
+    if (!tableData.hasFormData) {
+      // 如果没有表单数据，使用简单的导出
+      const flattenedData = convertToFlattenedRegistrations(registrations.value)
+      const filename = generateExportFilename(event.value?.title || '活动', 'registration')
+      exportRegistrationsToExcel(flattenedData, filename, {
+        sheetName: '报名数据',
+        autoWidth: true
+      })
+    } else {
+      // 使用解析后的表单数据
+      const excelData = tableData.rows.map(row => {
+        const excelRow: Record<string, any> = {}
+        
+        tableData.columns.forEach(column => {
+          if (column.isStandard) {
+            // 标准列
+            excelRow[column.title] = row[column.key as keyof typeof row]
+          } else {
+            // 表单回答列 - 使用解析后的显示值
+            excelRow[column.title] = row.responses[column.key] || '未填写'
+          }
+        })
+        
+        return excelRow
+      })
+      
+      const filename = generateExportFilename(event.value?.title || '活动', 'registration')
+      
+      // 创建工作簿
+      const workbook = XLSX.utils.book_new()
+      const worksheet = XLSX.utils.json_to_sheet(excelData)
+      
+      // 自动调整列宽
+      const columnWidths = tableData.columns.map(column => {
+        let maxWidth = column.title.length
+        excelData.forEach(row => {
+          const cellValue = String(row[column.title] || '')
+          maxWidth = Math.max(maxWidth, cellValue.length)
+        })
+        return { width: Math.min(Math.max(maxWidth + 2, 10), 50) }
+      })
+      worksheet['!cols'] = columnWidths
+      
+      XLSX.utils.book_append_sheet(workbook, worksheet, '报名数据')
+      XLSX.writeFile(workbook, filename)
+    }
     
     store.setBanner('info', '报名表导出成功')
   } catch (err: any) {
@@ -350,14 +468,17 @@ const downloadForms = () => {
 }
 
 const downloadFiles = async () => {
-  // Validate selection
+  if (downloadMode.value === 'simple') {
+    return downloadSelectedFilesSimple()
+  }
+  
+  // Advanced download logic (existing)
   const validation = selectionValidation.value
   if (!validation.valid) {
     store.setBanner('error', validation.message || '选择验证失败')
     return
   }
   
-  // Show warning if needed
   if (validation.warning) {
     store.setBanner('info', validation.warning)
   }
@@ -369,42 +490,35 @@ const downloadFiles = async () => {
   downloadPaused.value = false
   canPauseResume.value = true
 
-  // Create abort controller for pause/resume functionality
   downloadController.value = new AbortController()
 
   try {
-    // Get selected submissions
-    const selectedSubmissionData = submissions.value.filter(s => 
+    const selectedSubmissionData = fileSubmissions.value.filter(s => 
       selectedSubmissions.value.includes(s.id)
     )
     
-    // Progress callback
     const onProgress = (progress: ExportProgress) => {
       downloadProgress.value = progress
       statusMessage.value = progress.currentOperation
       
-      // Update legacy progress for UI compatibility
       const percentage = progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : 0
       progressPercentage.value = percentage
     }
     
-    // Execute enhanced batch download
     const summary = await downloadSubmissionsBatch(
       selectedSubmissionData,
       onProgress,
       {
-        batchSize: 1, // Sequential downloads
-        delayBetweenBatches: 500, // 500ms delay between files
+        batchSize: 1,
+        delayBetweenBatches: 500,
         maxRetries: 3,
         retryDelay: 1000
       }
     )
     
-    // Store summary for display
     downloadSummary.value = summary
     showDownloadSummary.value = true
     
-    // Show appropriate banner
     if (summary.failed === 0) {
       store.setBanner('info', generateDownloadSummary(summary))
     } else {
@@ -419,6 +533,109 @@ const downloadFiles = async () => {
     statusMessage.value = ''
     canPauseResume.value = false
     downloadController.value = null
+  }
+}
+
+// Simple download mode (from EventAdminPageSimple)
+const downloadSelectedFilesSimple = async () => {
+  if (selectedSubmissions.value.length === 0) {
+    store.setBanner('info', '请先选择要下载的文件')
+    return
+  }
+
+  try {
+    const selectedSubs = sortedSubmissions.value.filter(sub => selectedSubmissions.value.includes(sub.id))
+    const fileSubs = selectedSubs.filter(sub => sub.link_mode === 'file' && sub.submission_storage_path)
+    
+    if (fileSubs.length === 0) {
+      store.setBanner('info', '所选项目中没有文件类型的提交')
+      return
+    }
+    
+    if (fileSubs.length < selectedSubs.length) {
+      store.setBanner('info', `共选择了 ${selectedSubs.length} 个项目，其中 ${fileSubs.length} 个为文件类型，将下载文件类型的提交`)
+    }
+    
+    processing.value = true
+    store.setBanner('info', `开始批量下载 ${fileSubs.length} 个文件...`)
+    
+    for (let i = 0; i < fileSubs.length; i++) {
+      const submission = fileSubs[i]
+      await downloadSingleFile(submission)
+      // 添加延迟避免浏览器阻止多个下载
+      if (i < fileSubs.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 1000))
+      }
+    }
+    
+    store.setBanner('info', `批量下载完成，共处理 ${fileSubs.length} 个文件`)
+  } catch (err: any) {
+    console.error('Simple batch download error:', err)
+    store.setBanner('error', '批量下载失败: ' + err.message)
+  } finally {
+    processing.value = false
+  }
+}
+
+// Single file download (from EventAdminPageSimple)
+const downloadSingleFile = async (submission: any) => {
+  try {
+    if (!submission.submission_storage_path) {
+      store.setBanner('error', '该作品没有文件')
+      return
+    }
+
+    // 从存储路径中提取文件扩展名
+    const pathParts = submission.submission_storage_path.split('.')
+    const fileExtension = pathParts.length > 1 ? '.' + pathParts[pathParts.length - 1] : ''
+
+    // 生成自定义文件名（包含扩展名）
+    const submissionNumber = sortedSubmissions.value.findIndex(s => s.id === submission.id) + 1
+    const customFilename = `${String(submissionNumber).padStart(3, '0')}-${sanitizeFilename(submission.teams?.name || 'unknown')}-${sanitizeFilename(submission.project_name)}${fileExtension}`
+    
+    // 使用 Supabase 生成带自定义文件名的签名URL
+    const { data, error } = await supabase.storage
+      .from('submission-files')
+      .createSignedUrl(submission.submission_storage_path, 3600, {
+        download: customFilename
+      })
+
+    if (error) {
+      throw error
+    }
+
+    if (!data?.signedUrl) {
+      throw new Error('未能获取有效的下载链接')
+    }
+
+    // 触发浏览器下载
+    const link = document.createElement('a')
+    link.href = data.signedUrl
+    link.download = customFilename
+    link.style.display = 'none'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    
+    store.setBanner('info', '开始下载文件')
+  } catch (err: any) {
+    console.error('Download error:', err)
+    store.setBanner('error', '下载失败: ' + err.message)
+  }
+}
+
+// 文件名清理函数
+const sanitizeFilename = (name: string): string => {
+  return name.replace(/[<>:"/\\|?*]/g, '_').trim()
+}
+
+// 排序处理函数
+const handleSort = (columnKey: string) => {
+  if (sortBy.value === columnKey) {
+    sortOrder.value = sortOrder.value === 'asc' ? 'desc' : 'asc'
+  } else {
+    sortBy.value = columnKey
+    sortOrder.value = 'asc'
   }
 }
 
@@ -449,8 +666,23 @@ const cancelDownload = () => {
   }
 }
 
-onMounted(() => {
-  loadData()
+// 处理邀请评委
+const handleInviteJudge = () => {
+  inviteJudgeModalOpen.value = true
+}
+
+const handleJudgeInvited = () => {
+  // The modal will handle the success message and close itself
+  // We could refresh judge data here if needed
+}
+
+const handleCloseInviteModal = () => {
+  inviteJudgeModalOpen.value = false
+}
+
+onMounted(async () => {
+  await store.refreshUser()
+  await loadData()
 })
 
 // Expose constants for template
@@ -487,6 +719,14 @@ const { BATCH_DOWNLOAD_LIMITS: limits } = { BATCH_DOWNLOAD_LIMITS }
       >
         <Download :size="18" />
         作品文件
+      </button>
+      <button 
+        class="tab-btn"
+        :class="{ active: activeTab === 'judges' }"
+        @click="activeTab = 'judges'"
+      >
+        <Users :size="18" />
+        评委管理
       </button>
     </div>
 
@@ -664,11 +904,21 @@ const { BATCH_DOWNLOAD_LIMITS: limits } = { BATCH_DOWNLOAD_LIMITS }
       </div>
     </section>
 
+    <section v-else-if="activeTab === 'judges'" class="admin-section">
+      <JudgeManagementPanel 
+        :event-id="eventId"
+        @invite-judge="handleInviteJudge"
+      />
+    </section>
+
     <section v-else class="admin-section">
       <div class="section-header">
         <div class="info-block">
           <h3>作品文件批量下载</h3>
-          <p class="muted">共 {{ submissions.length }} 个文件作品</p>
+          <p class="muted">
+            共 {{ submissions.length }} 个作品提交
+            <span v-if="downloadMode === 'advanced'">（{{ fileSubmissions.length }} 个文件作品）</span>
+          </p>
           <p v-if="selectedSubmissions.length > 0" class="selection-info">
             已选择 {{ selectedSubmissions.length }}/{{ limits.maxSelectionCount }} 个文件
             <span v-if="!selectionValidation.valid" class="error-text">{{ selectionValidation.message }}</span>
@@ -679,15 +929,33 @@ const { BATCH_DOWNLOAD_LIMITS: limits } = { BATCH_DOWNLOAD_LIMITS }
           </p>
         </div>
         <div class="actions-group">
+          <!-- 下载模式切换 -->
+          <div class="mode-selector">
+            <button 
+              class="btn btn--ghost btn--compact"
+              :class="{ active: downloadMode === 'simple' }"
+              @click="downloadMode = 'simple'"
+            >
+              简单模式
+            </button>
+            <button 
+              class="btn btn--ghost btn--compact"
+              :class="{ active: downloadMode === 'advanced' }"
+              @click="downloadMode = 'advanced'"
+            >
+              高级模式
+            </button>
+          </div>
+          
           <button 
-            v-if="processing && canPauseResume"
+            v-if="processing && canPauseResume && downloadMode === 'advanced'"
             class="btn btn--ghost"
             @click="downloadPaused ? resumeDownload() : pauseDownload()"
           >
             {{ downloadPaused ? '恢复下载' : '暂停下载' }}
           </button>
           <button 
-            v-if="processing && canPauseResume"
+            v-if="processing && canPauseResume && downloadMode === 'advanced'"
             class="btn btn--danger btn--compact"
             @click="cancelDownload"
           >
@@ -696,7 +964,7 @@ const { BATCH_DOWNLOAD_LIMITS: limits } = { BATCH_DOWNLOAD_LIMITS }
           <button 
             class="btn btn--primary"
             @click="downloadFiles"
-            :disabled="!selectionValidation.valid || processing"
+            :disabled="selectedSubmissions.length === 0 || processing"
           >
             <Loader2 v-if="processing" class="spin" :size="18" />
             <Download v-else :size="18" />
@@ -861,8 +1129,93 @@ const { BATCH_DOWNLOAD_LIMITS: limits } = { BATCH_DOWNLOAD_LIMITS }
                 清空选择
               </button>
             </div>
-            <span>作品信息</span>
-            <span>大小/格式</span>
+            
+            <!-- 排序标题 -->
+            <div class="sortable-header" @click="handleSort('project_name')">
+              <span>作品名称</span>
+              <div class="sort-icons">
+                <ChevronUp 
+                  v-if="sortBy === 'project_name' && sortOrder === 'asc'"
+                  :size="14" 
+                  class="sort-icon"
+                />
+                <ChevronDown 
+                  v-if="sortBy === 'project_name' && sortOrder === 'desc'"
+                  :size="14" 
+                  class="sort-icon"
+                />
+                <ChevronsUpDown 
+                  v-if="sortBy !== 'project_name'"
+                  :size="14" 
+                  class="sort-icon sort-icon--inactive"
+                />
+              </div>
+            </div>
+            
+            <div class="sortable-header" @click="handleSort('team_name')">
+              <span>队伍</span>
+              <div class="sort-icons">
+                <ChevronUp 
+                  v-if="sortBy === 'team_name' && sortOrder === 'asc'"
+                  :size="14" 
+                  class="sort-icon"
+                />
+                <ChevronDown 
+                  v-if="sortBy === 'team_name' && sortOrder === 'desc'"
+                  :size="14" 
+                  class="sort-icon"
+                />
+                <ChevronsUpDown 
+                  v-if="sortBy !== 'team_name'"
+                  :size="14" 
+                  class="sort-icon sort-icon--inactive"
+                />
+              </div>
+            </div>
+            
+            <div class="sortable-header" @click="handleSort('link_mode')">
+              <span>提交方式</span>
+              <div class="sort-icons">
+                <ChevronUp 
+                  v-if="sortBy === 'link_mode' && sortOrder === 'asc'"
+                  :size="14" 
+                  class="sort-icon"
+                />
+                <ChevronDown 
+                  v-if="sortBy === 'link_mode' && sortOrder === 'desc'"
+                  :size="14" 
+                  class="sort-icon"
+                />
+                <ChevronsUpDown 
+                  v-if="sortBy !== 'link_mode'"
+                  :size="14" 
+                  class="sort-icon sort-icon--inactive"
+                />
+              </div>
+            </div>
+            
+            <div class="sortable-header" @click="handleSort('created_at')">
+              <span>提交时间</span>
+              <div class="sort-icons">
+                <ChevronUp 
+                  v-if="sortBy === 'created_at' && sortOrder === 'asc'"
+                  :size="14" 
+                  class="sort-icon"
+                />
+                <ChevronDown 
+                  v-if="sortBy === 'created_at' && sortOrder === 'desc'"
+                  :size="14" 
+                  class="sort-icon"
+                />
+                <ChevronsUpDown 
+                  v-if="sortBy !== 'created_at'"
+                  :size="14" 
+                  class="sort-icon sort-icon--inactive"
+                />
+              </div>
+            </div>
+            
+            <span>操作</span>
           </div>
           
           <div class="list-body">
@@ -877,18 +1230,53 @@ const { BATCH_DOWNLOAD_LIMITS: limits } = { BATCH_DOWNLOAD_LIMITS }
                   type="checkbox" 
                   :checked="selectedSubmissions.includes(sub.id)"
                   @change="toggleSubmissionSelection(sub.id)"
-                  :disabled="!selectedSubmissions.includes(sub.id) && !canSelectMore"
+                  :disabled="(!selectedSubmissions.includes(sub.id) && !canSelectMore) || (downloadMode === 'advanced' && sub.link_mode !== 'file')"
                 />
                 <span class="index-badge">
                   #{{ (currentPage - 1) * pageSize + index + 1 }}
                 </span>
               </label>
+              
               <div class="item-info">
                 <h4>{{ sub.project_name }}</h4>
                 <p class="muted">{{ sub.teams?.name || '未知队伍' }}</p>
               </div>
+              
+              <div class="item-team">
+                <span>{{ sub.teams?.name || '未知队伍' }}</span>
+              </div>
+              
+              <div class="item-submission-type">
+                <span class="submission-type-badge" :class="`submission-type--${sub.link_mode}`">
+                  {{ sub.link_mode === 'file' ? '文件' : '链接' }}
+                </span>
+              </div>
+              
               <div class="item-meta">
-                <span class="file-tag">{{ sub.submission_storage_path?.split('.').pop()?.toUpperCase() }}</span>
+                <span>{{ new Date(sub.created_at).toLocaleDateString() }}</span>
+              </div>
+              
+              <div class="item-actions">
+                <!-- 文件类型显示下载按钮 -->
+                <button 
+                  v-if="sub.link_mode === 'file'"
+                  class="btn btn--ghost btn--compact"
+                  @click="downloadSingleFile(sub)"
+                >
+                  <Download :size="16" />
+                  下载
+                </button>
+                <!-- 链接类型显示访问链接按钮 -->
+                <a 
+                  v-else
+                  :href="sub.submission_url"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="btn btn--ghost btn--compact"
+                >
+                  <ExternalLink :size="16" />
+                  访问链接
+                </a>
               </div>
             </div>
           </div>
@@ -921,6 +1309,14 @@ const { BATCH_DOWNLOAD_LIMITS: limits } = { BATCH_DOWNLOAD_LIMITS }
       </div>
     </section>
   </main>
+
+  <!-- Judge Invitation Modal -->
+  <UserSearchModal
+    :event-id="eventId"
+    :is-open="inviteJudgeModalOpen"
+    @close="handleCloseInviteModal"
+    @judge-invited="handleJudgeInvited"
+  />
 </template>
 
 <style scoped>
@@ -1615,10 +2011,10 @@ const { BATCH_DOWNLOAD_LIMITS: limits } = { BATCH_DOWNLOAD_LIMITS }
   margin-bottom: 0.25rem;
 }
 
-/* Enhanced List Header */
+/* Enhanced List Header with Sorting */
 .list-header {
   display: grid;
-  grid-template-columns: 2fr 1fr auto;
+  grid-template-columns: 2fr 1.5fr 1fr 100px 1fr 120px;
   gap: 1rem;
   padding: 1rem;
   background: var(--surface-muted);
@@ -1627,6 +2023,122 @@ const { BATCH_DOWNLOAD_LIMITS: limits } = { BATCH_DOWNLOAD_LIMITS }
   color: var(--muted);
   font-size: 0.9rem;
   align-items: center;
+}
+
+.sortable-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  transition: color 0.18s ease;
+  user-select: none;
+}
+
+.sortable-header:hover {
+  color: var(--accent);
+}
+
+.sort-icons {
+  display: flex;
+  align-items: center;
+  margin-left: 0.5rem;
+}
+
+.sort-icon {
+  color: var(--accent);
+  transition: all 0.18s ease;
+}
+
+.sort-icon--inactive {
+  color: var(--muted);
+  opacity: 0.5;
+}
+
+.list-body {
+  max-height: 600px;
+  overflow-y: auto;
+}
+
+.list-item {
+  display: grid;
+  grid-template-columns: 2fr 1.5fr 1fr 100px 1fr 120px;
+  gap: 1rem;
+  padding: 1rem;
+  border-bottom: 1px solid var(--border);
+  align-items: center;
+  transition: all 0.15s;
+}
+
+.list-item:hover {
+  background: var(--surface-muted);
+}
+
+.list-item.selected {
+  background: var(--accent-soft);
+}
+
+.item-submission-type {
+  display: flex;
+  align-items: center;
+}
+
+.submission-type-badge {
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-align: center;
+}
+
+.submission-type--file {
+  background: rgba(34, 197, 94, 0.1);
+  color: rgb(34, 197, 94);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.submission-type--link {
+  background: rgba(59, 130, 246, 0.1);
+  color: rgb(59, 130, 246);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.item-team {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.item-actions {
+  display: flex;
+  justify-content: flex-start;
+}
+
+/* Mode Selector */
+.mode-selector {
+  display: flex;
+  background: var(--surface-muted);
+  border-radius: 6px;
+  padding: 2px;
+  gap: 2px;
+}
+
+.mode-selector .btn {
+  border-radius: 4px;
+  padding: 0.4rem 0.75rem;
+  font-size: 0.85rem;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  transition: all 0.15s;
+}
+
+.mode-selector .btn.active {
+  background: var(--accent);
+  color: white;
+}
+
+.mode-selector .btn:hover:not(.active) {
+  background: var(--surface);
+  color: var(--ink);
 }
 
 /* Responsive Design for Pagination */

@@ -5,10 +5,9 @@
  * automatic quality adjustment, and comprehensive error recovery strategies.
  */
 
-import { ref, computed, type Ref } from 'vue'
-import { networkManager, type NetworkState, type NetworkError } from './networkManager'
-import { errorHandler, ErrorType } from './errorHandler'
-import { performanceMonitor } from './performanceMonitor'
+import { ref, type Ref } from 'vue'
+import { networkManager, type NetworkState } from './networkManager'
+import { errorHandler } from './errorHandler'
 
 // ============================================================================
 // Types and Interfaces
@@ -57,11 +56,13 @@ export interface RecoveryStrategy {
   cacheKey?: string
 }
 
-export enum CircuitState {
-  CLOSED = 'closed',
-  OPEN = 'open',
-  HALF_OPEN = 'half_open'
-}
+export const CircuitState = {
+  CLOSED: 'closed',
+  OPEN: 'open',
+  HALF_OPEN: 'half_open'
+} as const
+
+export type CircuitState = typeof CircuitState[keyof typeof CircuitState]
 
 export interface CircuitBreaker {
   state: CircuitState

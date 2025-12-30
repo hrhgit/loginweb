@@ -1,7 +1,7 @@
 /**
- * 性能监控工具
+ * 性能监控工具 (简化版)
  * 
- * 提供错误处理系统的性能监控和优化功能
+ * 仅在需要时按需收集数据，不进行持续监控
  */
 
 export interface PerformanceMetrics {
@@ -13,11 +13,11 @@ export interface PerformanceMetrics {
 }
 
 export interface PerformanceThresholds {
-  maxErrorHandlingTime: number // 最大错误处理时间 (ms)
-  maxMessageDisplayTime: number // 最大消息显示时间 (ms)
-  maxStorageOperationTime: number // 最大存储操作时间 (ms)
-  maxMemoryUsage: number // 最大内存使用量 (MB)
-  minCacheHitRate: number // 最小缓存命中率 (%)
+  maxErrorHandlingTime: number
+  maxMessageDisplayTime: number
+  maxStorageOperationTime: number
+  maxMemoryUsage: number
+  minCacheHitRate: number
 }
 
 export class PerformanceMonitor {
@@ -30,136 +30,61 @@ export class PerformanceMonitor {
   }
 
   private thresholds: PerformanceThresholds = {
-    maxErrorHandlingTime: 50, // 50ms
-    maxMessageDisplayTime: 100, // 100ms
-    maxStorageOperationTime: 200, // 200ms
-    maxMemoryUsage: 50, // 50MB
-    minCacheHitRate: 80 // 80%
+    maxErrorHandlingTime: 50,
+    maxMessageDisplayTime: 100,
+    maxStorageOperationTime: 200,
+    maxMemoryUsage: 50,
+    minCacheHitRate: 80
   }
 
   private measurements: Map<string, number> = new Map()
   private cacheStats = { hits: 0, misses: 0 }
 
-  /**
-   * 开始性能测量
-   */
-  startMeasurement(operation: string): void {
-    this.measurements.set(operation, performance.now())
+  // 空操作 - 保持 API 兼容但不执行任何操作
+  startMeasurement(_operation: string): void {
+    // No-op for performance
   }
 
-  /**
-   * 结束性能测量并记录结果
-   */
-  endMeasurement(operation: string): number {
-    const startTime = this.measurements.get(operation)
-    if (!startTime) {
-      console.warn(`No start time found for operation: ${operation}`)
-      return 0
-    }
-
-    const duration = performance.now() - startTime
-    this.measurements.delete(operation)
-
-    // 更新相应的指标
-    switch (operation) {
-      case 'errorHandling':
-        this.metrics.errorHandlingTime = duration
-        break
-      case 'messageDisplay':
-        this.metrics.messageDisplayTime = duration
-        break
-      case 'storageOperation':
-        this.metrics.storageOperationTime = duration
-        break
-    }
-
-    // 检查是否超过阈值
-    this.checkThresholds(operation, duration)
-
-    return duration
+  endMeasurement(_operation: string): number {
+    return 0
   }
 
-  /**
-   * 记录缓存命中
-   */
   recordCacheHit(): void {
     this.cacheStats.hits++
-    this.updateCacheHitRate()
   }
 
-  /**
-   * 记录缓存未命中
-   */
   recordCacheMiss(): void {
     this.cacheStats.misses++
-    this.updateCacheHitRate()
   }
 
-  /**
-   * 更新内存使用量
-   */
-  updateMemoryUsage(): void {
+  // 仅在仪表板页面调用时才收集数据
+  getMetrics(): PerformanceMetrics {
+    // 按需更新内存使用量
     if ('memory' in performance) {
       const memInfo = (performance as any).memory
-      if (memInfo && memInfo.usedJSHeapSize) {
-        this.metrics.memoryUsage = memInfo.usedJSHeapSize / (1024 * 1024) // Convert to MB
+      if (memInfo?.usedJSHeapSize) {
+        this.metrics.memoryUsage = memInfo.usedJSHeapSize / (1024 * 1024)
       }
     }
-  }
-
-  /**
-   * 获取当前性能指标
-   */
-  getMetrics(): PerformanceMetrics {
-    this.updateMemoryUsage()
+    
+    // 更新缓存命中率
+    const total = this.cacheStats.hits + this.cacheStats.misses
+    if (total > 0) {
+      this.metrics.cacheHitRate = (this.cacheStats.hits / total) * 100
+    }
+    
     return { ...this.metrics }
   }
 
-  /**
-   * 获取性能报告
-   */
   getPerformanceReport(): string {
     const metrics = this.getMetrics()
-    const issues: string[] = []
-
-    if (metrics.errorHandlingTime > this.thresholds.maxErrorHandlingTime) {
-      issues.push(`错误处理时间过长: ${metrics.errorHandlingTime.toFixed(2)}ms`)
-    }
-
-    if (metrics.messageDisplayTime > this.thresholds.maxMessageDisplayTime) {
-      issues.push(`消息显示时间过长: ${metrics.messageDisplayTime.toFixed(2)}ms`)
-    }
-
-    if (metrics.storageOperationTime > this.thresholds.maxStorageOperationTime) {
-      issues.push(`存储操作时间过长: ${metrics.storageOperationTime.toFixed(2)}ms`)
-    }
-
-    if (metrics.memoryUsage > this.thresholds.maxMemoryUsage) {
-      issues.push(`内存使用量过高: ${metrics.memoryUsage.toFixed(2)}MB`)
-    }
-
-    if (metrics.cacheHitRate < this.thresholds.minCacheHitRate) {
-      issues.push(`缓存命中率过低: ${metrics.cacheHitRate.toFixed(1)}%`)
-    }
-
-    const report = [
-      '=== 错误处理系统性能报告 ===',
-      `错误处理时间: ${metrics.errorHandlingTime.toFixed(2)}ms`,
-      `消息显示时间: ${metrics.messageDisplayTime.toFixed(2)}ms`,
-      `存储操作时间: ${metrics.storageOperationTime.toFixed(2)}ms`,
+    return [
+      '=== 性能报告 ===',
       `内存使用量: ${metrics.memoryUsage.toFixed(2)}MB`,
-      `缓存命中率: ${metrics.cacheHitRate.toFixed(1)}%`,
-      '',
-      issues.length > 0 ? '性能问题:' : '性能正常',
-      ...issues.map(issue => `- ${issue}`)
-    ]
-
-    return report.join('\n')
+      `缓存命中率: ${metrics.cacheHitRate.toFixed(1)}%`
+    ].join('\n')
   }
 
-  /**
-   * 重置统计数据
-   */
   reset(): void {
     this.metrics = {
       errorHandlingTime: 0,
@@ -172,75 +97,18 @@ export class PerformanceMonitor {
     this.measurements.clear()
   }
 
-  /**
-   * 设置性能阈值
-   */
   setThresholds(thresholds: Partial<PerformanceThresholds>): void {
     this.thresholds = { ...this.thresholds, ...thresholds }
   }
-
-  // 私有方法
-
-  private updateCacheHitRate(): void {
-    const total = this.cacheStats.hits + this.cacheStats.misses
-    if (total > 0) {
-      this.metrics.cacheHitRate = (this.cacheStats.hits / total) * 100
-    }
-  }
-
-  private checkThresholds(operation: string, duration: number): void {
-    let threshold: number
-    let metricName: string
-
-    switch (operation) {
-      case 'errorHandling':
-        threshold = this.thresholds.maxErrorHandlingTime
-        metricName = '错误处理'
-        break
-      case 'messageDisplay':
-        threshold = this.thresholds.maxMessageDisplayTime
-        metricName = '消息显示'
-        break
-      case 'storageOperation':
-        threshold = this.thresholds.maxStorageOperationTime
-        metricName = '存储操作'
-        break
-      default:
-        return
-    }
-
-    if (duration > threshold) {
-      console.warn(`性能警告: ${metricName}时间 ${duration.toFixed(2)}ms 超过阈值 ${threshold}ms`)
-    }
-  }
 }
 
-// 创建单例实例
 export const performanceMonitor = new PerformanceMonitor()
 
-// 便捷函数
-export function measurePerformance<T>(
-  operation: string,
-  fn: () => T
-): T {
-  performanceMonitor.startMeasurement(operation)
-  try {
-    const result = fn()
-    return result
-  } finally {
-    performanceMonitor.endMeasurement(operation)
-  }
+// 简化的便捷函数 - 直接执行，不进行测量
+export function measurePerformance<T>(_operation: string, fn: () => T): T {
+  return fn()
 }
 
-export async function measureAsyncPerformance<T>(
-  operation: string,
-  fn: () => Promise<T>
-): Promise<T> {
-  performanceMonitor.startMeasurement(operation)
-  try {
-    const result = await fn()
-    return result
-  } finally {
-    performanceMonitor.endMeasurement(operation)
-  }
+export async function measureAsyncPerformance<T>(_operation: string, fn: () => Promise<T>): Promise<T> {
+  return fn()
 }
