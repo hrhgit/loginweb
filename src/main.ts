@@ -12,9 +12,10 @@ const app = createApp(App)
 setupGlobalErrorHandling()
 
 // 设置Vue应用错误处理
-app.config.errorHandler = (error: Error, instance: any, info: string) => {
+app.config.errorHandler = (error: unknown, instance: any, info: string) => {
+  const errorObj = error instanceof Error ? error : new Error(String(error))
   logGlobalError(
-    error,
+    errorObj,
     {
       operation: 'vue_error',
       component: instance?.$options?.name || instance?.__name || 'unknown',
@@ -25,7 +26,7 @@ app.config.errorHandler = (error: Error, instance: any, info: string) => {
       }
     },
     ErrorType.CLIENT,
-    MessageSeverity.ERROR
+    MessageSeverity.FATAL
   )
   
   console.error('Vue error caught:', error, info)

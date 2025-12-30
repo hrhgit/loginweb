@@ -6,11 +6,15 @@
   - Set up basic retry logic with exponential backoff
   - _Requirements: 1.1, 1.2, 1.3_
 
-- [ ] 1.1 Write property test for input preservation during network failures
+- [x] 1.1 Write property test for input preservation during network failures
+
+
   - **Property 1: Input preservation during network failures**
   - **Validates: Requirements 1.1, 1.5**
 
-- [ ] 1.2 Write property test for user-friendly error handling
+- [x] 1.2 Write property test for user-friendly error handling
+
+
   - **Property 2: User-friendly error handling**
   - **Validates: Requirements 1.2**
 

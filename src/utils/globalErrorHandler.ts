@@ -24,12 +24,11 @@ export function setupGlobalErrorHandling(): void {
           filename: event.filename,
           lineno: event.lineno,
           colno: event.colno,
-          source: event.source?.toString(),
           stack: error.stack
         }
       },
       ErrorType.CLIENT,
-      MessageSeverity.ERROR
+      MessageSeverity.FATAL
     )
     
     errorLogManager.addRecord(errorRecord)
@@ -55,7 +54,7 @@ export function setupGlobalErrorHandling(): void {
         }
       },
       ErrorType.CLIENT,
-      MessageSeverity.ERROR
+      MessageSeverity.FATAL
     )
     
     errorLogManager.addRecord(errorRecord)
@@ -104,7 +103,7 @@ export function logGlobalError(
     additionalData?: any
   },
   type: ErrorType = ErrorType.CLIENT,
-  severity: MessageSeverity = MessageSeverity.ERROR
+  severity: MessageSeverity = MessageSeverity.FATAL
 ): void {
   const errorRecord = createErrorRecord(
     error,
@@ -138,7 +137,7 @@ export function logNetworkError(
       }
     },
     ErrorType.NETWORK,
-    MessageSeverity.ERROR
+    MessageSeverity.FATAL
   )
 }
 
@@ -163,6 +162,6 @@ export function logDatabaseError(
       }
     },
     ErrorType.SERVER,
-    MessageSeverity.ERROR
+    MessageSeverity.FATAL
   )
 }
