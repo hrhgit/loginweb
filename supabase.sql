@@ -69,6 +69,7 @@ using (bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::tex
 create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   username text,
+  email text,
   avatar_url text,
   roles text[] not null default '{}'::text[]
 );
@@ -78,6 +79,8 @@ alter table public.profiles drop column if exists phone;
 alter table public.profiles drop column if exists qq;
 -- 清理：移除 is_admin 字段，改用 JWT app_metadata 判断权限
 alter table public.profiles drop column if exists is_admin;
+-- 补丁：确保 email 列存在（用于用户名登录查询）
+alter table public.profiles add column if not exists email text;
 -- 兼容旧表：roles 可能是 user_role[]（枚举数组）或 text[]，统一补齐默认值/空值
 do $$
 declare
@@ -697,8 +700,8 @@ create trigger handle_updated_at
 create or replace function public.handle_new_user()
 returns trigger as $$
 begin
-  insert into public.profiles (id, username, avatar_url)
-  values (new.id, new.raw_user_meta_data->>'full_name', new.raw_user_meta_data->>'avatar_url')
+  insert into public.profiles (id, username, email, avatar_url)
+  values (new.id, new.raw_user_meta_data->>'full_name', new.email, new.raw_user_meta_data->>'avatar_url')
   on conflict (id) do nothing;
 
   insert into public.user_contacts (user_id)

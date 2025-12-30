@@ -3,7 +3,7 @@ import type { Subscription, User } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
 import { buildEventDescription, createDefaultEventDetails, generateId } from '../utils/eventDetails'
 import { getLocalizedAuthError } from '../utils/authErrorMessages'
-import { signInWithEmailOrUsername, validateUsername, checkUsernameExists } from '../utils/authHelpers'
+import { validateUsername, checkUsernameExists, getUserEmailByUsername, isEmailFormat } from '../utils/authHelpers'
 import { demoEvents } from './demoEvents'
 import { EVENT_SELECT } from './eventSchema'
 import { 
@@ -174,6 +174,7 @@ const teamRequestStatusByTeamId = ref<Record<string, string>>({})
 const teamJoinRequestsByTeamId = ref<Record<string, TeamJoinRequestRecord[]>>({})
 const teamSeekersByEventId = ref<Record<string, TeamSeeker[]>>({})
 const myTeamInviteByTeamId = ref<Record<string, TeamInvite | null>>({})
+const myTeamRequestsByTeamId = ref<Record<string, TeamJoinRequest>>({}) // Store actual request records
 
 const submissionsByEventId = ref<Record<string, SubmissionWithTeam[]>>({})
 const submissionsLoading = ref(false)
@@ -538,6 +539,7 @@ const loadMyTeamMemberships = async (teamIds: string[]) => {
 const loadMyTeamRequests = async (teamIds: string[]) => {
   if (!user.value || teamIds.length === 0) return
   const next: Record<string, string> = {}
+  const requestRecords: Record<string, TeamJoinRequest> = {}
   for (const id of teamIds) next[id] = ''
 
   const { data, error } = await supabase
@@ -555,10 +557,12 @@ const loadMyTeamRequests = async (teamIds: string[]) => {
     const typed = row as TeamJoinRequest
     if (typed.team_id) {
       next[typed.team_id] = typed.status
+      requestRecords[typed.team_id] = typed
     }
   }
 
   teamRequestStatusByTeamId.value = { ...teamRequestStatusByTeamId.value, ...next }
+  myTeamRequestsByTeamId.value = { ...myTeamRequestsByTeamId.value, ...requestRecords }
 }
 
 const loadMyTeamInvite = async (teamId: string) => {
@@ -1034,6 +1038,10 @@ const requestJoinTeam = async (teamId: string, message?: string) => {
     .maybeSingle()
 
   if (existingError) {
+    teamErrorHandler.handleError(existingError, { 
+      operation: 'requestJoinTeam',
+      additionalData: { teamId, step: 'checkExisting' }
+    })
     return { error: existingError.message }
   }
 
@@ -1058,6 +1066,10 @@ const requestJoinTeam = async (teamId: string, message?: string) => {
       .single()
 
     if (error) {
+      teamErrorHandler.handleError(error, { 
+        operation: 'requestJoinTeam',
+        additionalData: { teamId, step: 'updateExisting' }
+      })
       return { error: error.message }
     }
     teamRequestStatusByTeamId.value = {
@@ -1079,6 +1091,10 @@ const requestJoinTeam = async (teamId: string, message?: string) => {
     .single()
 
   if (error) {
+    teamErrorHandler.handleError(error, { 
+      operation: 'requestJoinTeam',
+      additionalData: { teamId, step: 'insertNew' }
+    })
     return { error: error.message }
   }
 
@@ -1102,6 +1118,10 @@ const cancelTeamJoinRequest = async (requestId: string) => {
     .select('team_id')
 
   if (error) {
+    teamErrorHandler.handleError(error, { 
+      operation: 'cancelTeamJoinRequest',
+      additionalData: { requestId }
+    })
     return { error: error.message }
   }
 
@@ -1114,6 +1134,11 @@ const cancelTeamJoinRequest = async (requestId: string) => {
     const next = { ...teamRequestStatusByTeamId.value }
     delete next[teamId]
     teamRequestStatusByTeamId.value = next
+
+    // Also clean up the stored request record
+    const nextRequests = { ...myTeamRequestsByTeamId.value }
+    delete nextRequests[teamId]
+    myTeamRequestsByTeamId.value = nextRequests
   }
 
   return { error: '' }
@@ -1244,15 +1269,15 @@ const getMyTeamRequestsForEvent = (eventId: string): MyTeamRequest[] => {
   const myRequests: MyTeamRequest[] = []
   
   for (const team of teams) {
-    const requestStatus = getTeamRequestStatus(team.id)
-    if (requestStatus && requestStatus !== '') {
+    const requestRecord = myTeamRequestsByTeamId.value[team.id]
+    if (requestRecord && requestRecord.status !== '') {
       myRequests.push({
-        id: `${team.id}-${user.value.id}`, // Generate a composite ID
+        id: requestRecord.id, // Use the actual database ID
         teamId: team.id,
         teamName: team.name,
-        status: requestStatus as 'pending' | 'approved' | 'rejected',
-        message: null, // We don't have access to the message in current structure
-        createdAt: team.created_at, // Use team creation as fallback
+        status: requestRecord.status as 'pending' | 'approved' | 'rejected',
+        message: requestRecord.message || null,
+        createdAt: requestRecord.created_at,
       })
     }
   }
@@ -1828,23 +1853,42 @@ const submitAuth = async () => {
 
   try {
     if (authView.value === 'sign_in') {
-      // 使用增强的登录函数，支持邮箱或用户名
-      const { error } = await signInWithEmailOrUsername(
-        authEmail.value.trim(),
-        authPassword.value
-      )
+      // 支持邮箱或用户名登录
+      const input = authEmail.value.trim()
+      let loginEmail = input
+      
+      // 如果输入不是邮箱格式，尝试通过用户名查找邮箱
+      if (!isEmailFormat(input)) {
+        const emailFromUsername = await getUserEmailByUsername(input)
+        if (!emailFromUsername) {
+          authError.value = '用户不存在，请检查用户名或邮箱'
+          authErrorHandler.handleError(new Error('User not found'), {
+            operation: 'login',
+            component: 'auth-modal',
+            additionalData: {
+              emailOrUsername: input,
+              errorCode: 400
+            }
+          })
+          return
+        }
+        loginEmail = emailFromUsername
+      }
+      
+      const { error } = await supabase.auth.signInWithPassword({
+        email: loginEmail,
+        password: authPassword.value
+      })
       
       if (error) {
-        // 使用增强的认证错误处理
         const localizedError = getLocalizedAuthError(error)
         authError.value = localizedError.message
         
-        // 记录错误到增强错误处理系统
         authErrorHandler.handleError(error, {
           operation: 'login',
           component: 'auth-modal',
           additionalData: {
-            emailOrUsername: authEmail.value,
+            emailOrUsername: input,
             errorCode: error.status || error.code
           }
         })
@@ -1879,11 +1923,9 @@ const submitAuth = async () => {
       })
 
       if (error) {
-        // 使用增强的认证错误处理
         const localizedError = getLocalizedAuthError(error)
         authError.value = localizedError.message
         
-        // 记录错误到增强错误处理系统
         authErrorHandler.handleError(error, {
           operation: 'register',
           component: 'auth-modal',
@@ -1898,7 +1940,6 @@ const submitAuth = async () => {
       }
     }
   } catch (unexpectedError) {
-    // 处理意外错误
     console.error('Unexpected auth error:', unexpectedError)
     authError.value = '系统错误，请稍后重试'
     
@@ -1922,6 +1963,7 @@ const handleSignOut = async () => {
   teamRequestStatusByTeamId.value = {}
   teamJoinRequestsByTeamId.value = {}
   myTeamInviteByTeamId.value = {}
+  myTeamRequestsByTeamId.value = {} // Clear stored request records
   void loadEvents()
   void supabase.auth.signOut().then(({ error }) => {
     if (error) authErrorHandler.handleError(error, { operation: 'signOut' })

@@ -37,19 +37,18 @@ const store = useAppStore()
           <label v-if="store.authView === 'sign_up'" class="field" :class="{ 'field--error': store.authError }">
             <span>用户名</span>
             <input v-model="store.authFullName" type="text" autocomplete="name" placeholder="例如 王大明" required />
-            <small class="field-hint">用户名将用于登录，2-20个字符，支持中文、字母、数字和下划线</small>
+            <small class="field-hint">用户名将用于登录，10个字以内，支持中文、字母、数字和下划线</small>
           </label>
 
           <label class="field" :class="{ 'field--error': store.authError }">
             <span>{{ store.authView === 'sign_in' ? '邮箱或用户名' : '电子邮箱' }}</span>
             <input 
               v-model="store.authEmail" 
-              :type="store.authView === 'sign_in' ? 'text' : 'email'" 
+              :type="store.authView === 'sign_in' ? 'text' : 'email'"
               :autocomplete="store.authView === 'sign_in' ? 'username' : 'email'" 
-              :placeholder="store.authView === 'sign_in' ? '邮箱或用户名' : 'you@example.com'" 
+              :placeholder="store.authView === 'sign_in' ? '输入邮箱或用户名' : 'you@example.com'"
               required 
             />
-            <small v-if="store.authView === 'sign_in'" class="field-hint">可以使用邮箱地址或用户名登录</small>
           </label>
 
           <label class="field" :class="{ 'field--error': store.authError }">
