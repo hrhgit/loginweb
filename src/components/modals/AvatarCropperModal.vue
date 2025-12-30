@@ -336,11 +336,17 @@ watch(
           <button
             @click="handleSave"
             class="btn btn--primary"
-            :disabled="!imageSrc"
+            :disabled="!imageSrc || isUploading"
           >
-            <Save :size="16" />
-            保存头像
+            <Loader2 v-if="isUploading" :size="16" class="animate-spin" />
+            <Save v-else :size="16" />
+            {{ isUploading ? `上传中 ${uploadProgress}%` : '保存头像' }}
           </button>
+        </div>
+        
+        <!-- 上传错误提示 -->
+        <div v-if="uploadError" class="upload-error">
+          <p class="error-text">{{ uploadError }}</p>
         </div>
       </main>
     </div>
@@ -449,5 +455,25 @@ watch(
   display: flex;
   justify-content: center;
   gap: 12px;
+}
+
+.upload-error {
+  text-align: center;
+  margin-top: 8px;
+}
+
+.error-text {
+  color: var(--danger);
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 </style>

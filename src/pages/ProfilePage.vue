@@ -59,13 +59,17 @@ const cancelEdit = () => {
   }
 }
 
-const handleAvatarSave = (dataUrl: string) => {
-  // Immediately update the optimistic avatar for instant UI feedback
-  optimisticAvatarUrl.value = dataUrl
-  // Also update the form data that will be saved
-  avatarUrl.value = dataUrl
-  // Update the store's profile avatar for immediate header update
-  store.setOptimisticAvatar(dataUrl)
+const handleAvatarSave = (data: { dataUrl: string; uploadedUrl?: string; uploadedPath?: string }) => {
+  // 立即更新乐观UI
+  optimisticAvatarUrl.value = data.dataUrl
+  // 如果预上传成功，使用上传后的URL，否则使用dataUrl
+  avatarUrl.value = data.uploadedUrl || data.dataUrl
+  // 存储上传路径，用于后续数据库更新
+  if (data.uploadedPath) {
+    // 可以存储路径信息，但这里我们主要使用URL
+  }
+  // 更新store中的头像用于导航栏显示
+  store.setOptimisticAvatar(data.dataUrl)
 }
 
 const passwordBusy = ref(false)
