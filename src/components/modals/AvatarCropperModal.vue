@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch, computed } from 'vue';
-import { Upload, Save, X, RotateCcw } from 'lucide-vue-next';
+import { Upload, Save, X, RotateCcw, Loader2 } from 'lucide-vue-next';
+import { supabase } from '../../lib/supabase';
+import { useAppStore } from '../../store/appStore';
 
 const props = defineProps<{
   initialImage?: string;
@@ -8,8 +10,10 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'close'): void;
-  (e: 'save', dataUrl: string): void;
+  (e: 'save', data: { dataUrl: string; uploadedUrl?: string; uploadedPath?: string }): void;
 }>();
+
+const store = useAppStore()
 
 const CROP_SIZE = 320;
 const ZOOM_SPEED = 0.001;
@@ -24,6 +28,13 @@ const imgSize = ref({ width: 0, height: 0 });
 const containerRef = ref<HTMLElement | null>(null);
 const imgRef = ref<HTMLImageElement | null>(null);
 const fileInputRef = ref<HTMLInputElement | null>(null);
+
+// 预上传相关状态
+const isUploading = ref(false);
+const uploadProgress = ref(0);
+const uploadedUrl = ref<string | null>(null);
+const uploadedPath = ref<string | null>(null);
+const uploadError = ref<string>('');
 
 const minScale = computed(() => {
   if (imgSize.value.width > 0 && imgSize.value.height > 0) {
@@ -142,7 +153,7 @@ const onFileChange = (e: Event) => {
   }
 };
 
-const handleSave = () => {
+const handleSave = async () => {
   if (!imageSrc.value || !imgRef.value) return;
 
   const canvas = document.createElement('canvas');
@@ -161,9 +172,78 @@ const handleSave = () => {
   ctx.drawImage(imgRef.value, -imgSize.value.width / 2, -imgSize.value.height / 2);
   ctx.restore();
 
-  const dataUrl = canvas.toDataURL('image/png');
-  emit('save', dataUrl);
+  // Use JPEG with 0.85 quality for smaller file size and faster upload
+  const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+  
+  // 立即开始预上传
+  await preUploadAvatar(dataUrl);
+  
+  emit('save', {
+    dataUrl,
+    uploadedUrl: uploadedUrl.value || undefined,
+    uploadedPath: uploadedPath.value || undefined
+  });
   emit('close');
+};
+
+// 预上传头像函数
+const preUploadAvatar = async (dataUrl: string) => {
+  if (!store.user) return;
+  
+  isUploading.value = true;
+  uploadProgress.value = 0;
+  uploadError.value = '';
+  
+  try {
+    // 转换 dataURL 为 Blob
+    const blob = dataURLtoBlob(dataUrl);
+    if (!blob) {
+      throw new Error('无效的图片格式');
+    }
+    
+    const filePath = `${store.user.id}/avatar-${Date.now()}.jpg`;
+    
+    // 上传到 Supabase 存储
+    const { error: uploadError } = await supabase.storage
+      .from('avatars')
+      .upload(filePath, blob, {
+        cacheControl: '3600',
+        upsert: true,
+      });
+    
+    if (uploadError) {
+      throw uploadError;
+    }
+    
+    // 获取公开 URL
+    const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(filePath);
+    
+    uploadedUrl.value = urlData.publicUrl;
+    uploadedPath.value = filePath;
+    uploadProgress.value = 100;
+    
+  } catch (error: any) {
+    console.error('Avatar pre-upload failed:', error);
+    uploadError.value = error.message || '上传失败';
+  } finally {
+    isUploading.value = false;
+  }
+};
+
+// 数据URL转Blob的辅助函数
+const dataURLtoBlob = (dataurl: string) => {
+  const arr = dataurl.split(',');
+  if (arr.length < 2) return null;
+  const mimeMatch = arr[0].match(/:(.*?);/);
+  if (!mimeMatch) return null;
+  const mime = mimeMatch[1];
+  const bstr = atob(arr[1]);
+  let n = bstr.length;
+  const u8arr = new Uint8Array(n);
+  while (n--) {
+    u8arr[n] = bstr.charCodeAt(n);
+  }
+  return new Blob([u8arr], { type: mime });
 };
 
 onMounted(() => {

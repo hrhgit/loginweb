@@ -312,6 +312,15 @@ const seekerRoles = ref<string[]>([])
 const seekerBusy = ref(false)
 const seekerError = ref('')
 const seekerInviteError = ref('')
+
+// Handle seeker intro input with character limit
+const onSeekerIntroInput = (event: Event) => {
+  const target = event.target as HTMLTextAreaElement
+  if (target.value.length > 100) {
+    target.value = target.value.slice(0, 100)
+    seekerIntro.value = target.value
+  }
+}
 const inviteModalOpen = ref(false)
 const inviteTargetSeekerId = ref<string | null>(null)
 const inviteSelectedTeamId = ref('')
@@ -2257,7 +2266,16 @@ watch(isRegistered, async (value) => {
         <form class="form" @submit.prevent="saveSeeker">
           <label class="field">
             <span>个人简介</span>
-            <textarea v-model="seekerIntro" rows="4" placeholder="介绍一下你自己（可选）"></textarea>
+            <textarea 
+              v-model="seekerIntro" 
+              rows="4" 
+              maxlength="100"
+              placeholder="介绍一下你自己（可选）"
+              @input="onSeekerIntroInput"
+            ></textarea>
+            <div class="field__counter" :class="{ 'field__counter--warning': seekerIntro.length > 80 }">
+              {{ seekerIntro.length }}/100
+            </div>
           </label>
 
           <div class="field">

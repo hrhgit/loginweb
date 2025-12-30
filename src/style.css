@@ -2536,6 +2536,18 @@ img {
   box-shadow: 0 0 0 3px #b62d1c33;
 }
 
+.field__counter {
+  font-size: 0.75rem;
+  color: var(--muted);
+  text-align: right;
+  margin-top: -2px;
+}
+
+.field__counter--warning {
+  color: var(--accent-2);
+  font-weight: 500;
+}
+
 .input-error {
   border-color: var(--danger) !important;
   box-shadow: 0 0 0 3px #b62d1c33 !important;

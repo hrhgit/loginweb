@@ -51,6 +51,21 @@ const cancelEdit = () => {
   syncProfileForm()
   profileErrors.value = {}
   saveError.value = ''
+  // Reset optimistic avatar when canceling edit
+  optimisticAvatarUrl.value = ''
+  // Reset store's optimistic avatar too
+  if (store.profile?.avatar_url) {
+    store.setOptimisticAvatar(store.profile.avatar_url)
+  }
+}
+
+const handleAvatarSave = (dataUrl: string) => {
+  // Immediately update the optimistic avatar for instant UI feedback
+  optimisticAvatarUrl.value = dataUrl
+  // Also update the form data that will be saved
+  avatarUrl.value = dataUrl
+  // Update the store's profile avatar for immediate header update
+  store.setOptimisticAvatar(dataUrl)
 }
 
 const passwordBusy = ref(false)
@@ -59,6 +74,7 @@ const passwordInfo = ref('')
 
 const username = ref('')
 const avatarUrl = ref('')
+const optimisticAvatarUrl = ref('')
 const phone = ref('')
 const qq = ref('')
 const roles = ref<string[]>([])
@@ -82,7 +98,7 @@ const sortedRoleBadges = computed(() =>
 )
 
 const isAuthed = computed(() => store.isAuthed)
-const avatarPreview = computed(() => avatarUrl.value.trim())
+const avatarPreview = computed(() => optimisticAvatarUrl.value.trim() || avatarUrl.value.trim())
 
 const joinedEvents = computed(() => {
   return store.displayedEvents.filter(event => store.myRegistrationByEventId[event.id])
@@ -402,6 +418,7 @@ const syncProfileForm = () => {
   const contacts = store.contacts
   username.value = profile?.username ?? ''
   avatarUrl.value = profile?.avatar_url ?? ''
+  optimisticAvatarUrl.value = '' // Reset optimistic avatar when syncing from store
   roles.value = Array.isArray(profile?.roles) ? [...(profile?.roles ?? [])] : []
   phone.value = contacts?.phone ?? ''
   qq.value = contacts?.qq ?? ''
@@ -463,6 +480,12 @@ const handleSaveProfile = async () => {
   const { error: profileError } = await store.updateMyProfile(profilePayload)
   if (profileError) {
     saveError.value = profileError
+    // Reset optimistic avatar on error
+    optimisticAvatarUrl.value = ''
+    // Reset store's optimistic avatar too
+    if (store.profile?.avatar_url) {
+      store.setOptimisticAvatar(store.profile.avatar_url)
+    }
     saveBusy.value = false
     return
   }
@@ -477,6 +500,8 @@ const handleSaveProfile = async () => {
   store.setBanner('info', '个人资料已保存')
   saveBusy.value = false
   isEditing.value = false
+  // Clear optimistic avatar since the real one is now loaded
+  optimisticAvatarUrl.value = ''
 }
 
 const resetPasswordState = () => {
@@ -764,7 +789,7 @@ watch(
                 v-if="showAvatarCropper"
                 :initial-image="avatarPreview"
                 @close="showAvatarCropper = false"
-                @save="(dataUrl) => (avatarUrl = dataUrl)"
+                @save="handleAvatarSave"
               />
             </Teleport>
 

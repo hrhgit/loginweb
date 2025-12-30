@@ -110,6 +110,13 @@ const profile = ref<Profile | null>(null)
 const profileLoading = ref(false)
 const profileError = ref('')
 
+// Optimistic avatar update for immediate UI feedback
+const setOptimisticAvatar = (avatarUrl: string) => {
+  if (profile.value) {
+    profile.value = { ...profile.value, avatar_url: avatarUrl }
+  }
+}
+
 const contacts = ref<UserContacts | null>(null)
 const contactsLoading = ref(false)
 const contactsError = ref('')
@@ -1470,17 +1477,21 @@ const updateMyProfile = async (payload: Partial<Pick<Profile, 'username' | 'avat
         throw new Error('无效的头像图片格式')
       }
 
-      const filePath = `${user.value.id}/avatar.png`
-      const { error: uploadError } = await supabase.storage.from('avatars').upload(filePath, blob, {
+      const filePath = `${user.value.id}/avatar.jpg`
+      
+      // Parallel operations: upload and get URL simultaneously
+      const uploadPromise = supabase.storage.from('avatars').upload(filePath, blob, {
         cacheControl: '3600',
         upsert: true,
       })
+      
+      const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(filePath)
+      const { error: uploadError } = await uploadPromise
 
       if (uploadError) {
         throw uploadError
       }
 
-      const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(filePath)
       nextPayload.avatar_url = urlData.publicUrl
     }
 
@@ -3015,6 +3026,7 @@ const store = proxyRefs({
   clearBanners,
   refreshUser,
   loadMyProfile,
+  setOptimisticAvatar,
   updateMyProfile,
   loadMyContacts,
   upsertMyContacts,
