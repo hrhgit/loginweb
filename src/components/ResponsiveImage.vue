@@ -1,24 +1,8 @@
 <template>
   <picture class="responsive-image" :class="imageClasses">
-    <!-- WebP source for modern browsers -->
-    <source 
-      v-if="enableWebP && webpSrcset"
-      :srcset="webpSrcset" 
-      :sizes="computedSizes"
-      type="image/webp"
-    />
-    
-    <!-- Fallback source -->
-    <source 
-      v-if="computedSrcset"
-      :srcset="computedSrcset" 
-      :sizes="computedSizes"
-      :type="imageType"
-    />
-    
-    <!-- Main image element -->
+    <!-- Main image element - uses original src directly since Supabase doesn't have pre-generated variants -->
     <img 
-      :src="optimizedSrc"
+      :src="src"
       :alt="alt"
       :width="width"
       :height="height"
@@ -60,13 +44,7 @@
 
 <script setup lang="ts">
 import { computed, ref, onMounted, watch } from 'vue'
-import { 
-  generateResponsiveSrcset, 
-  generateWebPSrcset, 
-  generateDefaultSizes,
-  calculateOptimalImageWidth,
-  progressiveLoadingTracker
-} from '../utils/progressiveLoading'
+import { progressiveLoadingTracker } from '../utils/progressiveLoading'
 
 interface Props {
   src: string
@@ -113,63 +91,6 @@ const imageLoaded = ref(false)
 const imageError = ref(false)
 const loadStartTime = ref<number>()
 const retryCount = ref(0)
-
-// Computed properties
-const devicePixelRatio = computed(() => 
-  typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
-)
-
-const viewportWidth = computed(() => 
-  typeof window !== 'undefined' ? window.innerWidth : 1024
-)
-
-const optimalWidth = computed(() => 
-  calculateOptimalImageWidth(viewportWidth.value, devicePixelRatio.value, props.width)
-)
-
-const optimizedSrc = computed(() => {
-  if (!props.src) return ''
-  
-  const baseSrc = props.src.replace(/\.(jpg|jpeg|png|webp)$/i, '')
-  const ext = props.src.match(/\.(jpg|jpeg|png|webp)$/i)?.[0] || '.jpg'
-  
-  return `${baseSrc}_${optimalWidth.value}w${ext}`
-})
-
-const computedSrcset = computed(() => {
-  if (props.srcset) return props.srcset
-  if (!props.src) return ''
-  
-  return generateResponsiveSrcset(props.src)
-})
-
-const webpSrcset = computed(() => {
-  if (!props.enableWebP || !props.src) return ''
-  
-  return generateWebPSrcset(props.src)
-})
-
-const computedSizes = computed(() => {
-  return props.sizes || generateDefaultSizes()
-})
-
-const imageType = computed(() => {
-  if (!props.src) return ''
-  
-  const ext = props.src.match(/\.(jpg|jpeg|png|webp)$/i)?.[1]?.toLowerCase()
-  
-  switch (ext) {
-    case 'jpg':
-    case 'jpeg':
-      return 'image/jpeg'
-    case 'png':
-      return 'image/png'
-    case 'webp':
-      return 'image/webp'
-    default:
-      return 'image/jpeg'
-  }
-})
 
 const imageClasses = computed(() => ({
   'responsive-image--loaded': imageLoaded.value,

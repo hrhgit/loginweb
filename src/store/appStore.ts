@@ -1620,21 +1620,47 @@ const loadMyProfile = async () => {
     profile.value = null
     return
   }
-  profileLoading.value = true
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('id,username,email,avatar_url,roles')
-    .eq('id', user.value.id)
-    .maybeSingle()
 
-  if (error) {
-    profileError.value = error.message
-    profile.value = null
-  } else {
-    profile.value = (data ?? null) as Profile | null
+  // Prevent duplicate loading
+  if (profileLoading.value) {
+    return
   }
 
-  profileLoading.value = false
+  profileLoading.value = true
+
+  try {
+    // Check if user session is valid
+    const { data: sessionData } = await supabase.auth.getSession()
+    if (!sessionData.session) {
+      console.warn('No valid session found when loading profile')
+      profile.value = null
+      return
+    }
+
+    // Query without email field (may not exist in database)
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id,username,avatar_url,roles')
+      .eq('id', user.value.id)
+      .maybeSingle()
+
+    if (error) {
+      console.warn('Profile query failed:', error.message)
+      profileError.value = error.message
+      profile.value = null
+    } else {
+      // Add email from user object if available
+      profile.value = data
+        ? ({ ...data, email: user.value.email || null } as Profile)
+        : null
+    }
+  } catch (err: any) {
+    // Silently handle network errors during initial load
+    console.warn('Profile load error:', err?.message || err)
+    profile.value = null
+  } finally {
+    profileLoading.value = false
+  }
 }
 
 const dataURLtoBlob = (dataurl: string) => {
@@ -3233,12 +3259,14 @@ const init = async () => {
   await refreshUser()
   loadNotifications()
   maybePushProfileSetupNotification()
-  if (user.value) startNotificationTicker()
-  void loadMyProfile()
-  void loadMyContacts()
+  if (user.value) {
+    startNotificationTicker()
+    void loadMyProfile()
+    void loadMyContacts()
+    void loadMyRegistrations()
+    void loadMyPendingTeamActions()
+  }
   void loadEvents()
-  void loadMyRegistrations()
-  void loadMyPendingTeamActions()
 
   // Start judge-related optimizations
   startJudgeRealtimeSync()
@@ -3277,7 +3305,7 @@ const init = async () => {
 
     user.value = session.user
     closeAuth()
-    void refreshUser()
+    await refreshUser()
     loadNotifications()
     maybePushProfileSetupNotification()
     startNotificationTicker()
@@ -3286,7 +3314,6 @@ const init = async () => {
     void loadEvents()
     void loadMyRegistrations()
     void loadMyPendingTeamActions()
-    closeAuth()
   })
 
   authSubscription = listener.subscription

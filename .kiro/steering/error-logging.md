@@ -2,167 +2,240 @@
 
 ## Overview
 
-This document defines the standards and practices for implementing error logging and handling in the event management platform. The system should provide comprehensive error tracking, user-friendly feedback, and debugging capabilities.
+This document defines the standards and practices for implementing error logging and handling in the event management platform. The system provides comprehensive error tracking, user-friendly feedback, and debugging capabilities through a multi-layered architecture.
 
 ## Error Logging Architecture
 
 ### Core Components
 
-#### 1. Error Store (`src/store/errorStore.ts`)
-- Centralized error state management
+#### 1. Error Handler API (`src/utils/errorHandler.ts`)
+- Centralized error processing and classification
 - Error categorization and severity levels
-- Automatic error persistence to Supabase
-- Error deduplication and aggregation
+- Message localization and user-friendly formatting
+- Performance optimized with caching and throttling
+- In-memory error logging with fallback support
 
-#### 2. Error Logger Service (`src/utils/errorLogger.ts`)
-- Structured error logging with context
-- Integration with Supabase for persistence
-- Client-side error capture and formatting
-- Performance impact monitoring
+#### 2. Enhanced Error Handler (`src/store/enhancedErrorHandling.ts`)
+- Store integration layer for Vue components
+- Context-aware error handling
+- Duplicate message suppression
+- Pre-configured error handlers for different domains
+- Integration with banner notification system
 
-#### 3. Error Boundary Component (`src/components/ErrorBoundary.vue`)
-- Vue error boundary implementation
-- Graceful error recovery
-- User-friendly error display
-- Automatic error reporting
+#### 3. Error Classification System
+- Automatic error type detection (network, permission, validation, etc.)
+- Severity assessment (fatal, warning, info, success)
+- Retry capability determination
+- Localized error messages with suggestions
 
-### Error Categories
+### Error Categories and Types
 
 ```typescript
-enum ErrorCategory {
-  AUTHENTICATION = 'auth',
-  DATABASE = 'database', 
-  NETWORK = 'network',
-  VALIDATION = 'validation',
-  PERMISSION = 'permission',
-  SYSTEM = 'system',
-  USER_ACTION = 'user_action'
-}
+export const ErrorType = {
+  NETWORK: 'network',
+  PERMISSION: 'permission', 
+  VALIDATION: 'validation',
+  TIMEOUT: 'timeout',
+  SERVER: 'server',
+  CLIENT: 'client',
+  UNKNOWN: 'unknown'
+} as const
 
-enum ErrorSeverity {
-  LOW = 'low',
-  MEDIUM = 'medium', 
-  HIGH = 'high',
-  CRITICAL = 'critical'
-}
+export const MessageSeverity = {
+  FATAL: 'fatal',
+  WARNING: 'warning', 
+  INFO: 'info',
+  SUCCESS: 'success'
+} as const
 ```
 
 ### Error Data Structure
 
 ```typescript
-interface ErrorLog {
+interface ErrorRecord {
   id: string
-  timestamp: string
-  category: ErrorCategory
-  severity: ErrorSeverity
+  timestamp: Date
+  type: ErrorType
+  severity: MessageSeverity
   message: string
-  stack?: string
-  context: {
-    userId?: string
-    route: string
-    userAgent: string
-    action?: string
-    eventId?: string
-    teamId?: string
-  }
-  resolved: boolean
-  resolution?: string
+  originalError: any
+  context: ErrorContext
+  retryCount: number
+  userAgent: string
+}
+
+interface ErrorContext {
+  operation: string
+  component: string
+  userId?: string
+  additionalData?: Record<string, any>
 }
 ```
 
 ## Implementation Standards
 
-### 1. Error Capture Patterns
+### 1. Error Handling Patterns
 
-#### Async Operations
+#### Using Pre-configured Error Handlers (Recommended)
 ```typescript
-// Store action pattern
-async createEvent(eventData: EventData) {
-  try {
-    const result = await supabase.from('events').insert(eventData)
-    if (result.error) throw result.error
-    return result.data
-  } catch (error) {
-    this.logError({
-      category: ErrorCategory.DATABASE,
-      severity: ErrorSeverity.HIGH,
-      message: 'Failed to create event',
-      context: { action: 'createEvent', eventData }
-    })
-    throw error
+// Import pre-configured handlers from enhancedErrorHandling.ts
+import { 
+  authErrorHandler,
+  formErrorHandler,
+  apiErrorHandler,
+  teamErrorHandler,
+  eventErrorHandler,
+  profileErrorHandler
+} from '../store/enhancedErrorHandling'
+
+// Team operations
+try {
+  const result = await supabase.from('teams').insert(teamData)
+  return result
+} catch (error) {
+  teamErrorHandler.handleError(error, { 
+    operation: 'createTeam',
+    additionalData: { teamData, eventId }
+  })
+  throw error
+}
+
+// Authentication operations
+try {
+  const { data, error } = await supabase.auth.signIn(credentials)
+  if (error) throw error
+  return data
+} catch (error) {
+  authErrorHandler.handleError(error, { 
+    operation: 'signIn',
+    additionalData: { email: credentials.email }
+  })
+  throw error
+}
+```
+
+#### Direct Error Handler Usage
+```typescript
+// Using the core error handler API directly
+import { errorHandler } from '../utils/errorHandler'
+
+try {
+  const result = await someOperation()
+  return result
+} catch (error) {
+  const errorResponse = errorHandler.handleError(error, {
+    operation: 'someOperation',
+    component: 'componentName',
+    additionalData: { contextData }
+  })
+  
+  // Error is automatically logged and user message is displayed
+  console.log('Error handled:', errorResponse.id)
+  throw error
+}
+```
+
+#### Creating Custom Error Handlers
+```typescript
+// Create domain-specific error handlers
+import { createErrorHandler } from '../store/enhancedErrorHandling'
+
+const submissionErrorHandler = createErrorHandler('submission', 'submission')
+
+// Usage
+try {
+  await submitProject(projectData)
+} catch (error) {
+  submissionErrorHandler.handleError(error, {
+    operation: 'submitProject',
+    additionalData: { projectId, eventId }
+  })
+}
+```
+
+### 2. Error Classification and Localization
+
+#### Automatic Error Classification
+```typescript
+// The ErrorClassifier automatically categorizes errors
+const classifier = new ErrorClassifier()
+
+// Network errors
+if (error.message.includes('网络') || error.code === 'NETWORK_ERROR') {
+  // Classified as ErrorType.NETWORK with retry capability
+}
+
+// Permission errors  
+if (error.status === 401 || error.message.includes('权限')) {
+  // Classified as ErrorType.PERMISSION, not retryable
+}
+
+// Validation errors
+if (error.message.includes('validation') || error.message.includes('必填')) {
+  // Classified as ErrorType.VALIDATION, not retryable
+}
+```
+
+#### Localized Error Messages
+```typescript
+// MessageLocalizer provides user-friendly Chinese messages
+const localizer = new MessageLocalizer()
+
+const errorMessages = {
+  [ErrorType.NETWORK]: '网络连接失败，请检查网络后重试',
+  [ErrorType.PERMISSION]: '权限不足，请联系管理员',
+  [ErrorType.VALIDATION]: '输入信息有误，请检查后重试',
+  [ErrorType.TIMEOUT]: '操作超时，请稍后重试',
+  [ErrorType.SERVER]: '服务器暂时不可用，请稍后重试',
+  [ErrorType.CLIENT]: '页面出现错误，请刷新页面后重试',
+  [ErrorType.UNKNOWN]: '操作失败，请稍后重试'
+}
+
+// Context-aware message customization
+const contextualizeMessage = (message: string, context: ErrorContext) => {
+  if (context.operation === 'login' && errorType === ErrorType.PERMISSION) {
+    return '登录失败，请检查用户名和密码'
+  }
+  return message
+}
+```
+
+### 3. Performance Optimizations
+
+#### Error Logging Throttling
+```typescript
+// Prevent spam logging of identical errors
+const LOG_THROTTLE_INTERVAL = 1000 // 1 second
+const DUPLICATE_THRESHOLD = 5000 // 5 seconds
+
+// Automatic throttling in ErrorHandlerAPI
+private logErrorThrottled(error: any, context?: ErrorContext): void {
+  const now = Date.now()
+  const key = this.generateErrorKey(error, context)
+  
+  const lastLogTime = this.logThrottle.get(key)
+  if (lastLogTime && (now - lastLogTime) < this.LOG_THROTTLE_INTERVAL) {
+    return // Skip logging if within throttle interval
+  }
+  
+  this.logThrottle.set(key, now)
+  this.logError(error, context)
+}
+```
+
+#### Classification Caching
+```typescript
+// Cache error classifications to improve performance
+private classificationCache = new Map<string, ErrorClassification>()
+private readonly CLASSIFICATION_CACHE_SIZE = 100
+
+// LRU cache eviction
+if (this.classificationCache.size >= this.CLASSIFICATION_CACHE_SIZE) {
+  const firstKey = this.classificationCache.keys().next().value
+  if (firstKey) {
+    this.classificationCache.delete(firstKey)
   }
 }
-```
-
-#### Component Error Handling
-```vue
-<script setup lang="ts">
-import { useErrorLogger } from '@/composables/useErrorLogger'
-
-const { logError, handleAsyncError } = useErrorLogger()
-
-const submitForm = handleAsyncError(async () => {
-  // Form submission logic
-}, {
-  category: ErrorCategory.USER_ACTION,
-  context: { action: 'submitEventForm' }
-})
-</script>
-```
-
-### 2. User Feedback Integration
-
-#### Error Display Components
-- `ErrorAlert.vue` - Inline error messages
-- `ErrorModal.vue` - Critical error dialogs  
-- `ErrorToast.vue` - Non-blocking error notifications
-
-#### Error Message Localization
-```typescript
-const errorMessages = {
-  'auth/invalid-credentials': '用户名或密码错误',
-  'database/connection-failed': '数据库连接失败，请稍后重试',
-  'network/timeout': '网络请求超时，请检查网络连接',
-  'validation/required-field': '请填写必填字段'
-}
-```
-
-### 3. Database Schema
-
-#### Error Logs Table
-```sql
-CREATE TABLE error_logs (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  category TEXT NOT NULL,
-  severity TEXT NOT NULL,
-  message TEXT NOT NULL,
-  stack TEXT,
-  context JSONB,
-  user_id UUID REFERENCES auth.users(id),
-  route TEXT,
-  user_agent TEXT,
-  resolved BOOLEAN DEFAULT FALSE,
-  resolution TEXT,
-  resolved_at TIMESTAMPTZ,
-  resolved_by UUID REFERENCES auth.users(id)
-);
-```
-
-#### RLS Policies
-```sql
--- Users can only see their own errors
-CREATE POLICY "Users can view own errors" ON error_logs
-  FOR SELECT USING (auth.uid() = user_id);
-
--- Admins can view all errors
-CREATE POLICY "Admins can view all errors" ON error_logs
-  FOR SELECT USING (
-    EXISTS (
-      SELECT 1 FROM user_profiles 
-      WHERE user_id = auth.uid() AND role = 'admin'
-    )
-  );
 ```
 
 ## Error Handling Best Practices
@@ -175,84 +248,106 @@ CREATE POLICY "Admins can view all errors" ON error_logs
 
 ### 2. Error Recovery
 - Graceful degradation for non-critical features
-- Retry mechanisms for transient failures
+- Retry mechanisms for transient failures (built into error handlers)
 - Fallback UI states
 - User-guided recovery actions
 
 ### 3. Error Monitoring
-- Real-time error tracking dashboard
-- Error trend analysis
-- Performance impact assessment
-- Automated alerting for critical errors
+- Automatic error classification and logging
+- Performance impact assessment with throttling
+- In-memory error log for debugging
+- Context-aware error tracking
 
 ### 4. Privacy and Security
 - Sanitize sensitive data from error logs
-- Secure error log access with RLS
-- GDPR compliance for error data retention
-- Rate limiting for error reporting
+- User-friendly error messages (no technical details exposed)
+- Secure error context handling
+- Rate limiting for error reporting (built-in throttling)
 
 ## Development Workflow
 
 ### 1. Error Testing
 ```typescript
 // Error simulation for testing
-const simulateError = (type: ErrorCategory) => {
+const simulateError = (type: ErrorType) => {
   switch (type) {
-    case ErrorCategory.NETWORK:
+    case ErrorType.NETWORK:
       throw new Error('Simulated network failure')
-    case ErrorCategory.DATABASE:
-      throw new Error('Simulated database error')
+    case ErrorType.PERMISSION:
+      throw new Error('Permission denied')
+    case ErrorType.VALIDATION:
+      throw new Error('Validation failed')
   }
 }
+
+// Disable throttling for tests
+errorHandler.setThrottlingEnabled(false)
+errorHandler.setDuplicateSuppressionEnabled(false)
 ```
 
 ### 2. Error Log Analysis
-- Use Supabase dashboard for error monitoring
-- Implement error aggregation queries
-- Create error resolution workflows
-- Track error resolution metrics
+```typescript
+// Get error logs for debugging
+const errorLogs = errorHandler.getErrorLog()
+
+// Clear error logs
+errorHandler.clearErrorLog()
+
+// Filter errors by type
+const networkErrors = errorLogs.filter(log => log.type === ErrorType.NETWORK)
+```
 
 ### 3. Performance Considerations
-- Batch error logging to reduce API calls
-- Implement client-side error queuing
-- Use debouncing for rapid error sequences
-- Monitor error logging performance impact
+- Built-in error logging throttling (1 second interval)
+- Classification result caching (LRU cache, 100 entries)
+- Duplicate message suppression (5 second threshold)
+- In-memory log size limiting (50 entries max)
 
 ## Integration with Existing Systems
 
 ### Store Integration
 ```typescript
-// Add to appStore.ts
-const errorStore = useErrorStore()
+// appStore.ts integration (current implementation)
+import { 
+  enhancedErrorHandler, 
+  handleSuccessWithBanner,
+  authErrorHandler,
+  apiErrorHandler,
+  teamErrorHandler,
+  eventErrorHandler
+} from './enhancedErrorHandling'
+
+// Initialize enhanced error handler with setBanner callback
+enhancedErrorHandler.setBannerCallback(setBanner)
 
 // In store actions
 catch (error) {
-  errorStore.logError({
-    category: ErrorCategory.DATABASE,
-    severity: ErrorSeverity.HIGH,
-    message: error.message,
-    context: { action: 'currentAction' }
+  eventErrorHandler.handleError(error, { 
+    operation: 'createEvent',
+    additionalData: { eventData }
   })
   
-  // Show user notification
-  this.showBanner({
-    type: 'error',
-    message: '操作失败，请稍后重试'
-  })
+  // Error is automatically logged and banner message is shown
+  throw error
 }
 ```
 
-### Router Integration
-```typescript
-// Global error handling in router
-router.onError((error) => {
-  errorStore.logError({
-    category: ErrorCategory.SYSTEM,
-    severity: ErrorSeverity.MEDIUM,
-    message: error.message,
-    context: { route: router.currentRoute.value.path }
-  })
-})
+### Component Integration
+```vue
+<script setup lang="ts">
+import { eventErrorHandler } from '@/store/enhancedErrorHandling'
+
+const handleSubmit = async () => {
+  try {
+    await submitForm()
+  } catch (error) {
+    eventErrorHandler.handleError(error, {
+      operation: 'submitForm',
+      additionalData: { formData }
+    })
+  }
+}
+</script>
 ```
 
-This error logging system ensures comprehensive error tracking while maintaining user experience and providing valuable debugging information for developers.
+This error logging system ensures comprehensive error tracking while maintaining user experience and providing valuable debugging information for developers through a performance-optimized, multi-layered architecture.

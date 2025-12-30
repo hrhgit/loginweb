@@ -24,6 +24,7 @@ import { supabase } from '../lib/supabase'
 // Lazy load heavy components for better performance
 const MyTeamsTabContent = defineAsyncComponent(() => import('../components/MyTeamsTabContent.vue'))
 const SubmissionCard = defineAsyncComponent(() => import('../components/showcase/SubmissionCard.vue'))
+const VirtualCardGrid = defineAsyncComponent(() => import('../components/VirtualCardGrid.vue'))
 import {
   teamSizeLabel,
   formatTimeRange,
@@ -212,25 +213,9 @@ const mySubmissions = computed(() => {
   )
 })
 
-// 分页相关
-const submissionsPerPage = 12
-const currentPage = ref(1)
-
-const displayedSubmissions = computed(() => {
-  const items = showcaseTab.value === 'all' ? allSubmissions.value : mySubmissions.value
-  const start = (currentPage.value - 1) * submissionsPerPage
-  const end = start + submissionsPerPage
-  return items.slice(start, end)
-})
-
-const totalPages = computed(() => {
-  const items = showcaseTab.value === 'all' ? allSubmissions.value : mySubmissions.value
-  return Math.ceil(items.length / submissionsPerPage)
-})
-
-// 切换标签时重置分页
-watch(showcaseTab, () => {
-  currentPage.value = 1
+// 当前显示的作品列表（根据标签页切换）
+const currentSubmissions = computed(() => {
+  return showcaseTab.value === 'all' ? allSubmissions.value : mySubmissions.value
 })
 
 const canSubmit = computed(() => {
@@ -1603,62 +1588,70 @@ watch(isRegistered, async (value) => {
                 </details>
               </div>
             </div>
-            <div class="team-grid">
-              <article
-                v-for="team in filteredTeamLobbyList"
-                :key="team.id"
-                class="team-card"
-                @dblclick="openTeamDetail(team.id)"
-              >
-                <div class="team-card__head">
-                  <div class="team-card__title-group">
-                    <RouterLink class="team-card__title" :to="`/events/${eventId}/team/${team.id}`">
-                      {{ team.name }}
-                    </RouterLink>
-                    <p v-if="team.leader_qq" class="muted team-card__qq">队长QQ：{{ team.leader_qq }}</p>
+            <VirtualCardGrid
+              :items="filteredTeamLobbyList"
+              :item-height="180"
+              :max-height="720"
+              :columns="3"
+              :gap="14"
+              :overscan="2"
+              grid-class="team-grid"
+              key-field="id"
+              :min-items-for-virtual="9"
+            >
+              <template #default="{ items }">
+                <article
+                  v-for="team in items"
+                  :key="team.id"
+                  class="team-card"
+                  @dblclick="openTeamDetail(team.id)"
+                >
+                  <div class="team-card__head">
+                    <div class="team-card__title-group">
+                      <RouterLink class="team-card__title" :to="`/events/${eventId}/team/${team.id}`">
+                        {{ team.name }}
+                      </RouterLink>
+                      <p v-if="team.leader_qq" class="muted team-card__qq">队长QQ：{{ team.leader_qq }}</p>
+                    </div>
+                    <span class="pill-badge pill-badge--published">{{ team.members }} 人</span>
                   </div>
-                  <span class="pill-badge pill-badge--published">{{ team.members }} 人</span>
-                </div>
-                
-                <div class="team-card__section">
-                  <h5 class="team-card__label">队伍介绍</h5>
-                  <p class="team-card__desc">{{ truncateTeamIntro(team.intro) || '暂无队伍介绍' }}</p>
                   
-                  <div class="team-card__tags">
-                    <span
-                      v-for="tag in teamTagsPreview(team.needs)"
-                      :key="tag.raw"
-                      class="meta-item"
-                      :class="tag.className"
-                    >
-                      {{ tag.label }}
-                    </span>
-                    <span v-if="teamTagsOverflow(team.needs) > 0" class="meta-item">+{{ teamTagsOverflow(team.needs) }}</span>
-                    <span v-if="!team.needs || team.needs.length === 0" class="muted text-sm">暂无需求</span>
+                  <div class="team-card__section">
+                    <h5 class="team-card__label">队伍介绍</h5>
+                    <p class="team-card__desc">{{ truncateTeamIntro(team.intro) || '暂无队伍介绍' }}</p>
+                    
+                    <div class="team-card__tags">
+                      <span
+                        v-for="tag in teamTagsPreview(team.needs)"
+                        :key="tag.raw"
+                        class="meta-item"
+                        :class="tag.className"
+                      >
+                        {{ tag.label }}
+                      </span>
+                      <span v-if="teamTagsOverflow(team.needs) > 0" class="meta-item">+{{ teamTagsOverflow(team.needs) }}</span>
+                      <span v-if="!team.needs || team.needs.length === 0" class="muted text-sm">暂无需求</span>
+                    </div>
                   </div>
-                </div>
 
-                                <div class="team-card__section team-card__actions">  
-
-                                  <template v-if="isMyTeam(team)">
-
-                                    <RouterLink class="btn btn--ghost btn--icon-text" :to="`/events/${eventId}/team/${team.id}/edit`"><Edit :size="14" /> 编辑</RouterLink>
-
-                                  </template>     
-
-                                  <button
-                    v-else
-                    class="btn btn--ghost btn--icon-text"
-                    type="button"
-                    :disabled="joinDisabled(team.id)"
-                    @click="handleJoinTeam(team.id)"
-                  >
-                    <UserPlus :size="14" />
-                    {{ joinLabel(team.id) }}
-                  </button>
-                </div>
-              </article>
-            </div>
+                  <div class="team-card__section team-card__actions">  
+                    <template v-if="isMyTeam(team)">
+                      <RouterLink class="btn btn--ghost btn--icon-text" :to="`/events/${eventId}/team/${team.id}/edit`"><Edit :size="14" /> 编辑</RouterLink>
+                    </template>     
+                    <button
+                      v-else
+                      class="btn btn--ghost btn--icon-text"
+                      type="button"
+                      :disabled="joinDisabled(team.id)"
+                      @click="handleJoinTeam(team.id)"
+                    >
+                      <UserPlus :size="14" />
+                      {{ joinLabel(team.id) }}
+                    </button>
+                  </div>
+                </article>
+              </template>
+            </VirtualCardGrid>
             <div v-if="filteredTeamLobbyList.length === 0" class="team-empty">
               <p>无符合条件的队伍</p>
             </div>
@@ -1712,44 +1705,56 @@ watch(isRegistered, async (value) => {
                 </details>
               </div>
             </div>
-            <div class="seeker-grid">
-              <article v-for="seeker in filteredTeamSeekers" :key="seeker.id" class="seeker-card">
-                <div class="seeker-card__head">
-              <div class="seeker-card__title">
-                <h4>{{ seekerDisplayName(seeker) }}</h4>
-                <p v-if="seeker.qq" class="muted seeker-card__qq">QQ：{{ seeker.qq }}</p>
-              </div>
-              <span class="pill-badge pill-badge--draft">求组队</span>
-            </div>
-            <div v-if="seeker.roles?.length" class="seeker-card__roles">
-              <span
-                v-for="role in sortedRoleLabels(seeker.roles)"
-                :key="role"
-                class="meta-item"
-                :class="getRoleTagClass(role)"
-              >
-                {{ role }}
-              </span>
-            </div>
-            <p class="seeker-card__intro">{{ truncateSeekerIntro(seeker.intro) || '暂无个人简介' }}</p>
-            <div class="seeker-card__actions">
-                  <template v-if="isMySeeker(seeker)">
-                    <button class="btn btn--ghost btn--icon-text" type="button" @click="openSeekerModal"><Edit :size="14" /> 编辑</button>
-                    <button class="btn btn--danger btn--icon-text" type="button" @click="deleteSeeker(seeker.id)"><Trash2 :size="14" /> 删除</button>
-                  </template>
-                  <button
-                    v-else-if="canInviteSeekers"
-                    class="btn btn--ghost btn--icon-text"
-                    type="button"
-                    :disabled="inviteBusy && inviteTargetSeekerId === seeker.id"
-                    @click="handleInviteSeeker(seeker.id)"
-                  >
-                    <Send :size="14" />
-                    邀请组队
-                  </button>
-                </div>
-              </article>
-            </div>
+            <VirtualCardGrid
+              :items="filteredTeamSeekers"
+              :item-height="160"
+              :max-height="720"
+              :columns="3"
+              :gap="14"
+              :overscan="2"
+              grid-class="seeker-grid"
+              key-field="id"
+              :min-items-for-virtual="9"
+            >
+              <template #default="{ items }">
+                <article v-for="seeker in items" :key="seeker.id" class="seeker-card">
+                  <div class="seeker-card__head">
+                    <div class="seeker-card__title">
+                      <h4>{{ seekerDisplayName(seeker) }}</h4>
+                      <p v-if="seeker.qq" class="muted seeker-card__qq">QQ：{{ seeker.qq }}</p>
+                    </div>
+                    <span class="pill-badge pill-badge--draft">求组队</span>
+                  </div>
+                  <div v-if="seeker.roles?.length" class="seeker-card__roles">
+                    <span
+                      v-for="role in sortedRoleLabels(seeker.roles)"
+                      :key="role"
+                      class="meta-item"
+                      :class="getRoleTagClass(role)"
+                    >
+                      {{ role }}
+                    </span>
+                  </div>
+                  <p class="seeker-card__intro">{{ truncateSeekerIntro(seeker.intro) || '暂无个人简介' }}</p>
+                  <div class="seeker-card__actions">
+                    <template v-if="isMySeeker(seeker)">
+                      <button class="btn btn--ghost btn--icon-text" type="button" @click="openSeekerModal"><Edit :size="14" /> 编辑</button>
+                      <button class="btn btn--danger btn--icon-text" type="button" @click="deleteSeeker(seeker.id)"><Trash2 :size="14" /> 删除</button>
+                    </template>
+                    <button
+                      v-else-if="canInviteSeekers"
+                      class="btn btn--ghost btn--icon-text"
+                      type="button"
+                      :disabled="inviteBusy && inviteTargetSeekerId === seeker.id"
+                      @click="handleInviteSeeker(seeker.id)"
+                    >
+                      <Send :size="14" />
+                      邀请组队
+                    </button>
+                  </div>
+                </article>
+              </template>
+            </VirtualCardGrid>
             <div v-if="filteredTeamSeekers.length === 0" class="team-empty">
               <p>无符合条件的队友</p>
             </div>
@@ -1821,7 +1826,7 @@ watch(isRegistered, async (value) => {
           </div>
 
           <!-- 空状态 -->
-          <div v-else-if="displayedSubmissions.length === 0" class="showcase-empty">
+          <div v-else-if="currentSubmissions.length === 0" class="showcase-empty">
             <div class="showcase-empty__icon">📋</div>
             <h3 class="showcase-empty__title">
               {{ showcaseTab === 'all' ? '暂无作品' : '你还没有提交作品' }}
@@ -1841,49 +1846,41 @@ watch(isRegistered, async (value) => {
             </RouterLink>
           </div>
 
-          <!-- 作品网格 -->
-          <div v-else class="showcase-grid">
-            <SubmissionCard
-              v-for="submission in displayedSubmissions"
-              :key="submission.id"
-              :submission="submission"
-              @click="handleSubmissionClick(submission)"
-              @double-click="handleSubmissionDoubleClick(submission)"
-              @title-click="handleSubmissionTitleClick(submission)"
-            >
-              <template #actions v-if="showcaseTab === 'mine'">
-                <RouterLink 
-                  :to="`/events/${eventId}/submissions/${submission.id}/edit`" 
-                  class="btn btn--compact btn--ghost"
-                  @click.stop
-                >
-                  <Edit :size="14" />
-                  编辑
-                </RouterLink>
-              </template>
-            </SubmissionCard>
-          </div>
-
-          <!-- 分页控件 -->
-          <div v-if="totalPages > 1" class="showcase-pagination">
-            <button
-              class="btn btn--ghost btn--compact"
-              :disabled="currentPage === 1"
-              @click="currentPage = Math.max(1, currentPage - 1)"
-            >
-              上一页
-            </button>
-            <span class="pagination-info">
-              第 {{ currentPage }} / {{ totalPages }} 页
-            </span>
-            <button
-              class="btn btn--ghost btn--compact"
-              :disabled="currentPage === totalPages"
-              @click="currentPage = Math.min(totalPages, currentPage + 1)"
-            >
-              下一页
-            </button>
-          </div>
+          <!-- 作品网格 - 使用虚拟滚动 -->
+          <VirtualCardGrid
+            v-else
+            :items="currentSubmissions"
+            :item-height="320"
+            :max-height="800"
+            :columns="3"
+            :gap="24"
+            :overscan="2"
+            grid-class="showcase-grid"
+            key-field="id"
+            :min-items-for-virtual="6"
+          >
+            <template #default="{ items }">
+              <SubmissionCard
+                v-for="submission in items"
+                :key="submission.id"
+                :submission="submission"
+                @click="handleSubmissionClick(submission)"
+                @double-click="handleSubmissionDoubleClick(submission)"
+                @title-click="handleSubmissionTitleClick(submission)"
+              >
+                <template #actions v-if="showcaseTab === 'mine'">
+                  <RouterLink 
+                    :to="`/events/${eventId}/submissions/${submission.id}/edit`" 
+                    class="btn btn--compact btn--ghost"
+                    @click.stop
+                  >
+                    <Edit :size="14" />
+                    编辑
+                  </RouterLink>
+                </template>
+              </SubmissionCard>
+            </template>
+          </VirtualCardGrid>
         </section>
 
           <section v-else-if="detailTab === 'form'" class="detail-section" role="tabpanel">
@@ -2531,32 +2528,7 @@ watch(isRegistered, async (value) => {
   max-width: 400px;
 }
 
-/* Showcase Grid */
-.showcase-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  gap: 1.5rem;
-  max-width: 100%;
-}
-
-@media (min-width: 1200px) {
-  .showcase-grid {
-    grid-template-columns: repeat(3, 1fr);
-  }
-}
-
-@media (min-width: 980px) and (max-width: 1199px) {
-  .showcase-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
-
-@media (max-width: 640px) {
-  .showcase-grid {
-    grid-template-columns: 1fr;
-    gap: 1rem;
-  }
-}
+/* Showcase Grid 样式已移至全局 style.css */
 
 /* Showcase Pagination */
 .showcase-pagination {

@@ -1,10 +1,9 @@
 <script setup lang="ts">
 import { RouterLink, useRouter } from 'vue-router'
-import { RefreshCw, Plus, MapPin, Users, Wifi, WifiOff } from 'lucide-vue-next'
+import { RefreshCw, Plus, MapPin, Users } from 'lucide-vue-next'
 import { useEventsReady } from '../composables/useEventsReady'
 import { useAppStore } from '../store/appStore'
 import EventCard from '../components/events/EventCard.vue'
-import EnhancedVirtualGrid from '../components/EnhancedVirtualGrid.vue'
 import NetworkStatusIndicator from '../components/feedback/NetworkStatusIndicator.vue'
 import LoadingStateIndicator from '../components/feedback/LoadingStateIndicator.vue'
 import { teamSizeLabel, formatDateRange, locationLabel } from '../utils/eventFormat'
@@ -127,49 +126,38 @@ useEventsReady(store)
         </div>
       </section>
 
-      <EnhancedVirtualGrid
-        v-else
-        :items="store.publicEvents"
-        :item-height="280"
-        :container-height="600"
-        :columns="3"
-        :gap="24"
-        :loading="isNetworkAwareLoading"
-        :enable-metrics="true"
-        class="activity-grid"
-        aria-label="events"
-      >
-        <template #default="{ item: event }">
-          <EventCard
-            :event="event"
-            :time-label="formatDateRange(event.start_time, event.end_time)"
-            :summary="eventSummary(event.description)"
-            @card-dblclick="handleCardDblClick($event, event.id)"
-          >
-            <template #badges>
-              <span v-if="store.myRegistrationByEventId[event.id]" class="pill-badge pill-badge--success">
-                已报名
-              </span>
-              <span v-if="!store.isOnline" class="pill-badge pill-badge--warning">
-                离线
-              </span>
+      <section class="activity-grid" aria-label="events">
+        <EventCard
+          v-for="event in store.publicEvents"
+          :key="event.id"
+          :event="event"
+          :time-label="formatDateRange(event.start_time, event.end_time)"
+          :summary="eventSummary(event.description)"
+          @card-dblclick="handleCardDblClick($event, event.id)"
+        >
+          <template #badges>
+            <span v-if="store.myRegistrationByEventId[event.id]" class="pill-badge pill-badge--success">
+              已报名
+            </span>
+            <span v-if="!store.isOnline" class="pill-badge pill-badge--warning">
+              离线
+            </span>
+          </template>
+          <template #meta>
+            <span class="meta-item"><MapPin :size="16" /> {{ locationLabel(event.location) }}</span>
+            <span class="meta-item"><Users :size="16" /> {{ teamSizeLabel(event.team_max_size) }}</span>
+          </template>
+          <template #actions>
+            <template v-if="store.isDemoEvent(event)">
+              <button class="btn btn--ghost" type="button" disabled>仅展示</button>
             </template>
-            <template #meta>
-              <span class="meta-item"><MapPin :size="16" /> {{ locationLabel(event.location) }}</span>
-              <span class="meta-item"><Users :size="16" /> {{ teamSizeLabel(event.team_max_size) }}</span>
+            <template v-else-if="event.status === 'draft'">
+              <button class="btn btn--ghost" type="button" disabled>草稿中</button>
             </template>
-            <template #actions>
-              <template v-if="store.isDemoEvent(event)">
-                <button class="btn btn--ghost" type="button" disabled>仅展示</button>
-              </template>
-              <template v-else-if="event.status === 'draft'">
-                <button class="btn btn--ghost" type="button" disabled>草稿中</button>
-              </template>
-              <RouterLink v-else class="btn btn--primary" :to="`/events/${event.id}`">立即参加</RouterLink>
-            </template>
-          </EventCard>
-        </template>
-      </EnhancedVirtualGrid>
+            <RouterLink v-else class="btn btn--primary" :to="`/events/${event.id}`">立即参加</RouterLink>
+          </template>
+        </EventCard>
+      </section>
     </template>
   </main>
 </template>

@@ -2,270 +2,278 @@
 
 ## Overview
 
-This document defines the standards and practices for implementing the message notification system in the event management platform. The system provides user feedback through banners, toasts, modals, and real-time notifications.
+This document defines the standards and practices for implementing the message notification system in the event management platform. The system provides **client-side user feedback** through banners and toasts without database persistence.
 
 ## Notification Architecture
 
 ### Core Components
 
-#### 1. Notification Store (`src/store/notificationStore.ts`)
-- Centralized notification state management
-- Message queuing and display logic
-- Auto-dismiss timers and user interactions
-- Notification history and persistence
-
-#### 2. Global Banner Component (`src/components/feedback/GlobalBanner.vue`)
+#### 1. Global Banner Component (`src/components/feedback/GlobalBanner.vue`)
 - Primary notification display mechanism
-- Support for multiple notification types
+- Reactive to store state changes
+- Support for multiple notification types (success, error, warning, info, critical)
 - Smooth animations and transitions
-- Accessibility compliance
+- Network status integration with retry functionality
+- Auto-hide with configurable durations
+- Performance optimized with debounced updates
 
-#### 3. Toast System (`src/components/feedback/ToastContainer.vue`)
-- Non-blocking notification overlay
-- Stack management for multiple toasts
-- Position and timing configuration
-- Mobile-responsive design
+#### 2. Store Integration (`src/store/appStore.ts`)
+- `bannerInfo` - Information/success messages
+- `bannerError` - Error messages  
+- `setBanner(type: 'info' | 'error', text: string)` - Core banner function
+- Reactive state management
+- No database persistence required
+- Network-aware loading states
 
-#### 4. Real-time Notifications (`src/composables/useRealTimeNotifications.ts`)
-- Supabase real-time subscription integration
-- Event-based notification triggers
-- Background notification handling
-- Browser notification API integration
+#### 3. Enhanced Error Handler Integration (`src/store/enhancedErrorHandling.ts`)
+- Automatic error-to-banner conversion
+- Centralized message formatting
+- Network-aware error handling
+- Duplicate message suppression
+- Context-aware error messages
 
-### Notification Types
+### Message Types
 
 ```typescript
-enum NotificationType {
-  SUCCESS = 'success',
-  ERROR = 'error', 
-  WARNING = 'warning',
-  INFO = 'info',
-  LOADING = 'loading'
-}
+export const MessageType = {
+  SUCCESS: 'success',
+  INFO: 'info',
+  WARNING: 'warning', 
+  ERROR: 'error',
+  CRITICAL: 'critical'
+} as const
 
-enum NotificationPriority {
-  LOW = 'low',
-  NORMAL = 'normal',
-  HIGH = 'high',
-  URGENT = 'urgent'
-}
-
-enum NotificationChannel {
-  BANNER = 'banner',
-  TOAST = 'toast',
-  MODAL = 'modal',
-  BROWSER = 'browser',
-  EMAIL = 'email'
-}
+export type MessageType = typeof MessageType[keyof typeof MessageType]
 ```
 
-### Notification Data Structure
+### Current Implementation Pattern
 
 ```typescript
-interface Notification {
-  id: string
-  type: NotificationType
-  priority: NotificationPriority
-  channel: NotificationChannel[]
-  title?: string
-  message: string
-  description?: string
-  actionText?: string
-  actionCallback?: () => void
-  dismissible: boolean
-  autoHide: boolean
-  duration: number
-  timestamp: string
-  userId?: string
-  eventId?: string
-  teamId?: string
-  read: boolean
-  persistent: boolean
+// Store state (appStore.ts)
+const bannerInfo = ref('')
+const bannerError = ref('')
+
+// Core banner function with auto-hide
+const setBanner = (type: 'info' | 'error', text: string) => {
+  bannerInfo.value = ''
+  bannerError.value = ''
+  window.clearTimeout(bannerTimeout)
+
+  if (type === 'info') {
+    bannerInfo.value = text
+  } else {
+    bannerError.value = text
+  }
+
+  bannerTimeout = window.setTimeout(() => {
+    bannerInfo.value = ''
+    bannerError.value = ''
+  }, 2000) // 2 seconds then fade via transition
 }
+
+// Enhanced error handler initialization
+enhancedErrorHandler.setBannerCallback(setBanner)
 ```
 
 ## Implementation Standards
 
-### 1. Notification Display Patterns
+### 1. Current Message Display Patterns
 
 #### Success Messages
 ```typescript
-// Event creation success
-showNotification({
-  type: NotificationType.SUCCESS,
-  channel: [NotificationChannel.BANNER],
-  message: '活动创建成功！',
-  description: '您的活动已保存为草稿，可以继续编辑或发布',
-  actionText: '查看活动',
-  actionCallback: () => router.push(`/events/${eventId}`),
-  duration: 5000
+// Using enhanced error handler (recommended)
+handleSuccessWithBanner('活动创建成功！您的活动已保存为草稿', setBanner, { 
+  operation: 'createEvent',
+  component: 'form' 
 })
+
+// Direct banner usage (legacy)
+setBanner('info', '活动创建成功！您的活动已保存为草稿')
 ```
 
-#### Error Handling Integration
+#### Error Messages
 ```typescript
-// Database error with retry option
-showNotification({
-  type: NotificationType.ERROR,
-  channel: [NotificationChannel.BANNER, NotificationChannel.TOAST],
-  priority: NotificationPriority.HIGH,
-  message: '保存失败',
-  description: '网络连接异常，请检查网络后重试',
-  actionText: '重试',
-  actionCallback: () => retryOperation(),
-  dismissible: true,
-  autoHide: false
-})
+// Using enhanced error handler (recommended)
+try {
+  const result = await someOperation()
+  handleSuccessWithBanner('操作成功完成！', setBanner, { 
+    operation: 'createEvent',
+    component: 'form' 
+  })
+} catch (error) {
+  // Error handlers automatically call setBanner
+  eventErrorHandler.handleError(error, { 
+    operation: 'createEvent',
+    additionalData: { eventId }
+  })
+}
+
+// Direct banner usage (legacy)
+setBanner('error', '保存失败，网络连接异常，请检查网络后重试')
 ```
 
-#### Loading States
+#### Available Error Handlers
 ```typescript
-// Long-running operation feedback
-const loadingId = showNotification({
-  type: NotificationType.LOADING,
-  channel: [NotificationChannel.BANNER],
-  message: '正在上传文件...',
-  dismissible: false,
-  autoHide: false,
-  persistent: true
-})
-
-// Update on completion
-updateNotification(loadingId, {
-  type: NotificationType.SUCCESS,
-  message: '文件上传完成',
-  autoHide: true,
-  duration: 3000
-})
+// Pre-configured error handlers from enhancedErrorHandling.ts
+export const authErrorHandler = createErrorHandler('auth', 'authentication')
+export const formErrorHandler = createErrorHandler('form', 'form')
+export const apiErrorHandler = createErrorHandler('api', 'network')
+export const uploadErrorHandler = createErrorHandler('upload', 'file')
+export const teamErrorHandler = createErrorHandler('team', 'team')
+export const eventErrorHandler = createErrorHandler('event', 'event')
+export const profileErrorHandler = createErrorHandler('profile', 'profile')
 ```
 
-### 2. Real-time Notification Triggers
+### 2. Network Status Integration
 
-#### Event-based Notifications
+The GlobalBanner component automatically displays network-related messages with enhanced functionality:
+
 ```typescript
-// Team invitation received
-const teamInviteNotification = {
-  type: NotificationType.INFO,
-  channel: [NotificationChannel.TOAST, NotificationChannel.BROWSER],
-  priority: NotificationPriority.HIGH,
-  title: '团队邀请',
-  message: `${inviterName} 邀请您加入团队 "${teamName}"`,
-  actionText: '查看邀请',
-  actionCallback: () => router.push('/teams/invitations'),
-  duration: 10000
+// Network status integration (handled automatically by GlobalBanner)
+const networkInfo = computed(() => {
+  const state = store.networkState
+  const quality = store.connectionQuality
+  
+  return {
+    isOnline: state.isOnline,
+    quality,
+    effectiveType: state.effectiveType,
+    rtt: state.rtt,
+    downlink: state.downlink
+  }
+})
+
+// Automatic network messages:
+- "网络连接已断开，部分功能可能无法使用" (offline)
+- "网络连接较慢，正在重试 (1/3)" (slow connection with retry count)
+- Network retry functionality with progress indication
+```
+
+### 3. Message Timing and Auto-Hide
+
+```typescript
+// Auto-hide durations (implemented in setBanner function)
+const setBanner = (type: 'info' | 'error', text: string) => {
+  // Clear existing messages
+  bannerInfo.value = ''
+  bannerError.value = ''
+  window.clearTimeout(bannerTimeout)
+
+  // Set new message
+  if (type === 'info') {
+    bannerInfo.value = text
+  } else {
+    bannerError.value = text
+  }
+
+  // Auto-hide after 2 seconds
+  bannerTimeout = window.setTimeout(() => {
+    bannerInfo.value = ''
+    bannerError.value = ''
+  }, 2000)
+}
+
+// Message duration mapping in GlobalBanner component:
+const getMessageDuration = (messageType: MessageType): number => {
+  switch (messageType) {
+    case MessageType.ERROR:
+    case MessageType.CRITICAL:
+    case MessageType.WARNING:
+      return 5000 // Error messages show for 5 seconds
+    case MessageType.SUCCESS:
+    case MessageType.INFO:
+    default:
+      return 2000 // Success/info messages show for 2 seconds
+  }
 }
 ```
 
-#### System Notifications
-```typescript
-// Event deadline reminder
-const deadlineReminder = {
-  type: NotificationType.WARNING,
-  channel: [NotificationChannel.BANNER, NotificationChannel.EMAIL],
-  priority: NotificationPriority.URGENT,
-  title: '截止日期提醒',
-  message: '活动提交截止时间还有 2 小时',
-  description: '请尽快完成并提交您的作品',
-  actionText: '立即提交',
-  actionCallback: () => router.push('/submissions'),
-  persistent: true
-}
-```
+### 4. Banner Styling System
 
-### 3. Notification Styling System
+The GlobalBanner component uses CSS classes based on message type:
 
-#### Banner Variants
 ```css
-.global-banner {
+.toast-notification {
   /* Base banner styles */
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  max-width: 400px;
+  z-index: 1000;
 }
 
-.global-banner--success {
+.toast-notification--success {
   background: var(--accent-soft);
   border-left: 4px solid var(--accent);
   color: var(--accent);
 }
 
-.global-banner--error {
+.toast-notification--error {
   background: rgba(182, 45, 28, 0.1);
   border-left: 4px solid var(--danger);
   color: var(--danger);
 }
 
-.global-banner--warning {
+.toast-notification--warning {
   background: rgba(224, 122, 95, 0.1);
   border-left: 4px solid var(--accent-2);
   color: var(--accent-2);
 }
 
-.global-banner--info {
+.toast-notification--info {
   background: var(--surface-muted);
   border-left: 4px solid var(--muted);
   color: var(--ink);
 }
-```
 
-#### Toast Positioning
-```css
-.toast-container {
-  position: fixed;
-  top: 80px;
-  right: 20px;
-  z-index: 1000;
-  max-width: 400px;
+.toast-notification--critical {
+  background: rgba(182, 45, 28, 0.15);
+  border-left: 4px solid var(--danger);
+  color: var(--danger);
+  font-weight: 600;
 }
 
-.toast-item {
-  margin-bottom: 12px;
-  transform: translateX(100%);
-  animation: slideIn 0.3s ease forwards;
+/* Network-aware styling */
+.toast-notification--with-network {
+  min-width: 320px;
 }
 
-@keyframes slideIn {
-  to { transform: translateX(0); }
+.toast-notification--with-network .toast-notification__content {
+  padding: 1rem 1.25rem;
 }
 ```
 
-### 4. Database Schema
+### 5. Performance Optimizations
 
-#### Notifications Table
-```sql
-CREATE TABLE notifications (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  type TEXT NOT NULL,
-  priority TEXT NOT NULL,
-  channel TEXT[] NOT NULL,
-  title TEXT,
-  message TEXT NOT NULL,
-  description TEXT,
-  action_text TEXT,
-  action_url TEXT,
-  user_id UUID REFERENCES auth.users(id),
-  event_id UUID REFERENCES events(id),
-  team_id UUID REFERENCES teams(id),
-  read BOOLEAN DEFAULT FALSE,
-  read_at TIMESTAMPTZ,
-  dismissed BOOLEAN DEFAULT FALSE,
-  dismissed_at TIMESTAMPTZ,
-  persistent BOOLEAN DEFAULT FALSE,
-  expires_at TIMESTAMPTZ
-);
+The GlobalBanner component includes several performance optimizations:
+
+```typescript
+// Debounced message updates to prevent rapid re-renders
+const MESSAGE_UPDATE_DEBOUNCE = 50 // 50ms debounce
+
+// Performance optimization: Cache computed values
+const messageInfoCache = ref<{
+  type: MessageType
+  message: string
+  visible: boolean
+} | null>(null)
+
+// Debounced message display function
+const showMessage = () => {
+  if (messageUpdateTimer) {
+    clearTimeout(messageUpdateTimer)
+  }
+  
+  messageUpdateTimer = window.setTimeout(() => {
+    // Update message display
+    currentMessage.value = info.message
+    currentType.value = info.type
+    isVisible.value = true
+  }, MESSAGE_UPDATE_DEBOUNCE)
+}
 ```
 
-#### Notification Preferences
-```sql
-CREATE TABLE notification_preferences (
-  user_id UUID PRIMARY KEY REFERENCES auth.users(id),
-  email_notifications BOOLEAN DEFAULT TRUE,
-  browser_notifications BOOLEAN DEFAULT TRUE,
-  team_invitations BOOLEAN DEFAULT TRUE,
-  event_updates BOOLEAN DEFAULT TRUE,
-  deadline_reminders BOOLEAN DEFAULT TRUE,
-  system_announcements BOOLEAN DEFAULT TRUE,
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-```
+
 
 ## Notification Best Practices
 
@@ -347,28 +355,34 @@ const notificationMessages = {
 
 ### 1. Store Integration
 ```typescript
-// In appStore.ts
-import { useNotificationStore } from './notificationStore'
+// In appStore.ts - Current implementation
+import { 
+  enhancedErrorHandler, 
+  handleSuccessWithBanner,
+  authErrorHandler,
+  apiErrorHandler,
+  teamErrorHandler,
+  eventErrorHandler
+} from './enhancedErrorHandling'
 
-const notificationStore = useNotificationStore()
+// Initialize enhanced error handler with setBanner callback
+enhancedErrorHandler.setBannerCallback(setBanner)
 
 // Success feedback pattern
 async function createEvent(eventData: EventData) {
   try {
     const result = await supabase.from('events').insert(eventData)
     
-    notificationStore.show({
-      type: NotificationType.SUCCESS,
-      message: '活动创建成功！',
-      actionText: '查看活动',
-      actionCallback: () => router.push(`/events/${result.data.id}`)
+    handleSuccessWithBanner('活动创建成功！', setBanner, { 
+      operation: 'createEvent',
+      component: 'form' 
     })
     
     return result.data
   } catch (error) {
-    notificationStore.show({
-      type: NotificationType.ERROR,
-      message: '创建活动失败，请稍后重试'
+    eventErrorHandler.handleError(error, { 
+      operation: 'createEvent',
+      additionalData: { eventData }
     })
     throw error
   }
@@ -383,50 +397,71 @@ async function createEvent(eventData: EventData) {
     <main>
       <!-- Page content -->
     </main>
-    <ToastContainer />
   </div>
 </template>
 
 <script setup lang="ts">
-import { useNotificationStore } from '@/store/notificationStore'
+import { useAppStore } from '@/store/appStore'
 
-const notifications = useNotificationStore()
+const store = useAppStore()
 
 // Show notification on mount if needed
 onMounted(() => {
   if (route.query.success) {
-    notifications.show({
-      type: NotificationType.SUCCESS,
-      message: '操作完成！'
-    })
+    store.setBanner('info', '操作完成！')
   }
 })
 </script>
 ```
 
-### 3. Real-time Integration
+### 3. Network-Aware Operations
 ```typescript
-// Real-time notification listener
-const setupRealTimeNotifications = () => {
-  supabase
-    .channel('notifications')
-    .on('postgres_changes', {
-      event: 'INSERT',
-      schema: 'public',
-      table: 'notifications',
-      filter: `user_id=eq.${user.value?.id}`
-    }, (payload) => {
-      const notification = payload.new as Notification
-      
-      // Show browser notification if permitted
-      if (notification.channel.includes(NotificationChannel.BROWSER)) {
-        showBrowserNotification(notification)
+// Network-aware operation handling (from appStore.ts)
+const handleNetworkAwareOperation = async <T>(
+  operation: () => Promise<T>,
+  options: {
+    operationName: string
+    showLoading?: boolean
+    cacheKey?: string
+    retryable?: boolean
+  }
+): Promise<T> => {
+  const { operationName, showLoading = true, retryable = true } = options
+  
+  try {
+    if (showLoading) {
+      networkAwareLoading.value = true
+    }
+
+    // Check offline capabilities
+    if (!isOnline.value) {
+      const capability = offlineManager.getOfflineCapability()
+      if (!capability.canAccessFeatures.includes(operationName)) {
+        throw new Error('此功能需要网络连接，请检查网络后重试')
       }
-      
-      // Add to notification store
-      notificationStore.addRealTimeNotification(notification)
-    })
-    .subscribe()
+    }
+
+    const result = await operation()
+    networkRetryCount.value = 0 // Reset retry count on success
+    return result
+  } catch (error: any) {
+    // Enhanced error handling with network awareness
+    if (isNetworkError(error)) {
+      if (retryable && networkRetryCount.value < maxNetworkRetries) {
+        networkRetryCount.value++
+        const delay = Math.min(1000 * Math.pow(2, networkRetryCount.value), 10000)
+        await new Promise(resolve => setTimeout(resolve, delay))
+        return handleNetworkAwareOperation(operation, options)
+      }
+    }
+    
+    networkRetryCount.value = 0
+    throw error
+  } finally {
+    if (showLoading) {
+      networkAwareLoading.value = false
+    }
+  }
 }
 ```
 

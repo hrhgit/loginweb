@@ -46,6 +46,9 @@ const { isOffline, isOnline, getOfflineIndicator } = useOfflineManager()
 
 const isDismissed = ref(false)
 const autoHideTimer = ref<number | null>(null)
+// 追踪是否刚从离线恢复到在线
+const wasOffline = ref(false)
+const showBackOnline = ref(false)
 
 // Get the appropriate indicator based on context and state
 const indicator = computed(() => {
@@ -57,10 +60,11 @@ const indicator = computed(() => {
     return getOfflineIndicator(props.context)
   }
   
-  if (props.showWhenOnline && isOnline.value) {
+  // 只在刚从离线恢复时显示 "back online" 消息
+  if (props.showWhenOnline && showBackOnline.value) {
     return {
       isVisible: true,
-      message: 'You are back online!',
+      message: '网络已恢复连接',
       type: 'success' as const
     }
   }
@@ -124,8 +128,26 @@ watch(showIndicator, (show) => {
 })
 
 // Reset dismissed state when going offline/online
-watch([isOffline, isOnline], () => {
-  isDismissed.value = false
+watch(isOffline, (offline, wasOfflinePrev) => {
+  // 当从离线变为在线时
+  if (!offline && wasOffline.value) {
+    isDismissed.value = false
+    showBackOnline.value = true
+    
+    // 3秒后自动隐藏 "back online" 消息
+    setTimeout(() => {
+      showBackOnline.value = false
+    }, 3000)
+  }
+  
+  // 记录当前离线状态
+  wasOffline.value = offline
+  
+  // 如果变为离线，重置 dismissed 状态以显示离线提示
+  if (offline) {
+    isDismissed.value = false
+    showBackOnline.value = false
+  }
 })
 </script>
 

@@ -197,10 +197,14 @@ async function staleWhileRevalidate(request) {
   
   // Always try to fetch from network in background
   const networkPromise = fetch(request)
-    .then((networkResponse) => {
+    .then(async (networkResponse) => {
       if (networkResponse.ok) {
-        const cache = caches.open(DYNAMIC_CACHE)
-        cache.then(c => c.put(request, networkResponse.clone()))
+        // Clone BEFORE consuming the response body
+        const responseToCache = networkResponse.clone()
+        const cache = await caches.open(DYNAMIC_CACHE)
+        cache.put(request, responseToCache).catch(() => {
+          // Silently ignore cache put errors
+        })
       }
       return networkResponse
     })

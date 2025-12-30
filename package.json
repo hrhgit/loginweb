@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "test": "vitest --run",
     "test:watch": "vitest",
-    "test:ui": "vitest --ui"
+    "test:ui": "vitest --ui",
+    "docs:organize": "node scripts/organize-docs.js"
   },
   "devDependencies": {
     "@types/node": "^25.0.3",

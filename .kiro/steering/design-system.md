@@ -49,6 +49,97 @@ Use CSS custom properties defined in `src/style.css`:
 - **Border Radius**: 12px-30px range (smaller for inputs, larger for cards)
 - **Shadows**: Use `--shadow` and `--shadow-sm` variables
 
+### Spacing Scale
+Use consistent spacing values throughout the application:
+
+```css
+/* Spacing Variables */
+--space-xs: 4px     /* Micro spacing */
+--space-sm: 8px     /* Small spacing */
+--space-md: 12px    /* Medium spacing */
+--space-lg: 16px    /* Large spacing */
+--space-xl: 20px    /* Extra large spacing */
+--space-2xl: 24px   /* 2X large spacing */
+--space-3xl: 32px   /* 3X large spacing */
+--space-4xl: 40px   /* 4X large spacing */
+--space-5xl: 48px   /* 5X large spacing */
+--space-6xl: 64px   /* 6X large spacing */
+
+/* Component Spacing */
+--component-padding: var(--space-lg)
+--section-gap: var(--space-3xl)
+--card-padding: var(--space-2xl)
+--form-gap: var(--space-md)
+```
+
+### Typography System
+Comprehensive font size and line height specifications:
+
+```css
+/* Font Size Scale */
+--text-xs: clamp(0.75rem, 0.7rem + 0.25vw, 0.875rem)    /* 12-14px */
+--text-sm: clamp(0.875rem, 0.8rem + 0.375vw, 1rem)      /* 14-16px */
+--text-base: clamp(1rem, 0.9rem + 0.5vw, 1.125rem)      /* 16-18px */
+--text-lg: clamp(1.125rem, 1rem + 0.625vw, 1.25rem)     /* 18-20px */
+--text-xl: clamp(1.25rem, 1.1rem + 0.75vw, 1.5rem)      /* 20-24px */
+--text-2xl: clamp(1.5rem, 1.3rem + 1vw, 1.875rem)       /* 24-30px */
+--text-3xl: clamp(1.875rem, 1.6rem + 1.375vw, 2.25rem)  /* 30-36px */
+--text-4xl: clamp(2.25rem, 1.9rem + 1.75vw, 3rem)       /* 36-48px */
+
+/* Line Heights */
+--leading-tight: 1.25
+--leading-snug: 1.375
+--leading-normal: 1.5
+--leading-relaxed: 1.625
+--leading-loose: 2
+
+/* Font Weights */
+--font-normal: 400
+--font-medium: 500
+--font-semibold: 600
+--font-bold: 700
+```
+
+### Border Radius Scale
+Consistent border radius values:
+
+```css
+/* Border Radius Scale */
+--radius-xs: 4px
+--radius-sm: 6px
+--radius-md: 8px
+--radius-lg: 12px
+--radius-xl: 16px
+--radius-2xl: 20px
+--radius-3xl: 24px
+--radius-full: 9999px
+
+/* Component Specific */
+--btn-radius: var(--radius-lg)
+--card-radius: var(--radius-xl)
+--input-radius: var(--radius-md)
+--modal-radius: var(--radius-2xl)
+```
+
+### Shadow System
+Layered shadow system for depth:
+
+```css
+/* Shadow Scale */
+--shadow-xs: 0 1px 2px 0 rgba(0, 0, 0, 0.05)
+--shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)
+--shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)
+--shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)
+--shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)
+--shadow-2xl: 0 25px 50px -12px rgba(0, 0, 0, 0.25)
+
+/* Component Shadows */
+--card-shadow: var(--shadow-sm)
+--modal-shadow: var(--shadow-xl)
+--dropdown-shadow: var(--shadow-lg)
+--button-shadow: var(--shadow-xs)
+```
+
 ## Component Patterns
 
 ### Button System
@@ -163,18 +254,299 @@ Use our status badge system:
 
 ## Animation & Transitions
 
-- Use consistent transition timing: `0.18s ease`
-- Apply hover transforms: `translateY(-1px)` for lift effect
-- Use our shimmer animation for loading states
-- Respect `prefers-reduced-motion` for accessibility
+### Transition System
+Use consistent timing and easing functions:
+
+```css
+/* Transition Durations */
+--duration-fast: 0.15s
+--duration-normal: 0.18s
+--duration-slow: 0.3s
+--duration-slower: 0.5s
+
+/* Easing Functions */
+--ease-out: cubic-bezier(0.4, 0, 0.2, 1)
+--ease-in: cubic-bezier(0.4, 0, 1, 1)
+--ease-in-out: cubic-bezier(0.4, 0, 0.2, 1)
+--ease-bounce: cubic-bezier(0.68, -0.55, 0.265, 1.55)
+
+/* Common Transitions */
+--transition-colors: color var(--duration-normal) var(--ease-out), 
+                     background-color var(--duration-normal) var(--ease-out),
+                     border-color var(--duration-normal) var(--ease-out);
+--transition-transform: transform var(--duration-normal) var(--ease-out);
+--transition-opacity: opacity var(--duration-normal) var(--ease-out);
+--transition-all: all var(--duration-normal) var(--ease-out);
+```
+
+### Hover Effects
+Standard hover interactions:
+
+```css
+/* Button Hover */
+.btn:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+  transition: var(--transition-transform), var(--transition-colors);
+}
+
+/* Card Hover */
+.activity-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg);
+  transition: var(--transition-transform);
+}
+
+/* Link Hover */
+.link:hover {
+  color: var(--accent);
+  transition: var(--transition-colors);
+}
+```
+
+### Loading Animations
+```css
+/* Shimmer Effect */
+@keyframes shimmer {
+  0% { background-position: -200px 0; }
+  100% { background-position: calc(200px + 100%) 0; }
+}
+
+.loading-shimmer {
+  background: linear-gradient(90deg, 
+    var(--surface) 0%, 
+    var(--surface-strong) 50%, 
+    var(--surface) 100%);
+  background-size: 200px 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+/* Pulse Effect */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.loading-pulse {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+```
+
+### Accessibility Considerations
+```css
+/* Respect reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+```
 
 ## Accessibility Guidelines
 
-- Maintain proper color contrast ratios
-- Use semantic HTML elements
+### Focus Management
+```css
+/* Focus Indicators */
+.focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* Skip Links */
+.skip-link {
+  position: absolute;
+  top: -40px;
+  left: 6px;
+  background: var(--accent);
+  color: white;
+  padding: 8px;
+  text-decoration: none;
+  border-radius: var(--radius-md);
+  z-index: 1000;
+}
+
+.skip-link:focus {
+  top: 6px;
+}
+```
+
+### Color Contrast
+- Maintain WCAG AA compliance (4.5:1 ratio for normal text)
+- Use semantic HTML elements for proper screen reader support
 - Provide proper ARIA labels and roles
-- Ensure keyboard navigation works
-- Include focus indicators using our accent colors
+- Ensure keyboard navigation works for all interactive elements
+
+### Screen Reader Support
+```css
+/* Visually Hidden but Available to Screen Readers */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+```
+
+## Utility Classes
+
+### Display Utilities
+```css
+.hidden { display: none; }
+.block { display: block; }
+.inline { display: inline; }
+.inline-block { display: inline-block; }
+.flex { display: flex; }
+.inline-flex { display: inline-flex; }
+.grid { display: grid; }
+.inline-grid { display: inline-grid; }
+```
+
+### Flexbox Utilities
+```css
+.flex-row { flex-direction: row; }
+.flex-col { flex-direction: column; }
+.flex-wrap { flex-wrap: wrap; }
+.flex-nowrap { flex-wrap: nowrap; }
+
+.justify-start { justify-content: flex-start; }
+.justify-center { justify-content: center; }
+.justify-end { justify-content: flex-end; }
+.justify-between { justify-content: space-between; }
+.justify-around { justify-content: space-around; }
+
+.items-start { align-items: flex-start; }
+.items-center { align-items: center; }
+.items-end { align-items: flex-end; }
+.items-stretch { align-items: stretch; }
+
+.flex-1 { flex: 1 1 0%; }
+.flex-auto { flex: 1 1 auto; }
+.flex-none { flex: none; }
+```
+
+### Spacing Utilities
+```css
+/* Margin */
+.m-0 { margin: 0; }
+.m-xs { margin: var(--space-xs); }
+.m-sm { margin: var(--space-sm); }
+.m-md { margin: var(--space-md); }
+.m-lg { margin: var(--space-lg); }
+.m-xl { margin: var(--space-xl); }
+
+/* Padding */
+.p-0 { padding: 0; }
+.p-xs { padding: var(--space-xs); }
+.p-sm { padding: var(--space-sm); }
+.p-md { padding: var(--space-md); }
+.p-lg { padding: var(--space-lg); }
+.p-xl { padding: var(--space-xl); }
+
+/* Gap */
+.gap-xs { gap: var(--space-xs); }
+.gap-sm { gap: var(--space-sm); }
+.gap-md { gap: var(--space-md); }
+.gap-lg { gap: var(--space-lg); }
+.gap-xl { gap: var(--space-xl); }
+```
+
+### Text Utilities
+```css
+.text-left { text-align: left; }
+.text-center { text-align: center; }
+.text-right { text-align: right; }
+
+.text-xs { font-size: var(--text-xs); }
+.text-sm { font-size: var(--text-sm); }
+.text-base { font-size: var(--text-base); }
+.text-lg { font-size: var(--text-lg); }
+.text-xl { font-size: var(--text-xl); }
+
+.font-normal { font-weight: var(--font-normal); }
+.font-medium { font-weight: var(--font-medium); }
+.font-semibold { font-weight: var(--font-semibold); }
+.font-bold { font-weight: var(--font-bold); }
+
+.leading-tight { line-height: var(--leading-tight); }
+.leading-normal { line-height: var(--leading-normal); }
+.leading-relaxed { line-height: var(--leading-relaxed); }
+```
+
+## Form Styling Standards
+
+### Input Field System
+```css
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  margin-bottom: var(--form-gap);
+}
+
+.field__label {
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--ink);
+}
+
+.field__input {
+  padding: var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--input-radius);
+  font-size: var(--text-base);
+  background: var(--surface);
+  transition: var(--transition-colors);
+}
+
+.field__input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.field--error .field__input {
+  border-color: var(--danger);
+}
+
+.field__error {
+  font-size: var(--text-sm);
+  color: var(--danger);
+}
+
+.field__help {
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+```
+
+### Checkbox and Radio Styling
+```css
+.checkbox, .radio {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  cursor: pointer;
+}
+
+.checkbox__input, .radio__input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+}
+
+.checkbox__label, .radio__label {
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+```
 
 ## Code Connect Integration
 

@@ -2,7 +2,7 @@
 import { computed, ref, onMounted, watch } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import { useEventsReady } from '../composables/useEventsReady'
-import { Settings, Edit, Undo2, UserPlus } from 'lucide-vue-next'
+import { Settings, Edit, Undo2, UserPlus, Plus } from 'lucide-vue-next'
 import { useAppStore } from '../store/appStore'
 import EventCard from '../components/events/EventCard.vue'
 import UserSearchModal from '../components/modals/UserSearchModal.vue'
@@ -96,7 +96,8 @@ useEventsReady(store)
         <button class="btn btn--ghost" type="button" @click="store.loadEvents" :disabled="store.eventsLoading">
           {{ store.eventsLoading ? '刷新中...' : '刷新' }}
         </button>
-        <button v-if="store.isAdmin" class="btn btn--primary" type="button" @click="store.openCreateModal">
+        <button v-if="store.isAdmin" class="btn btn--primary btn--icon-text" type="button" @click="store.openCreateModal">
+          <Plus :size="16" />
           发起活动
         </button>
       </div>

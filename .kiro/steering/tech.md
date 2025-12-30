@@ -13,6 +13,26 @@
   - Real-time subscriptions
   - File storage capabilities
 
+### Supabase Power Integration
+**IMPORTANT**: When working with cloud database operations, schema design, or Supabase-specific features, always use the Supabase Power for enhanced capabilities:
+
+- **Database Schema Design**: Use Supabase Power for creating tables, indexes, RLS policies
+- **Query Optimization**: Leverage Power tools for complex queries and performance analysis
+- **Real-time Features**: Implement subscriptions and live updates using Power utilities
+- **Authentication Setup**: Configure auth policies and user management through Power
+- **Storage Operations**: Handle file uploads and bucket management via Power tools
+- **Migration Management**: Use Power for database migrations and version control
+
+**Usage Pattern**:
+```typescript
+// When encountering database-related tasks, activate Supabase Power:
+// 1. Schema modifications
+// 2. RLS policy creation
+// 3. Complex query optimization
+// 4. Real-time subscription setup
+// 5. Storage bucket configuration
+```
+
 ## Key Dependencies
 - `@supabase/supabase-js` - Supabase client library
 - `vue-router` - Routing management
