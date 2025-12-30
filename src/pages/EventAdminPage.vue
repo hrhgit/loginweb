@@ -6,7 +6,6 @@ import { useAppStore } from '../store/appStore'
 import { supabase } from '../lib/supabase'
 import { getEventDetailsFromDescription } from '../utils/eventDetails'
 import EnhancedDataTable from '../components/admin/EnhancedDataTable.vue'
-import TableEnhancements from '../components/admin/TableEnhancements.vue'
 import JudgeManagementPanel from '../components/admin/JudgeManagementPanel.vue'
 import UserSearchModal from '../components/modals/UserSearchModal.vue'
 import { 
@@ -106,31 +105,6 @@ const enhancedTableColumns = computed(() => {
     sortable: true,
     required: col.isStandard ? false : eventQuestions.value.find(q => q.id === col.key)?.required || false
   }))
-})
-
-// Table enhancement data
-const tableEnhancementData = computed(() => {
-  const completedRegistrations = registrations.value.filter(reg => {
-    const formQuestionKeys = formResponseTable.value.columns
-      .filter(col => !col.isStandard)
-      .map(col => col.key)
-    return formQuestionKeys.some(key => reg.form_response?.[key])
-  }).length
-
-  const averageResponseFields = registrations.value.length > 0
-    ? registrations.value.reduce((sum, reg) => {
-        return sum + (reg.form_response ? Object.keys(reg.form_response).length : 0)
-      }, 0) / registrations.value.length
-    : 0
-
-  const registrationTimes = registrations.value.map(reg => reg.created_at)
-
-  return {
-    totalRegistrations: registrations.value.length,
-    completedRegistrations,
-    averageResponseFields,
-    registrationTimes
-  }
 })
 
 // Pagination computed properties
@@ -823,18 +797,22 @@ const { BATCH_DOWNLOAD_LIMITS: limits } = { BATCH_DOWNLOAD_LIMITS }
       </div>
       
       <div class="data-preview card">
-        <!-- 使用增强组件处理加载和空状态 -->
-        <TableEnhancements 
-          :loading="loading"
-          :is-empty="registrations.length === 0"
-          :total-registrations="tableEnhancementData.totalRegistrations"
-          :completed-registrations="tableEnhancementData.completedRegistrations"
-          :average-response-fields="tableEnhancementData.averageResponseFields"
-          :registration-times="tableEnhancementData.registrationTimes"
-          @refresh="loadData"
-        />
+        <div v-if="loading" class="loading-state">
+          <Loader2 class="spin" /> 加载中...
+        </div>
+        <div v-else-if="registrations.length === 0" class="empty-state">
+          <FileText :size="48" />
+          <div class="empty-content">
+            <h3>暂无报名数据</h3>
+            <p>还没有用户报名参加此活动</p>
+            <button class="btn btn--ghost" @click="loadData">
+              <Download :size="16" />
+              刷新数据
+            </button>
+          </div>
+        </div>
         
-        <div v-if="!loading && registrations.length > 0" class="table-content">
+        <div v-else class="table-content">
           <div v-if="formResponseTable.hasFormData" class="enhanced-table-container">
             <!-- 使用美化的表格组件 -->
             <EnhancedDataTable
@@ -1239,7 +1217,6 @@ const { BATCH_DOWNLOAD_LIMITS: limits } = { BATCH_DOWNLOAD_LIMITS }
               
               <div class="item-info">
                 <h4>{{ sub.project_name }}</h4>
-                <p class="muted">{{ sub.teams?.name || '未知队伍' }}</p>
               </div>
               
               <div class="item-team">

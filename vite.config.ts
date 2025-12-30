@@ -21,8 +21,7 @@ export default defineConfig({
             './src/components/admin/JudgeManagementPanel.vue',
             './src/components/admin/JudgeWorkspace.vue',
             './src/components/admin/FormResponseViewer.vue',
-            './src/components/admin/EnhancedDataTable.vue',
-            './src/components/admin/TableEnhancements.vue'
+            './src/components/admin/EnhancedDataTable.vue'
           ],
           
           'judge-features': [

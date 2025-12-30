@@ -1151,21 +1151,24 @@ img {
     grid-template-columns: 1fr;
   }
 }
-/* 使用更具体的选择器提高优先级 */
-.virtual-card-grid .showcase-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 24px;
+/* 使用最高优先级选择器确保showcase-grid样式不被覆盖 */
+.detail-section .virtual-card-grid .showcase-grid,
+.showcase-grid {
+  display: grid !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  gap: 24px !important;
 }
 @media (max-width: 980px) {
-  .virtual-card-grid .showcase-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .detail-section .virtual-card-grid .showcase-grid,
+  .showcase-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
   }
 }
 @media (max-width: 640px) {
-  .virtual-card-grid .showcase-grid {
-    grid-template-columns: 1fr;
-    gap: 16px;
+  .detail-section .virtual-card-grid .showcase-grid,
+  .showcase-grid {
+    grid-template-columns: 1fr !important;
+    gap: 16px !important;
   }
 }
 .seeker-card {
