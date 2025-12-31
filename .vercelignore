@@ -1,0 +1,53 @@
+# Development files
+node_modules
+src
+docs
+scripts
+.git
+.vscode
+.kiro
+
+# Build files (keep dist)
+# dist
+
+# Config files
+tsconfig.json
+vite.config.ts
+vitest.config.ts
+build.sh
+
+# Test files
+**/*.test.*
+**/*.spec.*
+
+# Documentation
+*.md
+!README.md
+
+# Environment files (except production)
+.env.local
+.env.development
+
+# Temporary files
+*.log
+*.tmp
+*.temp
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+*.swp
+*.swo
+*~
+
+# Other
+测试.*
+*.xlsx
+*.zip
+*.jpg
+*.png
+judge_invitation_migration.sql
+test-merge.md
+remove-insights-summary.md

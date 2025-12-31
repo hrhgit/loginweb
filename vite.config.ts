@@ -46,14 +46,14 @@ export default defineConfig({
             // Route-based chunks
             if (facadeModuleId.includes('/pages/')) {
               const pageName = facadeModuleId.split('/').pop()?.replace('.vue', '')
-              return `pages/[name]-${pageName}.[hash].js`
+              return `pages/${pageName}-[hash].js`
             }
             // Component-based chunks
             if (facadeModuleId.includes('/components/')) {
-              return `components/[name].[hash].js`
+              return `components/[name]-[hash].js`
             }
           }
-          return `chunks/[name].[hash].js`
+          return `chunks/[name]-[hash].js`
         },
         
         // Optimize entry file names
