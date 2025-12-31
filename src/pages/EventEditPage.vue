@@ -12,6 +12,10 @@ import {
   Settings,
   Plus,
   X,
+  Info,
+  ListOrdered,
+  Users,
+  Upload,
 } from 'lucide-vue-next'
 import { RouterLink, onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { useAppStore, type EventStatus } from '../store/appStore'
@@ -51,7 +55,7 @@ const fieldErrors = reactive<Record<string, string>>({})
 const questionErrors = reactive<Record<string, { title?: string; options?: string }>>({})
 const questionOptionErrors = reactive<Record<string, string[]>>({})
 const editorTab = ref<'details' | 'schedule' | 'form'>('details')
-const previewTab = ref<'intro' | 'registration' | 'team' | 'form' | 'submission'>('intro')
+const previewTab = ref<'intro' | 'registration' | 'team' | 'form' | 'showcase'>('intro')
 const summary = ref('')
 const teamLobbyState = ref<TeamLobbyCard[]>(createDefaultEventDetails().teamLobby)
 const formQuestions = ref<RegistrationQuestion[]>([])
@@ -91,8 +95,6 @@ const form = reactive({
   introBlocks: '',
   highlightItems: '',
   registrationSteps: '',
-  submissionChecklist: '',
-  submissionNote: '',
 })
 
 const detailTimeRange = computed(() =>
@@ -202,8 +204,6 @@ const applyDetailsToForm = (details: EventDetailContent) => {
   form.introBlocks = toLines(details.introductionBlocks)
   form.highlightItems = toLines(details.highlightItems)
   form.registrationSteps = toStepLines(details.registrationSteps)
-  form.submissionChecklist = toLines(details.submissionChecklist)
-  form.submissionNote = details.submissionNote
   teamLobbyState.value = details.teamLobby
   formQuestions.value = details.registrationForm.questions.map((question) => ({
     id: question.id,
@@ -491,8 +491,8 @@ const previewDetails = computed<EventDetailContent>(() => ({
   registrationSteps: parseSteps(form.registrationSteps),
   registrationForm: sanitizeQuestions(formQuestions.value),
   teamLobby: teamLobbyState.value,
-  submissionChecklist: parseLines(form.submissionChecklist),
-  submissionNote: form.submissionNote.trim(),
+  submissionChecklist: [],
+  submissionNote: '',
 }))
 
 const serializeEditorState = () =>
@@ -510,8 +510,6 @@ const serializeEditorState = () =>
     introBlocks: form.introBlocks,
     highlightItems: form.highlightItems,
     registrationSteps: form.registrationSteps,
-    submissionChecklist: form.submissionChecklist,
-    submissionNote: form.submissionNote,
     teamLobby: teamLobbyState.value,
     questions: formQuestions.value.map((question) => ({
       id: question.id,
@@ -1088,16 +1086,6 @@ onBeforeUnmount(() => {
                   ></textarea>
                   <p class="help-text">一行一个步骤，使用 | 分隔 时间 / 标题 / 描述</p>
                 </label>
-
-                <label class="field">
-                  <span>作品提交清单</span>
-                  <textarea v-model="form.submissionChecklist" rows="4" placeholder="每条一行"></textarea>
-                </label>
-
-                <label class="field">
-                  <span>提交说明</span>
-                  <textarea v-model="form.submissionNote" rows="3" placeholder="提交窗口将在活动后半段开放..."></textarea>
-                </label>
               </div>
             </template>
 
@@ -1467,6 +1455,7 @@ onBeforeUnmount(() => {
                   :class="{ active: previewTab === 'intro' }"
                   @click="previewTab = 'intro'"
                 >
+                  <Info :size="16" />
                   活动介绍
                 </button>
                 <button
@@ -1477,6 +1466,7 @@ onBeforeUnmount(() => {
                   :class="{ active: previewTab === 'registration' }"
                   @click="previewTab = 'registration'"
                 >
+                  <ListOrdered :size="16" />
                   活动流程
                 </button>
                 <button
@@ -1487,6 +1477,7 @@ onBeforeUnmount(() => {
                   :class="{ active: previewTab === 'team' }"
                   @click="previewTab = 'team'"
                 >
+                  <Users :size="16" />
                   组队大厅
                 </button>
                 <button
@@ -1497,17 +1488,19 @@ onBeforeUnmount(() => {
                   :class="{ active: previewTab === 'form' }"
                   @click="previewTab = 'form'"
                 >
+                  <FileText :size="16" />
                   报名表单
                 </button>
                 <button
                   class="detail-tabs__btn"
                   type="button"
                   role="tab"
-                  :aria-selected="previewTab === 'submission'"
-                  :class="{ active: previewTab === 'submission' }"
-                  @click="previewTab = 'submission'"
+                  :aria-selected="previewTab === 'showcase'"
+                  :class="{ active: previewTab === 'showcase' }"
+                  @click="previewTab = 'showcase'"
                 >
-                  作品提交
+                  <Eye :size="16" />
+                  作品展示
                 </button>
               </div>
 
@@ -1549,11 +1542,27 @@ onBeforeUnmount(() => {
                   <div class="detail-section__head">
                     <div>
                       <h2>组队大厅</h2>
-                      <p class="muted">以下为示例队伍展示（仅前端模板）</p>
                     </div>
                     <div class="detail-section__actions">
-                      <button class="btn btn--primary" type="button" disabled>创建队伍</button>
+                      <button class="btn btn--primary btn--icon-text" type="button" disabled>
+                        <Plus :size="18" />
+                        <span>创建队伍</span>
+                      </button>
                     </div>
+                  </div>
+                  <div class="team-lobby-tabs tab-nav">
+                    <button class="tab-nav__btn active" type="button">
+                      找队伍
+                      <span class="showcase-count">{{ previewDetails.teamLobby.length }}</span>
+                    </button>
+                    <button class="tab-nav__btn" type="button">
+                      找队友
+                      <span class="showcase-count">0</span>
+                    </button>
+                    <button class="tab-nav__btn" type="button">
+                      我的队伍
+                      <span class="showcase-count">0</span>
+                    </button>
                   </div>
                   <div class="team-grid">
                     <article v-for="team in previewDetails.teamLobby" :key="team.name" class="team-card">
@@ -1565,7 +1574,7 @@ onBeforeUnmount(() => {
                       <div class="team-card__tags">
                         <span v-for="role in team.needs" :key="role" class="meta-item">缺 {{ role }}</span>
                       </div>
-                      <button class="btn btn--ghost" type="button" disabled>申请加入（前端展示）</button>
+                      <button class="btn btn--ghost" type="button" disabled>申请加入（预览模式）</button>
                     </article>
                   </div>
                 </section>
@@ -1605,21 +1614,36 @@ onBeforeUnmount(() => {
 
                 <section v-else class="detail-section" role="tabpanel">
                   <div class="detail-section__head">
-                    <h2>作品提交</h2>
-                    <p class="muted">提交前准备好构建包与说明材料</p>
+                    <div>
+                      <h2>作品展示</h2>
+                    </div>
+                    <div class="detail-section__actions">
+                      <button class="btn btn--primary btn--icon-text" type="button" disabled>
+                        <Upload :size="18" />
+                        <span>提交作品</span>
+                      </button>
+                    </div>
                   </div>
-                  <div class="detail-grid">
-                    <article class="detail-panel">
-                      <h3>提交清单</h3>
-                      <ul>
-                        <li v-for="item in previewDetails.submissionChecklist" :key="item">{{ item }}</li>
-                      </ul>
-                    </article>
-                    <article class="detail-panel detail-panel--accent">
-                      <h3>提交入口</h3>
-                      <p>{{ previewDetails.submissionNote }}</p>
-                      <button class="btn btn--primary" type="button" disabled>进入提交入口（前端展示）</button>
-                    </article>
+                  <div class="showcase-tabs tab-nav">
+                    <button class="tab-nav__btn active" type="button">
+                      所有作品
+                      <span class="showcase-count">0</span>
+                    </button>
+                    <button class="tab-nav__btn" type="button">
+                      我的作品
+                      <span class="showcase-count">0</span>
+                    </button>
+                  </div>
+                  
+                  <div class="showcase-empty">
+                    <div class="showcase-empty__icon">📋</div>
+                    <h3 class="showcase-empty__title">暂无作品</h3>
+                    <p class="showcase-empty__desc">
+                      还没有队伍提交作品，期待第一个作品的出现！
+                    </p>
+                    <button class="btn btn--primary" type="button" disabled>
+                      提交作品（预览模式）
+                    </button>
                   </div>
                 </section>
               </div>
@@ -1707,6 +1731,12 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 8px;
+}
+
+.detail-tabs__btn {
+  display: flex;
+  align-items: center;
   gap: 8px;
 }
 </style>

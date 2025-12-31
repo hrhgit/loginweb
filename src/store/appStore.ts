@@ -335,14 +335,18 @@ const handleNetworkAwareOperation = async <T>(
   } catch (error: any) {
     performanceMonitor.endMeasurement(operationId)
     
+    console.error(`Network operation failed: ${operationName}`, error)
+    
     // Enhanced error handling with network awareness
     if (isNetworkError(error)) {
       if (retryable && networkRetryCount.value < maxNetworkRetries) {
         networkRetryCount.value++
+        console.log(`Retrying ${operationName} (attempt ${networkRetryCount.value}/${maxNetworkRetries})`)
         const delay = Math.min(1000 * Math.pow(2, networkRetryCount.value), 10000)
         await new Promise(resolve => setTimeout(resolve, delay))
         return handleNetworkAwareOperation(operation, options)
       } else {
+        console.error(`Max retries reached for ${operationName}`)
         // Store for offline retry if supported
         const capability = offlineManager.getOfflineCapability()
         if (capability.canSubmitForms) {
@@ -1798,49 +1802,277 @@ const loadEvents = async () => {
     eventsError.value = ''
     eventsLoading.value = true
 
-    let query = supabase.from('events').select(EVENT_SELECT) as any
-
-    if (user.value?.id && isAdmin.value) {
-      query = query.or(`status.eq.published,status.eq.ended,created_by.eq.${user.value.id}`)
-    } else {
-      query = query.in('status', ['published', 'ended'])
-    }
-
-    const { data, error } = await query
-      .order('start_time', { ascending: true })
-      .order('created_at', { ascending: false })
-      .limit(100)
-
-    if (error) {
-      eventsError.value = error.message
-      eventErrorHandler.handleError(error, { operation: 'loadEvents' })
-      events.value = []
-    } else {
-      events.value = data as Event[]
-      
-      // 缓存数据到本地存储
-      stateCache.set('events', events.value, 5) // 缓存5分钟
-      stateCache.set('eventsLoaded', true, 5)
-    }
+    const freshData = await loadEventsData()
+    
+    // 更新状态和缓存
+    events.value = freshData
+    eventsLoaded.value = true
+    
+    // 缓存数据和时间戳
+    const now = Date.now()
+    stateCache.set('events', freshData, 60) // 缓存1小时
+    stateCache.set('eventsLoaded', true, 60)
+    stateCache.set('eventsTimestamp', now, 60) // 保存获取时间
 
     eventsLoading.value = false
-    eventsLoaded.value = true
     syncNotifications()
     
-    return events.value
+    return freshData
   }, {
     operationName: 'loadEvents',
     cacheKey: user.value ? `events_${user.value.id}_${isAdmin.value}` : 'events_public',
     retryable: true
+  }).catch(error => {
+    // 错误处理：只有在没有缓存数据时才清除状态
+    if (events.value.length === 0) {
+      eventsError.value = error.message
+      eventsLoaded.value = false
+      stateCache.remove('events')
+      stateCache.remove('eventsLoaded')
+      stateCache.remove('eventsTimestamp')
+    }
+    eventsLoading.value = false
+    throw error
   })
 }
 
-const ensureEventsLoaded = async () => {
-  // 如果有缓存数据且未过期，直接返回
-  if (eventsLoaded.value && events.value.length > 0) return
+// 强制刷新活动数据（忽略缓存）
+const forceReloadEvents = async () => {
+  console.log('Force reloading events...')
+  eventsLoaded.value = false
+  eventsError.value = ''
+  stateCache.remove('events')
+  stateCache.remove('eventsLoaded')
+  stateCache.remove('eventsTimestamp')
+  return await loadEvents()
+}
+
+// 调试方法：检查活动数据状态
+const debugEventsState = () => {
+  const cacheEvents = stateCache.get<Event[]>('events')
+  const cacheLoaded = stateCache.get<boolean>('eventsLoaded')
+  const cacheTimestamp = stateCache.get<number>('eventsTimestamp')
   
-  if (eventsLoaded.value || eventsLoading.value) return
-  await loadEvents()
+  const now = Date.now()
+  const dataAge = cacheTimestamp ? Math.floor((now - cacheTimestamp) / 1000) : null
+  const pageAge = Math.floor((now - pageLoadStartTime) / 1000)
+  
+  console.log('=== Events State Debug ===')
+  console.log('events.value.length:', events.value.length)
+  console.log('eventsLoaded.value:', eventsLoaded.value)
+  console.log('eventsLoading.value:', eventsLoading.value)
+  console.log('eventsError.value:', eventsError.value)
+  console.log('cached events length:', cacheEvents ? cacheEvents.length : 'null')
+  console.log('cached eventsLoaded:', cacheLoaded)
+  console.log('cache timestamp:', cacheTimestamp ? new Date(cacheTimestamp).toLocaleString() : 'null')
+  console.log('data age (seconds):', dataAge)
+  console.log('page age (seconds):', pageAge)
+  console.log('isPageFreshLoad:', isPageFreshLoad)
+  console.log('isPageJustRefreshed():', isPageJustRefreshed())
+  console.log('should refresh:', shouldRefreshEvents())
+  console.log('user.value:', user.value ? `${user.value.id} (admin: ${isAdmin.value})` : 'null')
+  console.log('isOnline:', isOnline.value)
+  console.log('networkRetryCount:', networkRetryCount.value)
+  console.log('========================')
+  
+  return {
+    eventsCount: events.value.length,
+    eventsLoaded: eventsLoaded.value,
+    eventsLoading: eventsLoading.value,
+    eventsError: eventsError.value,
+    cachedEventsCount: cacheEvents ? cacheEvents.length : null,
+    cachedEventsLoaded: cacheLoaded,
+    cacheTimestamp: cacheTimestamp,
+    dataAgeSeconds: dataAge,
+    pageAgeSeconds: pageAge,
+    isPageFreshLoad: isPageFreshLoad,
+    isPageJustRefreshed: isPageJustRefreshed(),
+    shouldRefresh: shouldRefreshEvents(),
+    userId: user.value?.id || null,
+    isAdmin: isAdmin.value,
+    isOnline: isOnline.value,
+    networkRetryCount: networkRetryCount.value
+  }
+}
+
+const ensureEventsLoaded = async () => {
+  // 步骤1: 如果有缓存数据，立即显示（不管是否过期）
+  const cachedEvents = stateCache.get<Event[]>('events')
+  
+  if (cachedEvents && cachedEvents.length > 0) {
+    // 立即显示缓存数据
+    events.value = cachedEvents
+    eventsLoaded.value = true
+    console.log('Loaded cached events, fetching fresh data in background...')
+  }
+  
+  // 步骤2: 检查是否正在加载中
+  if (eventsLoading.value) {
+    // 等待当前加载完成，最多等待10秒
+    let attempts = 0
+    while (eventsLoading.value && attempts < 100) {
+      await new Promise(resolve => setTimeout(resolve, 100))
+      attempts++
+    }
+    return
+  }
+  
+  // 步骤3: 检查是否需要后台刷新
+  const shouldRefresh = shouldRefreshEvents()
+  
+  if (shouldRefresh) {
+    // 后台刷新数据（不阻塞UI）
+    void refreshEventsInBackground()
+    
+    // 标记页面已经不是刚加载状态
+    if (isPageFreshLoad) {
+      isPageFreshLoad = false
+      console.log('Page fresh load detected, background refresh initiated')
+    }
+  }
+  
+  // 步骤4: 如果没有任何数据，强制加载
+  if (!eventsLoaded.value || events.value.length === 0) {
+    console.log('No cached data found, loading fresh data...')
+    await loadEvents()
+    // 标记页面已经不是刚加载状态
+    isPageFreshLoad = false
+  }
+}
+
+// 页面加载状态跟踪
+let isPageFreshLoad = true
+
+// 检测页面是否是刚刷新的
+const isPageJustRefreshed = (): boolean => {
+  // 使用 Performance API 检测页面加载类型
+  if (typeof performance !== 'undefined' && performance.navigation) {
+    // navigation.type: 0=navigate, 1=reload, 2=back_forward
+    return performance.navigation.type === 1 // 1 表示刷新
+  }
+  
+  // 备用方案：检查 performance.timing
+  if (typeof performance !== 'undefined' && performance.timing) {
+    const loadTime = performance.timing.loadEventEnd - performance.timing.navigationStart
+    // 如果页面加载时间很短，可能是刷新
+    return loadTime < 100
+  }
+  
+  // 最后备用方案：检查页面加载时间
+  return Date.now() - pageLoadStartTime < 5000 // 5秒内认为是刚加载
+}
+
+// 记录页面加载开始时间
+const pageLoadStartTime = Date.now()
+
+// 判断是否需要刷新数据
+const shouldRefreshEvents = (): boolean => {
+  // 如果是页面刚加载、刷新，或者是第一次调用，总是后台请求
+  if (isPageFreshLoad || isPageJustRefreshed()) {
+    return true
+  }
+  
+  const cacheTimestamp = stateCache.get<number>('eventsTimestamp')
+  if (!cacheTimestamp) return true
+  
+  const now = Date.now()
+  const age = now - cacheTimestamp
+  
+  // 根据用户角色和数据年龄决定刷新频率
+  if (isAdmin.value) {
+    // 管理员：数据超过1分钟就刷新
+    return age > 60 * 1000
+  } else {
+    // 普通用户：数据超过3分钟就刷新
+    return age > 3 * 60 * 1000
+  }
+}
+
+// 后台刷新数据
+const refreshEventsInBackground = async () => {
+  try {
+    console.log('Refreshing events in background...')
+    const freshData = await loadEventsData() // 只获取数据，不更新UI状态
+    
+    // 比较数据是否有变化
+    const hasChanges = compareEventsData(events.value, freshData)
+    
+    if (hasChanges) {
+      console.log('Fresh data received, updating events...')
+      // 平滑更新数据
+      await updateEventsData(freshData)
+      
+      // 可选：显示更新提示
+      setBanner('info', '活动列表已更新')
+    } else {
+      console.log('No changes in fresh data')
+    }
+    
+    // 更新缓存时间戳
+    stateCache.set('eventsTimestamp', Date.now(), 60) // 缓存1小时
+    
+  } catch (error) {
+    console.warn('Background refresh failed:', error)
+    // 静默失败，不影响用户体验
+  }
+}
+
+// 只获取数据，不更新状态
+const loadEventsData = async (): Promise<Event[]> => {
+  let query = supabase.from('events').select(EVENT_SELECT) as any
+
+  if (user.value?.id && isAdmin.value) {
+    query = query.or(`status.eq.published,status.eq.ended,created_by.eq.${user.value.id}`)
+  } else {
+    query = query.in('status', ['published', 'ended'])
+  }
+
+  const { data, error } = await query
+    .order('start_time', { ascending: true })
+    .order('created_at', { ascending: false })
+    .limit(100)
+
+  if (error) {
+    throw error
+  }
+
+  return data as Event[]
+}
+
+// 比较数据是否有变化
+const compareEventsData = (oldData: Event[], newData: Event[]): boolean => {
+  if (oldData.length !== newData.length) return true
+  
+  // 简单比较：检查ID列表和更新时间
+  const oldIds = oldData.map(e => e.id).sort()
+  const newIds = newData.map(e => e.id).sort()
+  
+  if (JSON.stringify(oldIds) !== JSON.stringify(newIds)) return true
+  
+  // 检查是否有内容更新（比较创建时间的总和作为简单指纹）
+  const oldFingerprint = oldData.reduce((sum, e) => sum + new Date(e.created_at).getTime(), 0)
+  const newFingerprint = newData.reduce((sum, e) => sum + new Date(e.created_at).getTime(), 0)
+  
+  return oldFingerprint !== newFingerprint
+}
+
+// 平滑更新数据
+const updateEventsData = async (newData: Event[]) => {
+  // 可以添加动画或渐变效果
+  events.value = newData
+  eventsLoaded.value = true
+  
+  // 更新缓存
+  stateCache.set('events', newData, 60) // 缓存1小时
+  stateCache.set('eventsLoaded', true, 60)
+  
+  syncNotifications()
+}
+
+// 重置页面加载状态（用于测试或手动重置）
+const resetPageLoadState = () => {
+  isPageFreshLoad = true
+  console.log('Page load state reset - next refresh will be treated as fresh load')
 }
 
 const loadMyRegistrations = async () => {
@@ -3288,7 +3520,14 @@ const init = async () => {
     void loadMyRegistrations()
     void loadMyPendingTeamActions()
   }
-  void loadEvents()
+  
+  // 确保活动数据加载
+  try {
+    await ensureEventsLoaded()
+  } catch (error) {
+    console.error('Failed to load events during init:', error)
+    // 即使失败也继续初始化其他功能
+  }
 
   // Start judge-related optimizations
   startJudgeRealtimeSync()
@@ -3345,6 +3584,12 @@ const handleConnectivityRestoration = async () => {
   try {
     await networkManager.retryFailedRequests()
     
+    // 如果活动数据为空或加载失败，重新加载
+    if (events.value.length === 0 || eventsError.value) {
+      console.log('Network restored, reloading events...')
+      await forceReloadEvents()
+    }
+    
     // Sync offline changes
     const storedForms = await offlineManager.getAllStoredForms()
     if (storedForms.length > 0) {
@@ -3354,7 +3599,6 @@ const handleConnectivityRestoration = async () => {
     
     // Refresh critical data
     if (user.value) {
-      void loadEvents()
       void loadMyRegistrations()
     }
     
@@ -3492,7 +3736,13 @@ const store = proxyRefs({
   getSubmissionsForEvent,
   loadSubmissions,
   loadEvents,
+  forceReloadEvents,
+  refreshEventsInBackground,
+  resetPageLoadState,
+  debugEventsState,
   ensureEventsLoaded,
+  // 调试工具
+  stateCache,
   loadMyRegistrations,
   ensureRegistrationsLoaded,
   getEventById,

@@ -59,9 +59,13 @@ const isRefreshing = ref(false)
 const handleRefresh = async () => {
   try {
     isRefreshing.value = true
-    await store.loadEvents()
+    // 使用强制刷新，确保忽略缓存
+    await store.forceReloadEvents()
   } catch (error) {
     console.error('Failed to refresh events:', error)
+    // 如果强制刷新失败，显示调试信息
+    console.log('Debug info after failed refresh:')
+    store.debugEventsState()
   } finally {
     isRefreshing.value = false
   }

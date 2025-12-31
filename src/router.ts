@@ -14,6 +14,7 @@ const router = createRouter({
     { path: '/', redirect: '/events' },
     { path: '/events', name: 'events', component: EventsPage },
     { path: '/events/mine', name: 'my-events', component: () => import('./pages/MyEventsPage.vue') },
+    { path: '/debug/events', name: 'debug-events', component: () => import('./pages/DebugEventsPage.vue') },
     { path: '/events/:id', name: 'event-detail-intro', component: EventDetailPage, props: { tab: 'intro' } },
     { path: '/events/:id/registration', name: 'event-detail-registration', component: EventDetailPage, props: { tab: 'registration' } },
     { path: '/events/:id/form', name: 'event-detail-form', component: EventDetailPage, props: { tab: 'form' } },

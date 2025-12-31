@@ -271,4 +271,12 @@ defineExpose({
     scroll-behavior: auto;
   }
 }
+
+/* 确保 gridClass 传入的样式能正确应用 */
+:deep(.showcase-grid),
+:deep(.team-grid),
+:deep(.seeker-grid),
+:deep(.team-member-grid) {
+  display: grid;
+}
 </style>

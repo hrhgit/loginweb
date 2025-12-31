@@ -1151,24 +1151,22 @@ img {
     grid-template-columns: 1fr;
   }
 }
-/* 使用最高优先级选择器确保showcase-grid样式不被覆盖 */
-.detail-section .virtual-card-grid .showcase-grid,
+/* 作品展示网格 - 始终保持固定列数，不受项目数量影响 */
 .showcase-grid {
-  display: grid !important;
-  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
-  gap: 24px !important;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr) !important;
+  gap: 24px;
+  width: 100%;
 }
 @media (max-width: 980px) {
-  .detail-section .virtual-card-grid .showcase-grid,
   .showcase-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    grid-template-columns: repeat(3, 1fr) !important;
   }
 }
 @media (max-width: 640px) {
-  .detail-section .virtual-card-grid .showcase-grid,
   .showcase-grid {
-    grid-template-columns: 1fr !important;
-    gap: 16px !important;
+    grid-template-columns: repeat(3, 1fr) !important;
+    gap: 16px;
   }
 }
 .seeker-card {
