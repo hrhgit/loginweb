@@ -4,14 +4,41 @@ import { useRouter, RouterLink } from 'vue-router'
 import { Camera, User, Shield, Calendar, PlusCircle, Bell, Trash2, Users } from 'lucide-vue-next'
 import { supabase } from '../lib/supabase'
 import { useAppStore } from '../store/appStore'
+import { useCurrentUserData, useUpdateProfile, useUpdateContacts } from '../composables/useUsers'
+import { useCurrentUserNotifications } from '../composables/useNotificationIntegration'
 import AvatarCropperModal from '../components/modals/AvatarCropperModal.vue'
 import EventCard from '../components/events/EventCard.vue'
 import { formatDateRange, formatDateTime, locationLabel, teamSizeLabel } from '../utils/eventFormat'
 import { getEventSummaryText } from '../utils/eventDetails'
 import { getRoleTagKey, sortRoleLabels } from '../utils/roleTags'
+import { generateAvatarUrl } from '../utils/imageUrlGenerator'
+
+import { useEvents } from '../composables/useEvents'
 
 const store = useAppStore()
+const { publicEvents } = useEvents(store.user?.id || null, store.isAdmin)
 const router = useRouter()
+
+// Vue Query hooks for user data
+const { profile, contacts, registrations, isLoading: userDataLoading, error: userDataError, refetch: refetchUserData } = useCurrentUserData()
+const updateProfileMutation = useUpdateProfile()
+const updateContactsMutation = useUpdateContacts()
+
+// Vue Query hooks for notifications - using the integration composable
+const {
+  notifications: notificationsQuery,
+  unreadCount,
+  hasUnread,
+  isLoading: notificationsLoading,
+  error: notificationsError,
+  refetch: refetchNotifications,
+  markNotificationRead,
+  markAllNotificationsRead,
+  deleteReadNotifications,
+  isMarkingRead,
+  isMarkingAllRead,
+  isClearingRead
+} = useCurrentUserNotifications()
 
 type ProfileTab = 'profile' | 'security' | 'notifications' | 'teams' | 'joined' | 'created'
 const props = defineProps<{ tab: ProfileTab }>()
@@ -102,18 +129,30 @@ const sortedRoleBadges = computed(() =>
 )
 
 const isAuthed = computed(() => store.isAuthed)
-const avatarPreview = computed(() => optimisticAvatarUrl.value.trim() || avatarUrl.value.trim())
+const avatarPreview = computed(() => {
+  const currentUrl = optimisticAvatarUrl.value.trim() || avatarUrl.value.trim()
+  if (!currentUrl) return ''
+  
+  // If it's a data URL (from cropper), use it directly
+  if (currentUrl.startsWith('data:')) return currentUrl
+  
+  // Otherwise, generate cache-busted avatar URL
+  return generateAvatarUrl(currentUrl)
+})
 
+// Use Vue Query data instead of store data
 const joinedEvents = computed(() => {
-  return store.displayedEvents.filter(event => store.myRegistrationByEventId[event.id])
+  const userRegistrations = registrations.data.value || []
+  const registrationEventIds = new Set(userRegistrations.map(reg => reg.eventId))
+  return store.displayedEvents.filter(event => registrationEventIds.has(event.id))
 })
 
 const createdEvents = computed(() => {
   return store.myEvents
 })
 
-const notifications = computed(() => store.notifications)
-const unreadNotifications = computed(() => store.unreadNotifications)
+const notifications = computed(() => notificationsQuery.data.value || [])
+const unreadNotifications = computed(() => unreadCount.value)
 const readNotificationsCount = computed(() => notifications.value.filter((item) => item.read).length)
 
 type MyTeamEntry = {
@@ -161,7 +200,9 @@ const teamNotificationCount = computed(() => store.pendingRequestsCount + store.
 
 const getEventTitle = (eventId: string | null) => {
   if (!eventId) return '未知活动'
-  return store.getEventById(eventId)?.title ?? '未知活动'
+  const events = publicEvents.data.value || []
+  const event = events.find(e => e.id === eventId)
+  return event?.title ?? '未知活动'
 }
 
 const getTeamLink = (eventId: string | null, teamId: string) => {
@@ -418,14 +459,14 @@ const handleCardDblClick = (event: MouseEvent, eventId: string) => {
 }
 
 const syncProfileForm = () => {
-  const profile = store.profile
-  const contacts = store.contacts
-  username.value = profile?.username ?? ''
-  avatarUrl.value = profile?.avatar_url ?? ''
-  optimisticAvatarUrl.value = '' // Reset optimistic avatar when syncing from store
-  roles.value = Array.isArray(profile?.roles) ? [...(profile?.roles ?? [])] : []
-  phone.value = contacts?.phone ?? ''
-  qq.value = contacts?.qq ?? ''
+  const profileData = profile.data.value
+  const contactsData = contacts.data.value
+  username.value = profileData?.username ?? ''
+  avatarUrl.value = profileData?.avatar_url ?? ''
+  optimisticAvatarUrl.value = '' // Reset optimistic avatar when syncing from Vue Query
+  roles.value = Array.isArray(profileData?.roles) ? [...(profileData?.roles ?? [])] : []
+  phone.value = contactsData?.phone ?? ''
+  qq.value = contactsData?.qq ?? ''
 }
 
 
@@ -471,6 +512,7 @@ const handleSaveProfile = async () => {
   if (!validateProfile()) return
   saveBusy.value = true
   saveError.value = ''
+  
   const profilePayload = {
     username: username.value.trim(),
     avatar_url: avatarUrl.value.trim() || null,
@@ -481,31 +523,35 @@ const handleSaveProfile = async () => {
     qq: qq.value.trim() || null,
   }
 
-  const { error: profileError } = await store.updateMyProfile(profilePayload)
-  if (profileError) {
-    saveError.value = profileError
+  try {
+    // Use Vue Query mutations instead of store methods
+    if (store.user?.id) {
+      await updateProfileMutation.mutateAsync({
+        userId: store.user.id,
+        profileData: profilePayload
+      })
+
+      await updateContactsMutation.mutateAsync({
+        userId: store.user.id,
+        contactsData: contactsPayload
+      })
+
+      // Success is handled by the mutations themselves
+      isEditing.value = false
+      // Clear optimistic avatar since the real one is now loaded
+      optimisticAvatarUrl.value = ''
+    }
+  } catch (error: any) {
+    saveError.value = error.message || '保存失败'
     // Reset optimistic avatar on error
     optimisticAvatarUrl.value = ''
     // Reset store's optimistic avatar too
-    if (store.profile?.avatar_url) {
-      store.setOptimisticAvatar(store.profile.avatar_url)
+    if (profile.data.value?.avatar_url) {
+      store.setOptimisticAvatar(profile.data.value.avatar_url)
     }
+  } finally {
     saveBusy.value = false
-    return
   }
-
-  const { error: contactsError } = await store.upsertMyContacts(contactsPayload)
-  if (contactsError) {
-    saveError.value = contactsError
-    saveBusy.value = false
-    return
-  }
-
-  store.setBanner('info', '个人资料已保存')
-  saveBusy.value = false
-  isEditing.value = false
-  // Clear optimistic avatar since the real one is now loaded
-  optimisticAvatarUrl.value = ''
 }
 
 const resetPasswordState = () => {
@@ -577,8 +623,9 @@ const handleNotificationClick = async (notification: any) => {
     }
   }
   
-  // For regular notifications, use the standard link
-  store.markNotificationRead(notification.id)
+  // For regular notifications, use the integration method
+  markNotificationRead(notification.id)
+  
   if (notification.link) {
     await router.push(notification.link)
   }
@@ -586,19 +633,20 @@ const handleNotificationClick = async (notification: any) => {
 
 onMounted(async () => {
   try {
-    // 并行加载用户相关数据
+    // Load basic user and events data
     await Promise.all([
       store.refreshUser(),
-      store.loadMyProfile(),
-      store.loadMyContacts(),
       store.ensureEventsLoaded(),
       store.ensureRegistrationsLoaded()
     ])
     
+    // Vue Query will automatically load profile and contacts data
+    // when the user ID is available
+    
     // 异步加载团队信息（不阻塞主要内容显示）
     void loadMyTeamsOverview()
     
-    // 同步表单数据
+    // 同步表单数据 - will be called by watchers when data loads
     syncProfileForm()
   } finally {
     loading.value = false
@@ -606,14 +654,14 @@ onMounted(async () => {
 })
 
 watch(
-  () => store.profile,
+  () => profile.data.value,
   () => {
     syncProfileForm()
   },
 )
 
 watch(
-  () => store.contacts,
+  () => contacts.data.value,
   () => {
     syncProfileForm()
   },
@@ -687,7 +735,7 @@ watch(
           >
             <User :size="18" />
             <span>个人资料</span>
-            <span v-if="store.isProfileIncomplete" class="tab-dot"></span>
+            <span v-if="isProfileIncomplete" class="tab-dot"></span>
           </button>
           <button 
             class="sidebar-tab" 
@@ -786,8 +834,7 @@ watch(
           <!-- Edit Mode -->
           <form v-else class="form" @submit.prevent="handleSaveProfile">
             <h3 class="panel-title">编辑资料</h3>
-            <p v-if="store.profileError" class="alert error">{{ store.profileError }}</p>
-            <p v-if="store.contactsError" class="alert error">{{ store.contactsError }}</p>
+            <p v-if="userDataError" class="alert error">{{ userDataError?.message }}</p>
             
             <div class="profile-avatar">
               <div class="avatar-preview-wrapper">
@@ -874,7 +921,7 @@ watch(
               <button
                 class="btn btn--primary"
                 type="submit"
-                :disabled="saveBusy || store.profileLoading || store.contactsLoading"
+                :disabled="saveBusy || updateProfileMutation.isPending.value || updateContactsMutation.isPending.value"
               >
                 {{ saveBusy ? '保存中...' : '保存资料' }}
               </button>
@@ -924,27 +971,44 @@ watch(
                 v-if="unreadNotifications > 0"
                 class="btn btn--ghost"
                 type="button"
-                @click="store.markAllNotificationsRead"
+                :disabled="isMarkingAllRead.value"
+                @click="markAllNotificationsRead"
               >
-                全部已读
+                {{ isMarkingAllRead.value ? '标记中...' : '全部已读' }}
               </button>
               <button
                 v-if="readNotificationsCount > 0"
                 class="btn btn--danger"
                 type="button"
-                @click="store.deleteReadNotifications"
+                :disabled="isClearingRead.value"
+                @click="deleteReadNotifications"
               >
                 <Trash2 :size="16" />
-                删除已读
+                {{ isClearingRead.value ? '删除中...' : '删除已读' }}
               </button>
             </div>
           </div>
 
-          <div v-if="notifications.length === 0" class="empty-state empty-state--compact">
+          <!-- Loading state -->
+          <div v-if="notificationsLoading.value" class="empty-state empty-state--compact">
+            <h3>加载中</h3>
+            <p class="muted">正在获取消息通知...</p>
+          </div>
+
+          <!-- Error state -->
+          <div v-else-if="notificationsError.value" class="empty-state empty-state--compact">
+            <h3>加载失败</h3>
+            <p class="muted">{{ notificationsError.value.message }}</p>
+            <button class="btn btn--ghost" @click="refetchNotifications">重试</button>
+          </div>
+
+          <!-- Empty state -->
+          <div v-else-if="notifications.length === 0" class="empty-state empty-state--compact">
             <h3>暂无消息</h3>
             <p class="muted">活动提醒与队伍消息会显示在这里</p>
           </div>
 
+          <!-- Notifications list -->
           <div v-else class="notification-list">
             <article
               v-for="item in notifications"

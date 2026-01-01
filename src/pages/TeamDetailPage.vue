@@ -8,6 +8,11 @@ import {
   handleSuccessWithBanner,
   teamErrorHandler 
 } from '../store/enhancedErrorHandling'
+import { generateAvatarUrl } from '../utils/imageUrlGenerator'
+
+import { useEvent } from '../composables/useEvents'
+import { useCurrentUserData } from '../composables/useUsers'
+import { useTeams, useTeamMembers } from '../composables/useTeams'
 
 const store = useAppStore()
 const route = useRoute()
@@ -16,12 +21,15 @@ const router = useRouter()
 const eventId = computed(() => String(route.params.id ?? ''))
 const teamId = computed(() => String(route.params.teamId ?? ''))
 
-const event = ref(store.getEventById(eventId.value))
+const { data: event } = useEvent(eventId.value)
+const { profile } = useCurrentUserData()
+const { data: teams } = useTeams(eventId.value)
+const { data: teamMembers } = useTeamMembers(teamId.value)
 const loading = ref(false)
 const error = ref('')
 
 const team = computed(() => {
-  return store.getTeamsForEvent(eventId.value).find((item) => item.id === teamId.value) ?? null
+  return teams.value?.find((item) => item.id === teamId.value) ?? null
 })
 const isClosed = computed(() => Boolean(team.value?.is_closed))
 const isLeader = computed(() => {
@@ -91,7 +99,7 @@ const members = computed(() => {
     if (!name) {
       name = `队员${member.user_id.slice(0, 4)}`
     }
-    const avatar = member.profile?.avatar_url || ''
+    const avatar = generateAvatarUrl(member.profile?.avatar_url)
     const roles = sortRoleLabels(member.profile?.roles ?? []).map((role) => ROLE_MAP[role] || role)
     return {
       id: member.user_id,
@@ -130,8 +138,7 @@ const handleLeaveTeam = async () => {
     memberActionBusyId.value = null
     return
   }
-  await store.loadTeamMembers(teamId.value)
-  await store.loadTeams(eventId.value)
+  // Data will be automatically updated via Vue Query cache invalidation
   handleSuccessWithBanner('已退出队伍', store.setBanner, { 
     operation: 'leaveTeam',
     component: 'team' 
@@ -162,8 +169,7 @@ const handleKickMember = async (memberId: string, name?: string) => {
     memberActionBusyId.value = null
     return
   }
-  await store.loadTeamMembers(teamId.value)
-  await store.loadTeams(eventId.value)
+  // Data will be automatically updated via Vue Query cache invalidation
   handleSuccessWithBanner('已移出队员', store.setBanner, { 
     operation: 'kickMember',
     component: 'team' 
@@ -195,8 +201,7 @@ const handleJoinTeam = async () => {
       joinSubmitBusy.value = false
       return
     }
-    await store.loadTeamMembers(teamId.value)
-    await store.loadTeams(eventId.value)
+    // Data will be automatically updated via Vue Query cache invalidation
     handleSuccessWithBanner('已加入队伍', store.setBanner, { 
       operation: 'acceptTeamInvite',
       component: 'team' 
@@ -283,8 +288,7 @@ const handleRequest = async (requestId: string, status: 'approved' | 'rejected')
     return
   }
   await store.loadTeamJoinRequests(teamId.value)
-  await store.loadTeamMembers(teamId.value)
-  await store.loadTeams(eventId.value)
+  // Data will be automatically updated via Vue Query cache invalidation
   handleSuccessWithBanner(status === 'approved' ? '已批准入队申请' : '已拒绝入队申请', store.setBanner, { 
     operation: 'handleTeamRequest',
     component: 'team' 
@@ -308,7 +312,7 @@ const handleCloseTeam = async () => {
     closeTeamBusy.value = false
     return
   }
-  await store.loadTeams(eventId.value)
+  // Data will be automatically updated via Vue Query cache invalidation
   handleSuccessWithBanner('队伍已标记为组队完成', store.setBanner, { 
     operation: 'closeTeam',
     component: 'team' 
@@ -331,7 +335,7 @@ const handleReopenTeam = async () => {
     reopenTeamBusy.value = false
     return
   }
-  await store.loadTeams(eventId.value)
+  // Data will be automatically updated via Vue Query cache invalidation
   handleSuccessWithBanner('队伍已重新开放组队', store.setBanner, { 
     operation: 'reopenTeam',
     component: 'team' 
@@ -339,61 +343,11 @@ const handleReopenTeam = async () => {
   reopenTeamBusy.value = false
 }
 
-const loadEvent = async () => {
-  if (!eventId.value) return
-  
-  // 先检查缓存，避免不必要的加载状态
-  await store.ensureEventsLoaded()
-  const cached = store.getEventById(eventId.value)
-  
-  if (cached) {
-    // 有缓存数据时直接使用，不显示加载状态
-    event.value = cached
-    await store.loadTeams(eventId.value)
-    await store.loadTeamMembers(teamId.value)
-    if (isLeader.value) {
-      await store.loadTeamJoinRequests(teamId.value)
-    }
-    if (store.user) {
-      await store.loadMyTeamInvite(teamId.value)
-    }
-    if (!team.value) {
-      error.value = '未找到该队伍'
-    }
-    return
-  }
-
-  // 只有在没有缓存数据时才显示加载状态
-  loading.value = true
-  error.value = ''
-
-  const { data, error: fetchError } = await store.fetchEventById(eventId.value)
-  if (fetchError) {
-    error.value = fetchError
-    loading.value = false
-    return
-  }
-  event.value = data
-
-  await store.loadTeams(eventId.value)
-  await store.loadTeamMembers(teamId.value)
-  if (isLeader.value) {
-    await store.loadTeamJoinRequests(teamId.value)
-  }
-  if (store.user) {
-    await store.loadMyTeamInvite(teamId.value)
-  }
-  if (!team.value) {
-    error.value = '未找到该队伍'
-  }
-  loading.value = false
-}
+// loadEvent function removed - data is now loaded via Vue Query composables
 
 onMounted(async () => {
   await store.refreshUser()
-  await store.loadMyProfile()
-  await store.ensureRegistrationsLoaded()
-  await loadEvent()
+  // All data is now loaded via Vue Query composables automatically
 })
 
 watch(isLeader, async (value) => {
@@ -615,7 +569,7 @@ watch(
               <div class="team-request-avatar">
                 <img
                   v-if="request.profile?.avatar_url"
-                  :src="request.profile.avatar_url"
+                  :src="generateAvatarUrl(request.profile.avatar_url)"
                   :alt="request.profile?.username || '申请人'"
                 />
                 <span v-else>{{ (request.profile?.username || '新').slice(0, 1) }}</span>

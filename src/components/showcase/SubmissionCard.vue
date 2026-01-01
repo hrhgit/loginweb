@@ -48,6 +48,7 @@ import { computed } from 'vue'
 import { FileText } from 'lucide-vue-next'
 import ResponsiveImage from '../ResponsiveImage.vue'
 import type { SubmissionWithTeam } from '../../store/models'
+import { generateCoverUrl } from '../../utils/imageUrlGenerator'
 
 interface Props {
   submission: SubmissionWithTeam
@@ -60,24 +61,11 @@ const emit = defineEmits<{
   'title-click': [submission: SubmissionWithTeam]
 }>()
 
-// 生成存储 URL 的辅助函数（避免在计算属性中调用）
-const generateStorageUrl = (path: string): string => {
-  if (!path) return ''
-  const trimmed = path.trim()
-  if (trimmed.startsWith('http')) return trimmed
-  // 使用固定的 URL 模式，避免调用 supabase API
-  const projectUrl = import.meta.env.VITE_SUPABASE_URL || ''
-  if (projectUrl && trimmed.includes('/')) {
-    return `${projectUrl}/storage/v1/object/public/public-assets/${trimmed}`
-  }
-  return ''
-}
-
-// 计算属性 - 只做简单的字符串检查
+// 计算属性 - 使用集中式图片URL生成工具
 const coverUrl = computed(() => {
   if (!props.submission.cover_path) return null
   try {
-    return generateStorageUrl(props.submission.cover_path)
+    return generateCoverUrl(props.submission.cover_path)
   } catch {
     return null
   }

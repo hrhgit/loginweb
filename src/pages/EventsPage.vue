@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { RouterLink, useRouter } from 'vue-router'
 import { RefreshCw, Plus, MapPin, Users } from 'lucide-vue-next'
-import { useEventsReady } from '../composables/useEventsReady'
+import { usePublicEvents } from '../composables/useEvents'
 import { useAppStore } from '../store/appStore'
 import EventCard from '../components/events/EventCard.vue'
 import NetworkStatusIndicator from '../components/feedback/NetworkStatusIndicator.vue'
@@ -14,9 +14,12 @@ const store = useAppStore()
 const router = useRouter()
 const eventSummary = (description: string | null) => getEventSummaryText(description)
 
+// Use Vue Query for events data
+const publicEvents = usePublicEvents()
+
 // Network-aware features
 const isLoading = computed(() => 
-  store.eventsLoading || store.networkAwareLoading
+  publicEvents.isLoading.value || store.networkAwareLoading
 )
 
 const shouldShowNetworkIndicator = computed(() => 
@@ -32,10 +35,11 @@ const loadingMessage = computed(() => {
 // 防止闪烁：只有在真正需要加载且没有数据时才显示加载状态
 const shouldShowLoading = computed(() => {
   // 如果已经有数据，即使在加载中也不显示加载状态（避免闪烁）
-  if (store.publicEvents.length > 0) return false
+  const events = publicEvents.data.value || []
+  if (events.length > 0) return false
   
   // 如果数据已加载完成且没有数据，不显示加载状态（显示空状态）
-  if (store.eventsLoaded && store.publicEvents.length === 0) return false
+  if (!publicEvents.isLoading.value && events.length === 0) return false
   
   // 只有在真正加载中且没有数据时才显示加载状态
   return isLoading.value
@@ -59,13 +63,10 @@ const isRefreshing = ref(false)
 const handleRefresh = async () => {
   try {
     isRefreshing.value = true
-    // 使用强制刷新，确保忽略缓存
-    await store.forceReloadEvents()
+    // 使用 Vue Query 的 refetch 方法
+    await publicEvents.refetch()
   } catch (error) {
     console.error('Failed to refresh events:', error)
-    // 如果强制刷新失败，显示调试信息
-    console.log('Debug info after failed refresh:')
-    store.debugEventsState()
   } finally {
     isRefreshing.value = false
   }
@@ -75,8 +76,6 @@ const handleRefresh = async () => {
 const handleNetworkRetry = () => {
   store.handleConnectivityRestoration()
 }
-
-useEventsReady(store)
 </script>
 
 <template>
@@ -136,7 +135,7 @@ useEventsReady(store)
 
     <!-- 内容区域 -->
     <template v-else>
-      <section v-if="store.publicEvents.length === 0 && !isLoading" class="empty-state">
+      <section v-if="(publicEvents.data.value || []).length === 0 && !isLoading" class="empty-state">
         <h2>暂时还没有公开活动</h2>
         <p class="muted">活动发布后会出现在这里你可以先准备好活动流程与页面风格</p>
         <div class="empty-state__actions">
@@ -152,7 +151,7 @@ useEventsReady(store)
 
       <section class="activity-grid" aria-label="events">
         <EventCard
-          v-for="event in store.publicEvents"
+          v-for="event in (publicEvents.data.value || [])"
           :key="event.id"
           :event="event"
           :time-label="formatDateRange(event.start_time, event.end_time)"

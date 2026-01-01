@@ -33,12 +33,14 @@ import {
 import { generateFormResponseTable } from '../utils/formResponseParser'
 import * as XLSX from 'xlsx'
 
+import { useEvent } from '../composables/useEvents'
+
 const route = useRoute()
 const router = useRouter()
 const store = useAppStore()
 
 const eventId = computed(() => String(route.params.id ?? ''))
-const event = computed(() => store.getEventById(eventId.value))
+const { data: event, isLoading: eventLoading, error: eventError } = useEvent(eventId.value)
 
 const loading = ref(false)
 const registrations = ref<RegistrationData[]>([])
@@ -214,14 +216,12 @@ const loadData = async () => {
   if (!eventId.value) return
   
   try {
-    // 先检查缓存，避免不必要的加载状态
-    await store.ensureEventsLoaded()
-    const cached = store.getEventById(eventId.value)
-    
-    if (cached) {
+    // Event data is now loaded via Vue Query composables
+    // Just check permissions when event data is available
+    if (event.value) {
       // 检查权限
-      if (cached.created_by !== store.user?.id && !store.isAdmin) {
-        console.error('EventAdminPage - Permission denied for cached event')
+      if (event.value.created_by !== store.user?.id && !store.isAdmin) {
+        console.error('EventAdminPage - Permission denied for event')
         store.setBanner('error', '您没有管理此活动的权限')
         router.replace('/events/mine')
         return
@@ -232,10 +232,18 @@ const loadData = async () => {
       return
     }
 
-    // 只有在没有缓存数据时才显示加载状态
-    loading.value = true
-    
-    // Try to fetch the event directly if not found in displayedEvents
+    // If event is still loading, wait for it
+    if (eventLoading.value) {
+      return
+    }
+
+    // If there's an error loading the event
+    if (eventError.value) {
+      console.error('EventAdminPage - Failed to load event:', eventError.value)
+      store.setBanner('error', '加载活动失败')
+      router.replace('/events/mine')
+      return
+    }
     const { data: fetchedEvent, error: fetchError } = await store.fetchEventById(eventId.value)
     
     if (fetchError || !fetchedEvent) {

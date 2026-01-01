@@ -218,6 +218,10 @@ import { supabase } from '../lib/supabase'
 import { useAppStore } from '../store/appStore'
 import { truncateTeamIntro } from '../utils/textUtils'
 import type { SubmissionWithTeam } from '../store/models'
+import { generateCoverUrl } from '../utils/imageUrlGenerator'
+
+import { useSubmissions } from '../composables/useSubmissions'
+import { useTeams } from '../composables/useTeams'
 
 const route = useRoute()
 const router = useRouter()
@@ -226,6 +230,9 @@ const store = useAppStore()
 // Route parameters
 const eventId = computed(() => String(route.params.eventId ?? ''))
 const submissionId = computed(() => String(route.params.submissionId ?? ''))
+
+const { data: submissions } = useSubmissions(eventId.value)
+const { data: teams } = useTeams(eventId.value)
 
 // Reactive state
 const loading = ref(true)
@@ -269,18 +276,7 @@ const teamMemberCount = computed(() => {
 
 const coverUrl = computed(() => {
   if (!submission.value?.cover_path?.trim()) return null
-  const coverPath = submission.value.cover_path.trim()
-  
-  if (coverPath.startsWith('http')) {
-    imageLoading.value = false
-    return coverPath
-  }
-  
-  if (coverPath.includes('/')) {
-    const { data } = supabase.storage.from('public-assets').getPublicUrl(coverPath)
-    return data?.publicUrl
-  }
-  return null
+  return generateCoverUrl(submission.value.cover_path.trim())
 })
 
 const formatSubmissionTime = computed(() => {
@@ -444,11 +440,10 @@ const loadSubmissionData = async () => {
   error.value = ''
 
   try {
-    // 先检查缓存，避免不必要的加载状态
-    await Promise.all([
-      store.loadSubmissions(eventId.value),
-      store.loadTeams(eventId.value)
-    ])
+    // Data is now loaded via Vue Query composables
+    // Check if submission exists in the loaded data
+    const submissionsList = submissions.value || []
+    const teamsData = teams.value || []
     
     const cachedSubmissions = store.getSubmissionsForEvent(eventId.value)
     const cachedSubmission = cachedSubmissions.find(s => s.id === submissionId.value)
@@ -462,11 +457,9 @@ const loadSubmissionData = async () => {
     // 只有在没有缓存数据时才显示加载状态
     loading.value = true
     
-    // 重新加载数据
-    await Promise.all([
-      store.loadSubmissions(eventId.value),
-      store.loadTeams(eventId.value)
-    ])
+    // Data is now loaded via Vue Query composables
+    const submissionsList = submissions.value || []
+    const teamsData = teams.value || []
     
     const allSubmissions = store.getSubmissionsForEvent(eventId.value)
     const found = allSubmissions.find(s => s.id === submissionId.value)

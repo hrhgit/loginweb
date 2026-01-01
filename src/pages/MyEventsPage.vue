@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, watch } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
-import { useEventsReady } from '../composables/useEventsReady'
+import { useMyEvents } from '../composables/useEvents'
 import { Settings, Edit, Undo2, UserPlus, Plus } from 'lucide-vue-next'
 import { useAppStore } from '../store/appStore'
 import EventCard from '../components/events/EventCard.vue'
@@ -17,7 +17,9 @@ const store = useAppStore()
 const router = useRouter()
 const eventSummary = (description: string | null) => getEventSummaryText(description)
 
-const myEvents = computed(() => store.myEvents)
+// Use Vue Query for user's events data
+const myEventsQuery = useMyEvents(store.user?.id || '')
+const myEvents = computed(() => myEventsQuery.data.value || [])
 const canManage = computed(() => store.isAdmin)
 const revertBusyId = ref<string | null>(null)
 
@@ -34,10 +36,10 @@ const shouldShowLoading = computed(() => {
   if (myEvents.value.length > 0) return false
   
   // 如果数据已加载完成且没有数据，不显示加载状态（显示空状态）
-  if (store.eventsLoaded && myEvents.value.length === 0) return false
+  if (!myEventsQuery.isLoading.value && myEvents.value.length === 0) return false
   
   // 只有在真正加载中且没有数据时才显示加载状态
-  return store.eventsLoading || isInitializing.value
+  return myEventsQuery.isLoading.value || isInitializing.value
 })
 
 onMounted(async () => {
@@ -93,8 +95,6 @@ const handleCloseInviteModal = () => {
   inviteJudgeModalOpen.value = false
   selectedEventId.value = null
 }
-
-useEventsReady(store)
 </script>
 
 <template>
@@ -105,8 +105,8 @@ useEventsReady(store)
         <p class="muted">管理你创建的 Game Jam 活动和草稿</p>
       </div>
       <div class="page-head__actions">
-        <button class="btn btn--ghost" type="button" @click="store.loadEvents" :disabled="store.eventsLoading">
-          {{ store.eventsLoading ? '刷新中...' : '刷新' }}
+        <button class="btn btn--ghost" type="button" @click="myEventsQuery.refetch()" :disabled="myEventsQuery.isLoading.value">
+          {{ myEventsQuery.isLoading.value ? '刷新中...' : '刷新' }}
         </button>
         <button v-if="store.isAdmin" class="btn btn--primary btn--icon-text" type="button" @click="store.openCreateModal">
           <Plus :size="16" />

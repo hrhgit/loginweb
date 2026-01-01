@@ -37,6 +37,8 @@ import { computed, onMounted, ref } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { ArrowLeft } from 'lucide-vue-next'
 import { useAppStore } from '../store/appStore'
+import { useEvent } from '../composables/useEvents'
+import { useJudgePermissions } from '../composables/useJudges'
 import JudgeWorkspace from '../components/admin/JudgeWorkspace.vue'
 
 const store = useAppStore()
@@ -44,80 +46,30 @@ const route = useRoute()
 const router = useRouter()
 
 const eventId = computed(() => String(route.params.eventId ?? ''))
-const event = ref(store.getEventById(eventId.value))
-const loading = ref(false)
-const error = ref('')
-const judgePermission = ref<any>(null)
-const permissionLoading = ref(false)
 
+// Vue Query hooks
+const eventQuery = useEvent(eventId.value)
+const judgePermissionsQuery = useJudgePermissions(eventId.value, store.user?.id || '')
+
+// Computed properties
+const event = computed(() => eventQuery.data.value)
+const loading = computed(() => eventQuery.isLoading.value && !event.value)
+const error = computed(() => eventQuery.error.value?.message || '')
+const judgePermission = computed(() => judgePermissionsQuery.data.value)
+const permissionLoading = computed(() => judgePermissionsQuery.isLoading.value)
 const canAccess = computed(() => judgePermission.value?.canAccessJudgeWorkspace ?? false)
 
-const loadJudgePermission = async () => {
-  if (!eventId.value || !store.user) {
-    judgePermission.value = null
-    return
-  }
-  permissionLoading.value = true
-  try {
-    const permission = await store.checkJudgePermission(eventId.value)
-    judgePermission.value = permission
-    if (!permission.canAccessJudgeWorkspace) {
-      error.value = '您没有权限访问此页面'
-    }
-  } catch (err: any) {
-    console.error('Failed to load judge permission:', err)
-    error.value = '加载权限失败'
-  } finally {
-    permissionLoading.value = false
-  }
-}
-
-const loadEvent = async (id: string) => {
-  if (!id) return
-  
-  try {
-    // 先检查缓存，避免不必要的加载状态
-    await store.ensureEventsLoaded()
-    const cached = store.getEventById(id)
-    
-    if (cached) {
-      // 有缓存数据时直接使用，不显示加载状态
-      event.value = cached
-      return
-    }
-
-    // 只有在没有缓存数据时才显示加载状态
-    loading.value = true
-    error.value = ''
-
-    const { data, error: fetchError } = await store.fetchEventById(id)
-    if (fetchError) {
-      error.value = fetchError
-      event.value = null
-    } else {
-      event.value = data
-    }
-  } finally {
-    loading.value = false
-  }
-}
-
 onMounted(async () => {
-  // 并行加载用户信息、事件数据和权限检查
-  await Promise.all([
-    store.refreshUser(),
-    loadEvent(eventId.value)
-  ])
+  // Ensure user is loaded first
+  await store.refreshUser()
   
-  // 权限检查需要在用户信息加载后进行
-  await loadJudgePermission()
-
+  // Vue Query will automatically handle event and permission loading
   // If user doesn't have access, redirect after a short delay
-  if (!canAccess.value && !permissionLoading.value) {
-    setTimeout(() => {
+  setTimeout(() => {
+    if (!canAccess.value && !permissionLoading.value && judgePermission.value) {
       router.push(`/events/${eventId.value}`)
-    }, 2000)
-  }
+    }
+  }, 2000)
 })
 </script>
 

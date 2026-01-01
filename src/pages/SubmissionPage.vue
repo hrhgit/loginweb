@@ -5,6 +5,9 @@ import { Upload, Link as LinkIcon, Loader2, RotateCcw } from 'lucide-vue-next'
 import * as tus from 'tus-js-client'
 import { supabase } from '../lib/supabase'
 import { useAppStore } from '../store/appStore'
+import { generateCoverUrl, generateSubmissionUrl } from '../utils/imageUrlGenerator'
+
+import { useSubmissions } from '../composables/useSubmissions'
 
 const route = useRoute()
 const router = useRouter()
@@ -12,6 +15,7 @@ const store = useAppStore()
 
 const eventId = computed(() => String(route.params.id ?? route.params.eventId ?? ''))
 const submissionId = computed(() => String(route.params.submissionId ?? ''))
+const { data: submissions } = useSubmissions(eventId.value)
 const isEditMode = computed(() => Boolean(submissionId.value))
 const eventPath = computed(() => `/events/${eventId.value}`)
 const submitting = ref(false)
@@ -218,10 +222,8 @@ const loadMyTeams = async () => {
 const loadExistingSubmission = async () => {
   if (!isEditMode.value || !submissionId.value) return
   
-  // 先检查缓存，避免不必要的加载状态
-  await store.loadSubmissions(eventId.value)
-  const submissions = store.getSubmissionsForEvent(eventId.value)
-  const cachedSubmission = submissions.find(s => s.id === submissionId.value)
+  // Submissions are now loaded via Vue Query composables
+  const cachedSubmission = submissions.value?.find(s => s.id === submissionId.value)
   
   if (cachedSubmission) {
     // 有缓存数据时直接使用，不显示加载状态
@@ -243,10 +245,9 @@ const loadExistingSubmission = async () => {
   loadSubmissionError.value = ''
   
   try {
-    // 重新加载数据
-    await store.loadSubmissions(eventId.value)
-    const submissions = store.getSubmissionsForEvent(eventId.value)
-    const submission = submissions.find(s => s.id === submissionId.value)
+    // Submissions are now loaded via Vue Query composables
+    const submissionsList = submissions.value || []
+    const submission = submissionsList.find(s => s.id === submissionId.value)
     
     if (!submission) {
       loadSubmissionError.value = '未找到要编辑的作品'
@@ -287,15 +288,9 @@ const populateFormData = async (submission: any) => {
     hasExistingCover.value = true
     uploadedCoverPath.value = submission.cover_path
     
-    // 生成封面预览URL
-    if (submission.cover_path.startsWith('http')) {
-      existingCoverUrl.value = submission.cover_path
-      coverPreview.value = submission.cover_path
-    } else {
-      const { data } = supabase.storage.from('public-assets').getPublicUrl(submission.cover_path)
-      existingCoverUrl.value = data.publicUrl
-      coverPreview.value = data.publicUrl
-    }
+    // 生成封面预览URL（使用集中式缓存清除工具）
+    existingCoverUrl.value = generateCoverUrl(submission.cover_path)
+    coverPreview.value = existingCoverUrl.value
   }
   
   // 处理作品文件
@@ -373,8 +368,8 @@ const pickCover = async (files: FileList | null) => {
     
     await uploadWithFallback('public-assets', path, file, (pct) => (coverUploadProgress.value = pct))
     
-    const { data } = supabase.storage.from('public-assets').getPublicUrl(path)
-    uploadedCoverUrl.value = data.publicUrl
+    // Generate public URL using centralized utility
+    uploadedCoverUrl.value = generateCoverUrl(path)
     syncSavedSnapshot()
   } catch (err: any) {
     console.error('Cover upload failed', err)
@@ -457,8 +452,8 @@ const pickSubmissionFile = async (files: FileList | null) => {
     
     await uploadWithFallback('submission-files', path, file, (pct) => (fileUploadProgress.value = pct))
     
-    const { data } = supabase.storage.from('submission-files').getPublicUrl(path)
-    uploadedSubmissionUrl.value = data.publicUrl
+    // Generate public URL using centralized utility
+    uploadedSubmissionUrl.value = generateSubmissionUrl(path)
     syncSavedSnapshot()
   } catch (err: any) {
     console.error('File upload failed', err)

@@ -8,16 +8,22 @@ import {
   handleSuccessWithBanner
 } from '../store/enhancedErrorHandling'
 
+import { useEvent } from '../composables/useEvents'
+import { useCurrentUserData } from '../composables/useUsers'
+import { useTeams } from '../composables/useTeams'
+
 const store = useAppStore()
 const route = useRoute()
 const router = useRouter()
 
 const eventId = computed(() => String(route.params.id ?? ''))
 const teamId = computed(() => String(route.params.teamId ?? ''))
-const event = computed(() => store.getEventById(eventId.value))
+const { data: event } = useEvent(eventId.value)
+const { contacts } = useCurrentUserData()
+const { data: teams } = useTeams(eventId.value)
 const isEdit = computed(() => Boolean(route.params.teamId))
 const editingTeam = computed(() =>
-  store.getTeamsForEvent(eventId.value).find((team) => team.id === teamId.value),
+  teams.value?.find((team) => team.id === teamId.value) ?? null
 )
 
 const busy = ref(false)
@@ -242,12 +248,9 @@ onMounted(async () => {
       return
     }
     
-    // 并行加载所需数据，提高加载速度
-    await Promise.all([
-      store.loadMyContacts(),
-      store.ensureEventsLoaded(),
-      store.loadTeams(eventId.value)
-    ])
+    // Data is now loaded via Vue Query composables automatically
+    // Just ensure user is authenticated
+    await store.refreshUser()
 
     // 检查活动状态
     if (!event.value) {

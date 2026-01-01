@@ -78,7 +78,7 @@
               <div class="judge-avatar" :aria-label="`${judge.profile.username || '未知用户'}的头像`">
                 <img 
                   v-if="judge.profile.avatar_url" 
-                  :src="judge.profile.avatar_url" 
+                  :src="generateAvatarUrl(judge.profile.avatar_url)" 
                   :alt="`${judge.profile.username || '用户'}头像`"
                 />
                 <User v-else :size="20" aria-hidden="true" />
@@ -99,10 +99,10 @@
                 class="btn btn--danger btn--compact"
                 @click="handleRemoveJudge(judge)"
                 @keydown="handleKeydown($event, judge)"
-                :disabled="removingJudgeId === judge.user_id"
+                :disabled="removingJudgeId === 'removing'"
                 :aria-label="`移除评委 ${judge.profile.username || '未知用户'}`"
               >
-                <Trash2 v-if="removingJudgeId !== judge.user_id" :size="16" aria-hidden="true" />
+                <Trash2 v-if="removingJudgeId !== 'removing'" :size="16" aria-hidden="true" />
                 <Loader2 v-else class="spin" :size="16" aria-hidden="true" />
                 移除
               </button>
@@ -126,7 +126,9 @@ import {
   AlertCircle 
 } from 'lucide-vue-next'
 import { useAppStore } from '../../store/appStore'
+import { useEventJudges, useRemoveJudge } from '../../composables/useJudges'
 import type { JudgeWithProfile } from '../../store/models'
+import { generateAvatarUrl } from '../../utils/imageUrlGenerator'
 
 interface Props {
   eventId: string
@@ -141,33 +143,31 @@ const emit = defineEmits<Emits>()
 
 const store = useAppStore()
 
-const loading = ref(false)
-const error = ref('')
-const removingJudgeId = ref<string | null>(null)
+// Vue Query hooks
+const judgesQuery = useEventJudges(props.eventId)
+const removeJudgeMutation = useRemoveJudge()
+
 const retryCount = ref(0)
 const maxRetries = 3
 
-// Get judges from store
-const judges = computed(() => {
-  return store.judgesByEventId[props.eventId] || []
-})
+// Get judges from Vue Query
+const judges = computed(() => judgesQuery.data.value || [])
+const loading = computed(() => judgesQuery.isLoading.value)
+const error = computed(() => judgesQuery.error.value?.message || '')
+const removingJudgeId = computed(() => removeJudgeMutation.isPending.value ? 'removing' : null)
 
 const loadJudges = async (isRetry = false) => {
   if (!props.eventId) return
   
-  loading.value = true
   if (!isRetry) {
-    error.value = ''
     retryCount.value = 0
   }
   
   try {
-    await store.loadEventJudges(props.eventId)
-    error.value = ''
+    await judgesQuery.refetch()
     retryCount.value = 0
   } catch (err: any) {
     const errorMessage = err.message || '加载评委列表失败'
-    error.value = errorMessage
     
     // Auto-retry for network errors
     if (retryCount.value < maxRetries && (
@@ -181,8 +181,6 @@ const loadJudges = async (isRetry = false) => {
         loadJudges(true)
       }, 1000 * retryCount.value) // Exponential backoff
     }
-  } finally {
-    loading.value = false
   }
 }
 
@@ -196,24 +194,14 @@ const handleRemoveJudge = async (judge: JudgeWithProfile) => {
     return
   }
   
-  removingJudgeId.value = judge.user_id
-  
   try {
-    const result = await store.removeJudge(props.eventId, judge.user_id)
-    
-    if (!result.success) {
-      store.setBanner('error', result.error || '移除评委失败')
-    } else {
-      store.setBanner('info', '评委移除成功')
-    }
+    await removeJudgeMutation.mutateAsync({
+      eventId: props.eventId,
+      userId: judge.user_id
+    })
   } catch (err: any) {
-    const errorMessage = err.message || '移除评委时发生错误'
-    store.setBanner('error', errorMessage)
-    
-    // For critical operations like removing judges, don't auto-retry
-    // Let user manually retry if needed
-  } finally {
-    removingJudgeId.value = null
+    // Error handling is done in the mutation
+    console.error('Remove judge error:', err)
   }
 }
 
@@ -240,14 +228,14 @@ const formatDate = (dateString: string) => {
 // Watch for eventId changes
 watch(() => props.eventId, (newEventId) => {
   if (newEventId) {
-    loadJudges()
+    // Vue Query will automatically refetch when eventId changes
+    retryCount.value = 0
   }
 }, { immediate: true })
 
 onMounted(() => {
-  if (props.eventId) {
-    loadJudges()
-  }
+  // Vue Query will automatically load data when component mounts
+  // No need to manually call loadJudges
 })
 </script>
 

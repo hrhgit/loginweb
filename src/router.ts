@@ -24,7 +24,6 @@ const router = createRouter({
     { path: '/events/:id/team/:teamId', name: 'event-team-detail', component: () => import('./pages/TeamDetailPage.vue') },
     { path: '/events/:id/showcase', name: 'event-detail-showcase', component: EventDetailPage, props: { tab: 'showcase' } },
     { path: '/events/:id/admin', name: 'event-admin', component: () => import('./pages/EventAdminPage.vue') },
-    { path: '/admin/dashboard', name: 'admin-dashboard', component: () => import('./pages/AdminDashboardPage.vue') },
     {
       path: '/events/:eventId/judge',
       name: 'judge-workspace',
@@ -46,6 +45,7 @@ const router = createRouter({
       component: () => import('./pages/SubmissionPage.vue'),
     },
     { path: '/events/:id/edit', name: 'event-edit', component: EventEditPage },
+    { path: '/demo/vue-query', name: 'vue-query-demo', component: () => import('./pages/VueQueryDemoPage.vue') },
     { path: '/me', redirect: '/me/profile' },
     { path: '/me/profile', name: 'me-profile', component: ProfilePage, props: { tab: 'profile' } },
     { path: '/me/security', name: 'me-security', component: ProfilePage, props: { tab: 'security' } },
@@ -119,31 +119,8 @@ router.beforeEach(async (to: RouteLocationNormalized, _from: RouteLocationNormal
       })
     }
 
-    // Check judge permissions
-    try {
-      const permission = await store.checkJudgePermission(eventId)
-      
-      if (!permission.canAccessJudgeWorkspace) {
-        return next({
-          name: 'not-found',
-          query: {
-            message: '您没有权限访问此评委界面。',
-            backRoute: `/events/${eventId}`,
-            backLabel: '返回活动详情'
-          }
-        })
-      }
-    } catch (error) {
-      console.error('Error checking judge permission:', error)
-      return next({
-        name: 'not-found',
-        query: {
-          message: '检查权限时出错，请稍后重试。',
-          backRoute: `/events/${eventId}`,
-          backLabel: '返回活动详情'
-        }
-      })
-    }
+    // Judge permissions are now handled by Vue Query composables in the component
+    // The component will handle permission checking and display appropriate UI
   }
 
   next()

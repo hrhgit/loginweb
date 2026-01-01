@@ -3,7 +3,8 @@ import { ref, computed, watch, nextTick } from 'vue'
 import { Search, X, User, UserPlus, RefreshCw } from 'lucide-vue-next'
 import type { UserSearchResult } from '../../store/models'
 import { useAppStore } from '../../store/appStore'
-import { supabase } from '../../lib/supabase'
+import { useSearchUsersForJudge, useAddJudge } from '../../composables/useJudges'
+import { generateAvatarUrl } from '../../utils/imageUrlGenerator'
 
 interface Props {
   eventId: string
@@ -20,13 +21,21 @@ const emit = defineEmits<Emits>()
 
 const store = useAppStore()
 
+// Vue Query hooks
+const addJudgeMutation = useAddJudge()
+
 const searchQuery = ref('')
-const searchResults = ref<UserSearchResult[]>([])
-const isSearching = ref(false)
-const searchError = ref('')
-const invitingUserId = ref<string | null>(null)
 const retryCount = ref(0)
 const maxRetries = 3
+
+// Use Vue Query for search with reactive query
+const searchUsersQuery = useSearchUsersForJudge(searchQuery, props.eventId)
+
+// Computed properties from Vue Query
+const searchResults = computed(() => searchUsersQuery.data.value || [])
+const isSearching = computed(() => searchUsersQuery.isFetching.value)
+const searchError = computed(() => searchUsersQuery.error.value?.message || '')
+const invitingUserId = computed(() => addJudgeMutation.isPending.value ? 'inviting' : null)
 
 const handleKeydown = (event: KeyboardEvent) => {
   // ESC key to close modal
@@ -45,16 +54,7 @@ const handleKeydown = (event: KeyboardEvent) => {
 watch(() => props.isOpen, async (isOpen) => {
   if (isOpen) {
     searchQuery.value = ''
-    searchResults.value = []
-    searchError.value = ''
-    invitingUserId.value = null
     retryCount.value = 0
-    
-    // Load judges data to ensure we have current judge list
-    try {
-      await store.loadEventJudges(props.eventId)
-    } catch (error) {
-    }
     
     // Add keyboard listeners
     document.addEventListener('keydown', handleKeydown)
@@ -72,36 +72,23 @@ watch(() => props.isOpen, async (isOpen) => {
   }
 })
 
-// Debounced search with retry mechanism
-let searchTimeout: number | undefined
+// Manual search trigger and retry mechanism
 const performSearch = async (isRetry = false) => {
   const query = searchQuery.value.trim()
   
-  if (!query) {
-    searchResults.value = []
-    searchError.value = ''
+  if (!query || query.length < 2) {
     return
   }
 
-  if (query.length < 2) {
-    return
-  }
-
-  isSearching.value = true
   if (!isRetry) {
-    searchError.value = ''
     retryCount.value = 0
   }
 
   try {
-    const results = await store.searchUsersForJudge(query, props.eventId)
-    searchResults.value = results
-    searchError.value = ''
+    await searchUsersQuery.refetch()
     retryCount.value = 0
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : '搜索失败'
-    searchError.value = errorMessage
-    searchResults.value = []
     
     // Auto-retry for network errors
     if (retryCount.value < maxRetries && (
@@ -117,8 +104,6 @@ const performSearch = async (isRetry = false) => {
         }
       }, 1000 * retryCount.value) // Exponential backoff
     }
-  } finally {
-    isSearching.value = false
   }
 }
 
@@ -127,47 +112,31 @@ const retrySearch = () => {
   performSearch(false)
 }
 
-watch(searchQuery, () => {
-  clearTimeout(searchTimeout)
-  searchTimeout = window.setTimeout(performSearch, 300)
-})
-
 const handleInviteUser = async (user: UserSearchResult) => {
-  if (invitingUserId.value) return
+  if (addJudgeMutation.isPending.value) return
 
   // 防止邀请已经是评委的用户
   if (user.isAlreadyJudge) {
     store.setBanner('info', `${user.username || '该用户'} 已经是评委`)
     return
   }
-
-  invitingUserId.value = user.id
   
   try {
-    const result = await store.inviteJudge(props.eventId, user.id)
+    await addJudgeMutation.mutateAsync({
+      eventId: props.eventId,
+      userId: user.id
+    })
     
-    if (result.success) {
-      store.setBanner('info', `已成功邀请 ${user.username || '用户'} 担任评委`)
-      emit('judgeInvited', user.id)
-      emit('close')
-    } else {
-      store.setBanner('error', result.error || '邀请失败')
-    }
+    emit('judgeInvited', user.id)
+    emit('close')
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : '邀请失败'
-    store.setBanner('error', errorMessage)
-    
-    // Show retry option for network errors
-    if (errorMessage.includes('网络') || errorMessage.includes('连接')) {
-      // The error banner will show, user can manually retry by clicking invite again
-    }
-  } finally {
-    invitingUserId.value = null
+    // Error handling is done in the mutation
+    console.error('Invite judge error:', error)
   }
 }
 
 const handleClose = () => {
-  if (invitingUserId.value) return // Prevent closing while inviting
+  if (addJudgeMutation.isPending.value) return // Prevent closing while inviting
   emit('close')
 }
 
@@ -190,7 +159,7 @@ const displayName = (user: UserSearchResult) => {
         <button 
           class="btn btn--icon btn--ghost" 
           @click="handleClose"
-          :disabled="!!invitingUserId"
+          :disabled="addJudgeMutation.isPending.value"
           aria-label="关闭对话框"
         >
           <X :size="18" />
@@ -209,7 +178,7 @@ const displayName = (user: UserSearchResult) => {
                 type="text"
                 placeholder="搜索用户名..."
                 class="search-input"
-                :disabled="!!invitingUserId"
+                :disabled="addJudgeMutation.isPending.value"
                 aria-describedby="search-hint"
                 autocomplete="off"
               />
@@ -255,7 +224,7 @@ const displayName = (user: UserSearchResult) => {
                 <div class="user-avatar" :aria-label="`${displayName(user)}的头像`">
                   <img 
                     v-if="user.avatar_url" 
-                    :src="user.avatar_url" 
+                    :src="generateAvatarUrl(user.avatar_url)" 
                     :alt="`${displayName(user)}的头像`"
                     class="avatar-image"
                   />
@@ -271,12 +240,12 @@ const displayName = (user: UserSearchResult) => {
                 class="btn btn--compact"
                 :class="user.isAlreadyJudge ? 'btn--ghost btn--disabled' : 'btn--primary'"
                 @click="handleInviteUser(user)"
-                :disabled="!!invitingUserId || user.isAlreadyJudge"
+                :disabled="addJudgeMutation.isPending.value || user.isAlreadyJudge"
                 :aria-label="user.isAlreadyJudge ? `${displayName(user)} 已是评委` : `邀请 ${displayName(user)} 担任评委`"
               >
-                <UserPlus v-if="!user.isAlreadyJudge && invitingUserId !== user.id" :size="14" aria-hidden="true" />
+                <UserPlus v-if="!user.isAlreadyJudge && !addJudgeMutation.isPending.value" :size="14" aria-hidden="true" />
                 <User v-else-if="user.isAlreadyJudge" :size="14" aria-hidden="true" />
-                <span v-if="invitingUserId === user.id">邀请中...</span>
+                <span v-if="addJudgeMutation.isPending.value">邀请中...</span>
                 <span v-else-if="user.isAlreadyJudge">已邀请</span>
                 <span v-else>邀请</span>
               </button>

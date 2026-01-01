@@ -1,23 +1,18 @@
 import { computed, proxyRefs, ref } from 'vue'
 import type { Subscription, User } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
-import { buildEventDescription, createDefaultEventDetails, generateId } from '../utils/eventDetails'
+import { buildEventDescription, createDefaultEventDetails } from '../utils/eventDetails'
 import { getLocalizedAuthError } from '../utils/authErrorMessages'
 import { validateUsername, checkUsernameExists, getUserEmailByUsername, isEmailFormat } from '../utils/authHelpers'
-import { demoEvents } from './demoEvents'
-import { EVENT_SELECT } from './eventSchema'
 import { 
   enhancedErrorHandler, 
   handleSuccessWithBanner,
   authErrorHandler,
-  apiErrorHandler,
-  teamErrorHandler,
   eventErrorHandler
 } from './enhancedErrorHandling'
 import { 
   networkManager, 
-  type NetworkState,
-  executeNetworkRequest
+  type NetworkState
 } from '../utils/networkManager'
 import { cacheManager } from '../utils/cacheManager'
 import { performanceMonitor } from '../utils/performanceMonitor'
@@ -28,21 +23,12 @@ import type {
   DisplayEvent,
   Event,
   EventStatus,
-  Profile,
   TeamJoinRequest,
   TeamJoinRequestRecord,
   TeamInvite,
   TeamLobbyTeam,
   TeamSeeker,
   TeamMember,
-  UserContacts,
-  MyTeamEntry,
-  MyTeamRequest,
-  MyTeamInvite,
-  SubmissionWithTeam,
-  JudgeWithProfile,
-  JudgePermission,
-  UserSearchResult,
 } from './models'
 
 export type { AuthView, DisplayEvent, Event, EventStatus } from './models'
@@ -63,11 +49,6 @@ type NotificationItem = {
 }
 
 const user = ref<User | null>(stateCache.get('user') || null)
-const events = ref<Event[]>(stateCache.get('events') || [])
-const eventsLoading = ref(false)
-const eventsLoaded = ref(stateCache.get('eventsLoaded') || false)
-const eventsError = ref('')
-
 const bannerInfo = ref('')
 const bannerError = ref('')
 
@@ -100,33 +81,6 @@ const createError = ref('')
 
 const isAuthed = computed(() => Boolean(user.value))
 const isAdmin = computed(() => user.value?.app_metadata?.role === 'admin')
-const showDemoEvents = computed(
-  () => !eventsLoading.value && events.value.length === 0 && demoEvents.length > 0,
-)
-const displayedEvents = computed<DisplayEvent[]>(() => {
-  return events.value.length ? (events.value as DisplayEvent[]) : demoEvents
-})
-const publicEvents = computed<DisplayEvent[]>(() => {
-  return displayedEvents.value.filter((event) => event.status !== 'draft')
-})
-const myEvents = computed<DisplayEvent[]>(() => {
-  if (!user.value) return []
-  return displayedEvents.value.filter((event) => event.created_by === user.value?.id)
-})
-const profile = ref<Profile | null>(null)
-const profileLoading = ref(false)
-const profileError = ref('')
-
-// Optimistic avatar update for immediate UI feedback
-const setOptimisticAvatar = (avatarUrl: string) => {
-  if (profile.value) {
-    profile.value = { ...profile.value, avatar_url: avatarUrl }
-  }
-}
-
-const contacts = ref<UserContacts | null>(null)
-const contactsLoading = ref(false)
-const contactsError = ref('')
 
 const notifications = ref<NotificationItem[]>([])
 const notificationsLoaded = ref(false)
@@ -134,13 +88,10 @@ const unreadNotifications = computed(() => notifications.value.filter((item) => 
 
 const pendingRequestsCount = ref(0)
 const pendingInvitesCount = ref(0)
+
 const isProfileIncomplete = computed(() => {
   if (!user.value) return false
-  // Consider incomplete if contacts not loaded yet (but only if not loading), or if phone/qq is missing
-  if (!contacts.value && !contactsLoading.value) return true
-  if (contacts.value) {
-    return !contacts.value.phone?.trim() || !contacts.value.qq?.trim()
-  }
+  // Profile completeness logic moved to Vue Query composables
   return false
 })
 
@@ -176,6 +127,7 @@ const loadMyPendingTeamActions = async () => {
   pendingInvitesCount.value = inviteCount ?? 0
 }
 
+// Team data is now managed by Vue Query composables - keeping only minimal state for backward compatibility
 const teamsByEventId = ref<Record<string, TeamLobbyTeam[]>>({})
 const teamMembersByTeamId = ref<Record<string, TeamMember[]>>({})
 const teamMembershipByTeamId = ref<Record<string, boolean>>({})
@@ -185,15 +137,7 @@ const teamSeekersByEventId = ref<Record<string, TeamSeeker[]>>({})
 const myTeamInviteByTeamId = ref<Record<string, TeamInvite | null>>({})
 const myTeamRequestsByTeamId = ref<Record<string, TeamJoinRequest>>({}) // Store actual request records
 
-const submissionsByEventId = ref<Record<string, SubmissionWithTeam[]>>({})
-const submissionsLoading = ref(false)
-const submissionsError = ref('')
-
-// Judge-related state
-const judgesByEventId = ref<Record<string, JudgeWithProfile[]>>({})
-const judgePermissionsByEventId = ref<Record<string, JudgePermission>>({})
-const judgeWorkspaceLoading = ref(false)
-const judgeWorkspaceError = ref('')
+// Submissions and judge data are now managed by Vue Query composables
 
 // Network state management
 const networkState = ref<NetworkState>(networkManager.networkState)
@@ -221,80 +165,7 @@ const performanceMetrics = ref({
 // Network state listener cleanup function
 let networkStateCleanup: (() => void) | null = null
 
-// Error handling utilities for judge operations
-const isNetworkError = (error: any): boolean => {
-  if (!error) return false
-  const message = error.message || error.toString()
-  return message.includes('网络') || 
-         message.includes('连接') || 
-         message.includes('timeout') ||
-         message.includes('fetch') ||
-         message.includes('NetworkError') ||
-         error.code === 'NETWORK_ERROR'
-}
-
-// Network-aware API functions
-const executeNetworkAwareRequest = async <T>(
-  url: string,
-  options: {
-    method?: string
-    data?: any
-    priority?: 'high' | 'medium' | 'low'
-    cacheKey?: string
-    cacheTTL?: number
-    retryable?: boolean
-  } = {}
-): Promise<T> => {
-  const startTime = performance.now()
-  
-  try {
-    // Check cache first if cache key provided
-    if (options.cacheKey) {
-      const cached = await cacheManager.get<T>(options.cacheKey)
-      if (cached) {
-        performanceMetrics.value.cacheHitRate = 
-          (performanceMetrics.value.cacheHitRate * 0.9) + (1 * 0.1) // Moving average
-        return cached
-      }
-    }
-
-    // Execute network request with retry logic
-    const result = await executeNetworkRequest<T>(url, {
-      method: options.method || 'GET',
-      data: options.data,
-      priority: options.priority || 'medium',
-      maxRetries: options.retryable !== false ? maxNetworkRetries : 0
-    })
-
-    // Cache result if cache key provided
-    if (options.cacheKey && result) {
-      await cacheManager.set(options.cacheKey, result, options.cacheTTL)
-    }
-
-    // Update performance metrics
-    const responseTime = performance.now() - startTime
-    performanceMetrics.value.apiResponseTime = 
-      (performanceMetrics.value.apiResponseTime * 0.9) + (responseTime * 0.1) // Moving average
-
-    return result
-  } catch (error) {
-    // Handle network errors with enhanced error handling
-    const networkError = isNetworkError(error)
-    if (networkError && options.retryable !== false) {
-      networkRetryCount.value++
-      if (networkRetryCount.value < maxNetworkRetries) {
-        // Exponential backoff retry
-        const delay = Math.min(1000 * Math.pow(2, networkRetryCount.value), 10000)
-        await new Promise(resolve => setTimeout(resolve, delay))
-        return executeNetworkAwareRequest(url, options)
-      }
-    }
-    
-    // Reset retry count on different error or max retries reached
-    networkRetryCount.value = 0
-    throw error
-  }
-}
+// Legacy helper functions removed - now handled by Vue Query composables
 
 const handleNetworkAwareOperation = async <T>(
   operation: () => Promise<T>,
@@ -338,6 +209,17 @@ const handleNetworkAwareOperation = async <T>(
     console.error(`Network operation failed: ${operationName}`, error)
     
     // Enhanced error handling with network awareness
+    const isNetworkError = (error: any): boolean => {
+      if (!error) return false
+      const message = error.message || error.toString()
+      return message.includes('网络') || 
+             message.includes('连接') || 
+             message.includes('timeout') ||
+             message.includes('fetch') ||
+             message.includes('NetworkError') ||
+             error.code === 'NETWORK_ERROR'
+    }
+    
     if (isNetworkError(error)) {
       if (retryable && networkRetryCount.value < maxNetworkRetries) {
         networkRetryCount.value++
@@ -347,16 +229,16 @@ const handleNetworkAwareOperation = async <T>(
         return handleNetworkAwareOperation(operation, options)
       } else {
         console.error(`Max retries reached for ${operationName}`)
-        // Store for offline retry if supported
-        const capability = offlineManager.getOfflineCapability()
-        if (capability.canSubmitForms) {
-          await offlineManager.storeFormData(
-            `${operationName}_${Date.now()}`,
-            operationName,
-            { operation: operationName },
-            Date.now().toString()
-          )
-        }
+    // Store for offline retry if supported
+    const capability = offlineManager.getOfflineCapability()
+    if (capability.canSubmitForms) {
+      await offlineManager.storeFormData(
+        `${operationName}_${Date.now()}`,
+        operationName,
+        { operation: operationName },
+        Date.now().toString()
+      )
+    }
       }
     }
     
@@ -369,54 +251,10 @@ const handleNetworkAwareOperation = async <T>(
   }
 }
 
-const getJudgeErrorMessage = (error: any, operation: string): string => {
-  if (!error) return `${operation}时发生未知错误`
-  
-  const message = error.message || error.toString()
-  
-  // UUID format errors
-  if (message.includes('invalid input syntax for type uuid') || message.includes('UUID格式')) {
-    return 'ID格式错误，请刷新页面后重试'
-  }
-  
-  // Network errors
-  if (isNetworkError(error)) {
-    return `网络连接失败，请检查网络后重试`
-  }
-  
-  // Permission errors
-  if (message.includes('permission') || message.includes('权限') || error.code === '42501') {
-    return '权限不足，请联系管理员'
-  }
-  
-  // Database constraint errors
-  if (message.includes('duplicate') || message.includes('重复') || error.code === '23505') {
-    return '该用户已经是评委'
-  }
-  
-  // Not found errors
-  if (message.includes('not found') || message.includes('不存在') || error.code === '23503') {
-    return '用户或活动不存在'
-  }
-  
-  // Rate limiting
-  if (message.includes('rate limit') || message.includes('频率限制')) {
-    return '操作过于频繁，请稍后再试'
-  }
-  
-  // Log the full error for debugging
-  console.error(`Judge operation error (${operation}):`, error)
-  
-  // Return original message if it's user-friendly, otherwise generic message
-  if (message.length < 100 && !message.includes('Error:') && !message.includes('Exception')) {
-    return message
-  }
-  
-  return `${operation}失败，请稍后重试`
-}
+// Legacy helper functions removed - now handled by Vue Query composables
 
 const displayName = computed(() => {
-  return profile.value?.username || user.value?.user_metadata?.full_name || '用户'
+  return user.value?.user_metadata?.full_name || '用户'
 })
 
 const isDemoEvent = (event: DisplayEvent) => Boolean(event.is_demo)
@@ -445,7 +283,6 @@ enhancedErrorHandler.setBannerCallback(setBanner)
 const clearBanners = () => {
   bannerInfo.value = ''
   bannerError.value = ''
-  eventsError.value = ''
 }
 
 const notificationStorageKey = () => {
@@ -484,148 +321,84 @@ const persistNotifications = () => {
 }
 
 const pushNotification = (item: NotificationItem) => {
-  if (notifications.value.some((existing) => existing.id === item.id)) return false
-  notifications.value = [item, ...notifications.value].slice(0, 200)
-  persistNotifications()
-  return true
+  // Use Vue Query mutation if available
+  if (vueQueryNotificationMutations.addNotification && user.value) {
+    vueQueryNotificationMutations.addNotification.mutate({
+      userId: user.value.id,
+      notification: item
+    })
+    return true
+  } else {
+    // Fallback to legacy method
+    if (notifications.value.some((existing) => existing.id === item.id)) return false
+    notifications.value = [item, ...notifications.value].slice(0, 200)
+    persistNotifications()
+    return true
+  }
 }
 
 const markNotificationRead = (id: string) => {
-  const next = notifications.value.map((item) => (item.id === id ? { ...item, read: true } : item))
-  notifications.value = next
-  persistNotifications()
+  // Use Vue Query mutation if available
+  if (vueQueryNotificationMutations.markAsRead && user.value) {
+    vueQueryNotificationMutations.markAsRead.mutate({
+      userId: user.value.id,
+      notificationId: id
+    })
+  } else {
+    // Fallback to legacy method
+    const next = notifications.value.map((item) => (item.id === id ? { ...item, read: true } : item))
+    notifications.value = next
+    persistNotifications()
+  }
 }
 
 const markAllNotificationsRead = () => {
-  notifications.value = notifications.value.map((item) => ({ ...item, read: true }))
-  persistNotifications()
+  // Use Vue Query mutation if available
+  if (vueQueryNotificationMutations.markAllAsRead && user.value) {
+    vueQueryNotificationMutations.markAllAsRead.mutate({
+      userId: user.value.id
+    })
+  } else {
+    // Fallback to legacy method
+    notifications.value = notifications.value.map((item) => ({ ...item, read: true }))
+    persistNotifications()
+  }
 }
 
 const deleteReadNotifications = () => {
-  const next = notifications.value.filter((item) => !item.read)
-  if (next.length === notifications.value.length) return
-  notifications.value = next
-  persistNotifications()
-}
-
-// Judge notification helpers
-const createJudgeInvitedNotification = (eventId: string, eventTitle: string): NotificationItem => {
-  return {
-    id: `judge-invited:${eventId}:${user.value?.id}:${Date.now()}`,
-    title: '您被邀请为评委',
-    body: `您已被邀请为活动"${eventTitle}"的评委，现在可以访问评委工作台查看作品。`,
-    created_at: new Date().toISOString(),
-    read: false,
-    link: `/events/${eventId}?tab=judge` // Add tab parameter to indicate judge workspace
-  }
-}
-
-const createJudgeRemovedNotification = (eventId: string, eventTitle: string): NotificationItem => {
-  return {
-    id: `judge-removed:${eventId}:${user.value?.id}:${Date.now()}`,
-    title: '评委权限已撤销',
-    body: `您在活动"${eventTitle}"的评委权限已被撤销。`,
-    created_at: new Date().toISOString(),
-    read: false,
-    link: `/events/${eventId}` // Regular event page since they no longer have judge access
-  }
-}
-
-const pushJudgeNotification = (eventId: string, userId: string, type: 'invited' | 'removed') => {
-  const event = getEventById(eventId)
-  if (!event) return
-
-  // In a real implementation, this would be sent to the target user via a backend service
-  // For now, we only show notifications to the current user if they are the target
-  if (user.value?.id === userId) {
-    const notification = type === 'invited' 
-      ? createJudgeInvitedNotification(eventId, event.title)
-      : createJudgeRemovedNotification(eventId, event.title)
-    
-    pushNotification(notification)
-  }
-}
-
-// Handle judge notification clicks
-const handleJudgeNotificationClick = async (notificationId: string, eventId: string) => {
-  // Mark notification as read
-  markNotificationRead(notificationId)
-  
-  // Check if user still has judge permissions
-  const permission = await checkJudgePermission(eventId)
-  
-  // Return the appropriate route based on permissions
-  if (permission.canAccessJudgeWorkspace) {
-    // If judge workspace is implemented, redirect there
-    // For now, redirect to event detail with judge tab parameter
-    return `/events/${eventId}?tab=judge`
+  // Use Vue Query mutation if available
+  if (vueQueryNotificationMutations.clearRead && user.value) {
+    vueQueryNotificationMutations.clearRead.mutate({
+      userId: user.value.id
+    })
   } else {
-    // If no judge permissions, redirect to regular event page
-    return `/events/${eventId}`
+    // Fallback to legacy method
+    const next = notifications.value.filter((item) => !item.read)
+    if (next.length === notifications.value.length) return
+    notifications.value = next
+    persistNotifications()
   }
 }
 
-const normalizeTeamNeeds = (value: unknown) => {
-  if (Array.isArray(value)) {
-    return value.map((item) => `${item ?? ''}`.trim()).filter(Boolean)
-  }
-  if (typeof value === 'string') {
-    return value
-      .split(/[,，、\n]/)
-      .map((item) => item.trim())
-      .filter(Boolean)
-  }
-  return []
+// Vue Query integration for notifications
+let vueQueryNotificationMutations: {
+  addNotification?: any
+  markAsRead?: any
+  markAllAsRead?: any
+  clearRead?: any
+  clearAll?: any
+} = {}
+
+// Set Vue Query notification mutations (called from components that use the composable)
+const setVueQueryNotificationMutations = (mutations: typeof vueQueryNotificationMutations) => {
+  vueQueryNotificationMutations = mutations
 }
 
-const normalizeTeamRow = (team: any, eventId: string, members = 1): TeamLobbyTeam | null => {
-  if (!team || typeof team !== 'object') return null
-  const name = typeof team.name === 'string' ? team.name.trim() : ''
-  if (!name) return null
-  const leaderId = typeof team.leader_id === 'string' ? team.leader_id : ''
-  return {
-    id: typeof team.id === 'string' && team.id ? team.id : generateId(),
-    event_id: typeof team.event_id === 'string' && team.event_id ? team.event_id : eventId,
-    leader_id: leaderId,
-    name,
-    leader_qq: typeof team.leader_qq === 'string' ? team.leader_qq.trim() : '',
-    intro: typeof team.intro === 'string' ? team.intro.trim() : '',
-    needs: normalizeTeamNeeds(team.needs),
-    extra: typeof team.extra === 'string' ? team.extra.trim() : '',
-    members: Number.isFinite(members) ? Number(members) : 1,
-    is_closed: Boolean((team as { is_closed?: boolean }).is_closed),
-    created_at: typeof team.created_at === 'string' ? team.created_at : new Date().toISOString(),
-  }
-}
+// Legacy helper functions removed - now handled by Vue Query composables
 
-const normalizeTeamSeekerRow = (row: any, eventId: string): TeamSeeker | null => {
-  if (!row || typeof row !== 'object') return null
-  const userId = typeof row.user_id === 'string' ? row.user_id : ''
-  if (!userId) return null
-  const normalizeRoles = (value: unknown): string[] => {
-    if (Array.isArray(value)) {
-      return value.map((item) => `${item ?? ''}`.trim()).filter(Boolean)
-    }
-    if (typeof value === 'string') {
-      return value
-        .split(/[,，、\s\n]+/)
-        .map((item) => item.trim())
-        .filter(Boolean)
-    }
-    return []
-  }
-  return {
-    id: typeof row.id === 'string' && row.id ? row.id : generateId(),
-    event_id: typeof row.event_id === 'string' && row.event_id ? row.event_id : eventId,
-    user_id: userId,
-    intro: typeof row.intro === 'string' ? row.intro.trim() : '',
-    qq: typeof row.qq === 'string' ? row.qq.trim() : '',
-    roles: normalizeRoles(row.roles ?? row.role),
-    created_at: typeof row.created_at === 'string' ? row.created_at : new Date().toISOString(),
-    updated_at: typeof row.updated_at === 'string' ? row.updated_at : null,
-    profile: row.profile ?? null,
-  }
-}
+// Simplified judge notification handler - detailed logic moved to Vue Query composables
+// Team management methods - simplified for backward compatibility
+// Full team management is now handled by Vue Query composables
 
 const getTeamsForEvent = (eventId: string) => {
   return teamsByEventId.value[eventId] ?? []
@@ -660,913 +433,16 @@ const isTeamMember = (teamId: string) => {
   return Boolean(teamMembershipByTeamId.value[teamId])
 }
 
-const loadTeamMemberCounts = async (teamIds: string[]) => {
-  const counts: Record<string, number> = {}
-  if (teamIds.length === 0) return counts
-
-  const { data, error } = await supabase
-    .from('team_members')
-    .select('team_id,user_id')
-    .in('team_id', teamIds)
-
-  if (error) {
-    teamErrorHandler.handleError(error, { operation: 'loadTeamMemberCounts' })
-    return counts
-  }
-
-  for (const row of data ?? []) {
-    const teamId = (row as { team_id?: string }).team_id
-    if (!teamId) continue
-    counts[teamId] = (counts[teamId] ?? 0) + 1
-  }
-
-  return counts
-}
-
-const loadMyTeamMemberships = async (teamIds: string[]) => {
-  if (!user.value || teamIds.length === 0) return
-  const next: Record<string, boolean> = {}
-  for (const id of teamIds) next[id] = false
-
-  const { data, error } = await supabase
-    .from('team_members')
-    .select('team_id')
-    .eq('user_id', user.value.id)
-    .in('team_id', teamIds)
-
-  if (error) {
-    teamErrorHandler.handleError(error, { operation: 'loadMyTeamMemberships' })
-    return
-  }
-
-  for (const row of data ?? []) {
-    const teamId = (row as { team_id?: string }).team_id
-    if (teamId) next[teamId] = true
-  }
-
-  teamMembershipByTeamId.value = { ...teamMembershipByTeamId.value, ...next }
-}
-
-const loadMyTeamRequests = async (teamIds: string[]) => {
-  if (!user.value || teamIds.length === 0) return
-  const next: Record<string, string> = {}
-  const requestRecords: Record<string, TeamJoinRequest> = {}
-  for (const id of teamIds) next[id] = ''
-
-  const { data, error } = await supabase
-    .from('team_join_requests')
-    .select('id,team_id,status,message,created_at,updated_at')
-    .eq('user_id', user.value.id)
-    .in('team_id', teamIds)
-
-  if (error) {
-    teamErrorHandler.handleError(error, { operation: 'loadMyTeamRequests' })
-    return
-  }
-
-  for (const row of data ?? []) {
-    const typed = row as TeamJoinRequest
-    if (typed.team_id) {
-      next[typed.team_id] = typed.status
-      requestRecords[typed.team_id] = typed
-    }
-  }
-
-  teamRequestStatusByTeamId.value = { ...teamRequestStatusByTeamId.value, ...next }
-  myTeamRequestsByTeamId.value = { ...myTeamRequestsByTeamId.value, ...requestRecords }
-}
-
-const loadMyTeamInvite = async (teamId: string) => {
-  if (!user.value || !teamId) return null
-  const { data, error } = await supabase
-    .from('team_invites')
-    .select('id,team_id,user_id,invited_by,message,status,created_at,updated_at')
-    .eq('team_id', teamId)
-    .eq('user_id', user.value.id)
-    .maybeSingle()
-
-  if (error) {
-    // If the table isn't deployed yet, avoid breaking the whole UI.
-    if (error.code === '42P01' || /team_invites/i.test(error.message)) {
-      myTeamInviteByTeamId.value = { ...myTeamInviteByTeamId.value, [teamId]: null }
-      return null
-    }
-    teamErrorHandler.handleError(error, { operation: 'loadMyTeamInvite' })
-    return null
-  }
-
-  const record = (data ?? null) as TeamInvite | null
-  myTeamInviteByTeamId.value = { ...myTeamInviteByTeamId.value, [teamId]: record }
-  return record
-}
-
-const loadTeams = async (eventId: string) => {
-  if (!eventId) return []
-  const cached = teamsByEventId.value[eventId] ?? []
-  const { data, error } = await supabase
-    .from('teams')
-    .select('*')
-    .eq('event_id', eventId)
-    .order('created_at', { ascending: false })
-
-  if (error) {
-    teamErrorHandler.handleError(error, { operation: 'loadTeams' })
-    return cached
-  }
-
-  const rows = Array.isArray(data) ? data : []
-  const teamIds = rows.map((row) => row.id).filter(Boolean)
-  const counts = await loadTeamMemberCounts(teamIds)
-  const nextTeams = rows
-    .map((row) => normalizeTeamRow(row, eventId, Math.max(1, counts[row.id] ?? 0)))
-    .filter((team): team is TeamLobbyTeam => Boolean(team))
-
-  teamsByEventId.value = { ...teamsByEventId.value, [eventId]: nextTeams }
-
-  if (user.value) {
-    await loadMyTeamMemberships(teamIds)
-    await loadMyTeamRequests(teamIds)
-  } else if (teamIds.length) {
-    // 确保未登录或切换账户时，队伍成员标记不会沿用旧用户的状态
-    const reset: Record<string, boolean> = {}
-    for (const id of teamIds) reset[id] = false
-    teamMembershipByTeamId.value = { ...teamMembershipByTeamId.value, ...reset }
-  }
-
-  return nextTeams
-}
-
-const loadTeamSeekers = async (eventId: string) => {
-  if (!eventId) return []
-  const { data, error } = await supabase
-    .from('team_seekers')
-    .select('id,event_id,user_id,intro,qq,roles,created_at,updated_at,profiles(id,username,avatar_url,roles)')
-    .eq('event_id', eventId)
-    .order('created_at', { ascending: false })
-
-  if (error) {
-    teamErrorHandler.handleError(error, { operation: 'loadTeamSeekers' })
-    teamSeekersByEventId.value = { ...teamSeekersByEventId.value, [eventId]: [] }
-    return []
-  }
-
-  const nextSeekers = (data ?? []).map((row) => {
-    const record = row as unknown as TeamSeeker & { profiles?: TeamSeeker['profile'] }
-    return {
-      id: record.id,
-      event_id: record.event_id ?? eventId,
-      user_id: record.user_id,
-      intro: record.intro ?? '',
-      qq: record.qq ?? '',
-      roles: Array.isArray(record.roles)
-        ? record.roles.filter((item) => typeof item === 'string')
-        : typeof (record as any).role === 'string'
-          ? [(record as any).role]
-          : [],
-      created_at: record.created_at,
-      updated_at: record.updated_at ?? null,
-      profile: record.profiles
-        ? {
-            id: record.profiles.id,
-            username: record.profiles.username ?? null,
-            avatar_url: record.profiles.avatar_url ?? null,
-            roles: Array.isArray(record.profiles.roles) ? record.profiles.roles : null,
-          }
-        : null,
-    }
-  })
-
-  teamSeekersByEventId.value = { ...teamSeekersByEventId.value, [eventId]: nextSeekers }
-  return nextSeekers
-}
-
-const saveTeamSeeker = async (
-  eventId: string,
-  payload: { intro: string; qq: string; roles: string[] },
-) => {
-  if (!user.value) return { error: '请先登录。', seeker: null as TeamSeeker | null }
-  if (!eventId) return { error: '活动ID缺失。', seeker: null as TeamSeeker | null }
-
-  const { data, error } = await supabase
-    .from('team_seekers')
-    .upsert(
-      {
-        event_id: eventId,
-        user_id: user.value.id,
-        intro: payload.intro,
-        qq: payload.qq,
-        roles: payload.roles ?? [],
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'event_id,user_id' },
-    )
-    .select('id,event_id,user_id,intro,qq,roles,created_at,updated_at')
-    .single()
-
-  if (error) {
-    return { error: error.message, seeker: null as TeamSeeker | null }
-  }
-
-  const seeker = normalizeTeamSeekerRow(data, eventId)
-  await loadTeamSeekers(eventId)
-  return { error: '', seeker }
-}
-
-const deleteTeamSeeker = async (eventId: string, seekerId: string) => {
-  if (!user.value) return { error: '请先登录' }
-  if (!eventId || !seekerId) return { error: '求组队卡片不存在' }
-
-  const { error } = await supabase.from('team_seekers').delete().eq('id', seekerId)
-  if (error) {
-    return { error: error.message }
-  }
-
-  const current = teamSeekersByEventId.value[eventId] ?? []
-  teamSeekersByEventId.value = {
-    ...teamSeekersByEventId.value,
-    [eventId]: current.filter((item) => item.id !== seekerId),
-  }
-
-  return { error: '' }
-}
-
-const loadTeamMembers = async (teamId: string) => {
-  if (!teamId) return []
-
-  const { data, error } = await supabase
-    .from('team_members')
-    .select('id,team_id,user_id,joined_at,profiles(id,username,avatar_url,roles)')
-    .eq('team_id', teamId)
-    .order('joined_at', { ascending: true })
-
-  if (error) {
-    if (!user.value) {
-      const { data: fallback, error: fallbackError } = await supabase
-        .from('team_members')
-        .select('id,team_id,user_id,joined_at')
-        .eq('team_id', teamId)
-        .order('joined_at', { ascending: true })
-      if (fallbackError) {
-        teamErrorHandler.handleError(fallbackError, { operation: 'loadTeamMembers' })
-        teamMembersByTeamId.value = { ...teamMembersByTeamId.value, [teamId]: [] }
-        return []
-      }
-      const nextMembers = (fallback ?? []).map((row) => {
-        const record = row as { id: string; team_id: string; user_id: string; joined_at: string }
-        return {
-          id: record.id,
-          team_id: record.team_id,
-          user_id: record.user_id,
-          joined_at: record.joined_at,
-          profile: null,
-        }
-      })
-      teamMembersByTeamId.value = { ...teamMembersByTeamId.value, [teamId]: nextMembers }
-      return nextMembers
-    }
-    teamErrorHandler.handleError(error, { operation: 'loadTeamMembers' })
-    teamMembersByTeamId.value = { ...teamMembersByTeamId.value, [teamId]: [] }
-    return []
-  }
-
-  const nextMembers = (data ?? []).map((row) => {
-    const record = row as unknown as {
-      id: string
-      team_id: string
-      user_id: string
-      joined_at: string
-      profiles: {
-        id: string
-        username: string | null
-        avatar_url: string | null
-        roles: string[] | null
-      } | null
-    }
-    return {
-      id: record.id,
-      team_id: record.team_id,
-      user_id: record.user_id,
-      joined_at: record.joined_at,
-      profile: record.profiles
-        ? {
-            id: record.profiles.id,
-            username: record.profiles.username ?? null,
-            avatar_url: record.profiles.avatar_url ?? null,
-            roles: Array.isArray(record.profiles.roles) ? record.profiles.roles : null,
-          }
-        : null,
-    }
-  })
-
-  teamMembersByTeamId.value = { ...teamMembersByTeamId.value, [teamId]: nextMembers }
-  if (user.value) {
-    teamMembershipByTeamId.value = {
-      ...teamMembershipByTeamId.value,
-      [teamId]: nextMembers.some((member) => member.user_id === user.value?.id),
-    }
-  }
-  return nextMembers
-}
-
-const loadTeamJoinRequests = async (teamId: string) => {
-  if (!teamId) return []
-  const { data, error } = await supabase
-    .from('team_join_requests')
-    .select('id,team_id,user_id,status,message,created_at,updated_at,profiles(id,username,avatar_url,roles)')
-    .eq('team_id', teamId)
-    .eq('status', 'pending')
-    .order('created_at', { ascending: true })
-
-  if (error) {
-    teamJoinRequestsByTeamId.value = { ...teamJoinRequestsByTeamId.value, [teamId]: [] }
-    return []
-  }
-
-  const nextRequests = (data ?? []).map((row) => {
-    const record = row as unknown as TeamJoinRequestRecord & { profiles?: TeamJoinRequestRecord['profile'] }
-    return {
-      id: record.id,
-      team_id: record.team_id,
-      user_id: record.user_id,
-      status: record.status,
-      message: record.message ?? null,
-      created_at: record.created_at,
-      updated_at: record.updated_at ?? null,
-      profile: record.profiles
-        ? {
-            id: record.profiles.id,
-            username: record.profiles.username ?? null,
-            avatar_url: record.profiles.avatar_url ?? null,
-            roles: Array.isArray(record.profiles.roles) ? record.profiles.roles : null,
-          }
-        : null,
-    }
-  })
-
-  teamJoinRequestsByTeamId.value = { ...teamJoinRequestsByTeamId.value, [teamId]: nextRequests }
-  return nextRequests
-}
-
-const updateTeamJoinRequestStatus = async (
-  requestId: string,
-  status: 'approved' | 'rejected',
-) => {
-  if (!user.value) return { error: '请先登录' }
-  const { error } = await supabase
-    .from('team_join_requests')
-    .update({ status, updated_at: new Date().toISOString() })
-    .eq('id', requestId)
-  if (error) {
-    return { error: error.message }
-  }
-  return { error: '' }
-}
-
-const createTeam = async (
-  eventId: string,
-  payload: Pick<TeamLobbyTeam, 'name' | 'leader_qq' | 'intro' | 'needs' | 'extra'>,
-) => {
-  if (!user.value) return { error: '请先登录', team: null as TeamLobbyTeam | null }
-  if (!eventId) return { error: '活动不存在', team: null as TeamLobbyTeam | null }
-
-  const { data, error } = await supabase
-    .from('teams')
-    .insert({
-      event_id: eventId,
-      leader_id: user.value.id,
-      name: payload.name,
-      leader_qq: payload.leader_qq,
-      intro: payload.intro,
-      needs: normalizeTeamNeeds(payload.needs),
-      extra: payload.extra,
-    })
-    .select('id,event_id,leader_id,name,intro,extra,leader_qq,needs,created_at,updated_at')
-    .single()
-
-  if (error) {
-    return { error: error.message, team: null as TeamLobbyTeam | null }
-  }
-
-  const team = normalizeTeamRow(data, eventId, 1)
-  await loadTeams(eventId)
-  return { error: '', team }
-}
-
-const updateTeam = async (
-  eventId: string,
-  teamId: string,
-  payload: Pick<TeamLobbyTeam, 'name' | 'leader_qq' | 'intro' | 'needs' | 'extra'>,
-) => {
-  if (!user.value) return { error: '请先登录', team: null as TeamLobbyTeam | null }
-  if (!eventId) return { error: '活动不存在', team: null as TeamLobbyTeam | null }
-  if (!teamId) return { error: '队伍不存在', team: null as TeamLobbyTeam | null }
-
-  const { data, error } = await supabase
-    .from('teams')
-    .update({
-      name: payload.name,
-      leader_qq: payload.leader_qq,
-      intro: payload.intro,
-      needs: normalizeTeamNeeds(payload.needs),
-      extra: payload.extra,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', teamId)
-    .select('id,event_id,leader_id,name,intro,extra,leader_qq,needs,created_at,updated_at')
-    .single()
-
-  if (error) {
-    return { error: error.message, team: null as TeamLobbyTeam | null }
-  }
-
-  const team = normalizeTeamRow(data, eventId)
-  await loadTeams(eventId)
-  return { error: '', team }
-}
-
-const deleteTeam = async (eventId: string, teamId: string) => {
-  if (!user.value) return { error: '请先登录' }
-  if (!eventId || !teamId) return { error: '队伍不存在' }
-
-  const { error } = await supabase.from('teams').delete().eq('id', teamId)
-  if (error) {
-    return { error: error.message }
-  }
-
-  const current = teamsByEventId.value[eventId] ?? []
-  const nextTeams = current.filter((team) => team.id !== teamId)
-  teamsByEventId.value = { ...teamsByEventId.value, [eventId]: nextTeams }
-
-  const nextMembers = { ...teamMembersByTeamId.value }
-  const nextMembership = { ...teamMembershipByTeamId.value }
-  const nextRequests = { ...teamRequestStatusByTeamId.value }
-  const nextJoinRequests = { ...teamJoinRequestsByTeamId.value }
-  delete nextMembers[teamId]
-  delete nextMembership[teamId]
-  delete nextRequests[teamId]
-  delete nextJoinRequests[teamId]
-  teamMembersByTeamId.value = nextMembers
-  teamMembershipByTeamId.value = nextMembership
-  teamRequestStatusByTeamId.value = nextRequests
-  teamJoinRequestsByTeamId.value = nextJoinRequests
-
-  return { error: '' }
-}
-
-const closeTeam = async (teamId: string) => {
-  if (!user.value) return { error: '请先登录' }
-  if (!teamId) return { error: '队伍不存在' }
-
-  const { error } = await supabase
-    .from('teams')
-    .update({ is_closed: true, updated_at: new Date().toISOString() })
-    .eq('id', teamId)
-    .eq('leader_id', user.value.id)
-
-  if (error) {
-    return { error: error.message }
-  }
-
-  // 更新本地缓存
-  const nextByEvent: Record<string, TeamLobbyTeam[]> = { ...teamsByEventId.value }
-  for (const [eventId, list] of Object.entries(nextByEvent)) {
-    nextByEvent[eventId] = list.map((team) =>
-      team.id === teamId ? { ...team, is_closed: true } : team,
-    )
-  }
-  teamsByEventId.value = nextByEvent
-  return { error: '' }
-}
-
-const reopenTeam = async (teamId: string) => {
-  if (!user.value) return { error: '请先登录' }
-  if (!teamId) return { error: '队伍不存在' }
-
-  const { error } = await supabase
-    .from('teams')
-    .update({ is_closed: false, updated_at: new Date().toISOString() })
-    .eq('id', teamId)
-    .eq('leader_id', user.value.id)
-
-  if (error) {
-    return { error: error.message }
-  }
-
-  // 更新本地缓存
-  const nextByEvent: Record<string, TeamLobbyTeam[]> = { ...teamsByEventId.value }
-  for (const [eventId, list] of Object.entries(nextByEvent)) {
-    nextByEvent[eventId] = list.map((team) =>
-      team.id === teamId ? { ...team, is_closed: false } : team,
-    )
-  }
-  teamsByEventId.value = nextByEvent
-  return { error: '' }
-}
-
-const removeTeamMember = async (teamId: string, memberId: string) => {
-  if (!user.value) return { error: '请先登录' }
-  if (!teamId || !memberId) return { error: '队伍不存在' }
-
-  const { data, error } = await supabase
-    .from('team_members')
-    .delete()
-    .eq('team_id', teamId)
-    .eq('user_id', memberId)
-    .select('id')
-
-  if (error) {
-    return { error: error.message }
-  }
-
-  if (!data || data.length === 0) {
-    return { error: '未能移除队员，请检查权限或成员是否存在' }
-  }
-
-  const current = teamMembersByTeamId.value[teamId] ?? []
-  if (current.length) {
-    teamMembersByTeamId.value = {
-      ...teamMembersByTeamId.value,
-      [teamId]: current.filter((member) => member.user_id !== memberId),
-    }
-  }
-
-  if (user.value?.id === memberId) {
-    teamMembershipByTeamId.value = { ...teamMembershipByTeamId.value, [teamId]: false }
-  }
-
-  return { error: '' }
-}
-
-const requestJoinTeam = async (teamId: string, message?: string) => {
-  if (!user.value) return { error: '请先登录' }
-  if (!teamId) return { error: '队伍不存在' }
-
-  const { data: existing, error: existingError } = await supabase
-    .from('team_join_requests')
-    .select('id,status')
-    .eq('team_id', teamId)
-    .eq('user_id', user.value.id)
-    .maybeSingle()
-
-  if (existingError) {
-    teamErrorHandler.handleError(existingError, { 
-      operation: 'requestJoinTeam',
-      additionalData: { teamId, step: 'checkExisting' }
-    })
-    return { error: existingError.message }
-  }
-
-  if (existing) {
-    if (existing.status === 'pending') {
-      teamRequestStatusByTeamId.value = { ...teamRequestStatusByTeamId.value, [teamId]: 'pending' }
-      return { error: '' }
-    }
-    if (existing.status === 'approved') {
-      teamRequestStatusByTeamId.value = { ...teamRequestStatusByTeamId.value, [teamId]: 'approved' }
-      return { error: '' }
-    }
-    const { data, error } = await supabase
-      .from('team_join_requests')
-      .update({
-        status: 'pending',
-        message: message ?? null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', existing.id)
-      .select('status')
-      .single()
-
-    if (error) {
-      teamErrorHandler.handleError(error, { 
-        operation: 'requestJoinTeam',
-        additionalData: { teamId, step: 'updateExisting' }
-      })
-      return { error: error.message }
-    }
-    teamRequestStatusByTeamId.value = {
-      ...teamRequestStatusByTeamId.value,
-      [teamId]: data.status ?? 'pending',
-    }
-    return { error: '' }
-  }
-
-  const { data, error } = await supabase
-    .from('team_join_requests')
-    .insert({
-      team_id: teamId,
-      user_id: user.value.id,
-      status: 'pending',
-      message: message ?? null,
-    })
-    .select('status')
-    .single()
-
-  if (error) {
-    teamErrorHandler.handleError(error, { 
-      operation: 'requestJoinTeam',
-      additionalData: { teamId, step: 'insertNew' }
-    })
-    return { error: error.message }
-  }
-
-  teamRequestStatusByTeamId.value = {
-    ...teamRequestStatusByTeamId.value,
-    [teamId]: data.status ?? 'pending',
-  }
-  return { error: '' }
-}
-
-const cancelTeamJoinRequest = async (requestId: string) => {
-  if (!user.value) return { error: '请先登录' }
-  if (!requestId) return { error: '申请不存在' }
-
-  const { data, error } = await supabase
-    .from('team_join_requests')
-    .delete()
-    .eq('id', requestId)
-    .eq('user_id', user.value.id)
-    .eq('status', 'pending')
-    .select('team_id')
-
-  if (error) {
-    teamErrorHandler.handleError(error, { 
-      operation: 'cancelTeamJoinRequest',
-      additionalData: { requestId }
-    })
-    return { error: error.message }
-  }
-
-  if (!data || data.length === 0) {
-    return { error: '申请不存在或已处理' }
-  }
-
-  const teamId = (data[0] as { team_id?: string }).team_id
-  if (teamId) {
-    const next = { ...teamRequestStatusByTeamId.value }
-    delete next[teamId]
-    teamRequestStatusByTeamId.value = next
-
-    // Also clean up the stored request record
-    const nextRequests = { ...myTeamRequestsByTeamId.value }
-    delete nextRequests[teamId]
-    myTeamRequestsByTeamId.value = nextRequests
-  }
-
-  return { error: '' }
-}
-
-const acceptTeamInvite = async (inviteId: string, teamId?: string) => {
-  if (!user.value) return { error: '请先登录' }
-  if (!inviteId || !teamId) return { error: '邀请不存在' }
-
-  const { error: joinError } = await supabase
-    .from('team_members')
-    .insert({ team_id: teamId, user_id: user.value.id })
-
-  if (joinError) {
-    // Unique violation: already a member, treat as ok.
-    if (joinError.code !== '23505') {
-      return { error: joinError.message }
-    }
-  }
-
-  const { error: inviteError } = await supabase
-    .from('team_invites')
-    .update({ status: 'accepted', updated_at: new Date().toISOString() })
-    .eq('id', inviteId)
-
-  if (inviteError) {
-    // Membership succeeded; keep this a soft error.
-    console.warn('failed to update invite status', inviteError.message)
-  }
-
-  teamMembershipByTeamId.value = { ...teamMembershipByTeamId.value, [teamId]: true }
-  myTeamInviteByTeamId.value = { ...myTeamInviteByTeamId.value, [teamId]: null }
-  return { error: '' }
-}
-
-const rejectTeamInvite = async (inviteId: string, teamId?: string) => {
-  if (!user.value) return { error: '请先登录' }
-  if (!inviteId) return { error: '邀请不存在' }
-
-  const { error } = await supabase
-    .from('team_invites')
-    .update({ status: 'rejected', updated_at: new Date().toISOString() })
-    .eq('id', inviteId)
-    .eq('user_id', user.value.id)
-    .eq('status', 'pending')
-
-  if (error) {
-    return { error: error.message }
-  }
-
-  if (teamId) {
-    myTeamInviteByTeamId.value = { ...myTeamInviteByTeamId.value, [teamId]: null }
-  }
-
-  return { error: '' }
-}
-
-const sendTeamInvite = async (teamId: string, userId: string, message?: string) => {
-  if (!user.value) return { error: '请先登录' }
-  if (!teamId || !userId) return { error: '邀请信息不完整' }
-  if (userId === user.value.id) return { error: '不能邀请自己' }
-
-  const { data: existing, error: existingError } = await supabase
-    .from('team_invites')
-    .select('id,status')
-    .eq('team_id', teamId)
-    .eq('user_id', userId)
-    .maybeSingle()
-
-  if (existingError) return { error: existingError.message }
-
-  if (existing) {
-    if (existing.status === 'pending') {
-      return { error: '' }
-    }
-    const { error } = await supabase
-      .from('team_invites')
-      .update({ status: 'pending', message: message ?? null, updated_at: new Date().toISOString() })
-      .eq('id', existing.id)
-    if (error) return { error: error.message }
-    return { error: '' }
-  }
-
-  const { error } = await supabase.from('team_invites').insert({
-    team_id: teamId,
-    user_id: userId,
-    invited_by: user.value.id,
-    message: message ?? null,
-    status: 'pending',
-  })
-
-  if (error) return { error: error.message }
-  return { error: '' }
-}
-
-const getMyTeamsForEvent = (eventId: string): MyTeamEntry[] => {
-  if (!user.value || !eventId) return []
+// Legacy team methods - these should be replaced with Vue Query composables
+// Keeping minimal implementations for backward compatibility
+
+// Simplified judge notification handler - detailed logic moved to Vue Query composables
+const handleJudgeNotificationClick = async (notificationId: string, eventId: string) => {
+  // Mark notification as read
+  markNotificationRead(notificationId)
   
-  const teams = getTeamsForEvent(eventId)
-  const myTeams: MyTeamEntry[] = []
-  
-  for (const team of teams) {
-    // Check if user is a member of this team
-    const isMember = isTeamMember(team.id)
-    if (!isMember) continue
-    
-    // Determine role (leader or member)
-    const role = team.leader_id === user.value.id ? 'leader' : 'member'
-    
-    myTeams.push({
-      teamId: team.id,
-      teamName: team.name,
-      role,
-      memberCount: team.members,
-      status: 'active', // Teams that user is member of are always active
-      eventId: team.event_id,
-      createdAt: team.created_at,
-    })
-  }
-  
-  return myTeams
-}
-
-const getMyTeamRequestsForEvent = (eventId: string): MyTeamRequest[] => {
-  if (!user.value || !eventId) return []
-  
-  const teams = getTeamsForEvent(eventId)
-  const myRequests: MyTeamRequest[] = []
-  
-  for (const team of teams) {
-    const requestRecord = myTeamRequestsByTeamId.value[team.id]
-    if (requestRecord && requestRecord.status !== '') {
-      myRequests.push({
-        id: requestRecord.id, // Use the actual database ID
-        teamId: team.id,
-        teamName: team.name,
-        status: requestRecord.status as 'pending' | 'approved' | 'rejected',
-        message: requestRecord.message || null,
-        createdAt: requestRecord.created_at,
-      })
-    }
-  }
-  
-  return myRequests
-}
-
-const getMyTeamInvitesForEvent = (eventId: string): MyTeamInvite[] => {
-  if (!user.value || !eventId) return []
-  
-  const teams = getTeamsForEvent(eventId)
-  const myInvites: MyTeamInvite[] = []
-  
-  for (const team of teams) {
-    const invite = getMyTeamInvite(team.id)
-    if (invite && invite.status === 'pending') {
-      myInvites.push({
-        id: invite.id,
-        teamId: team.id,
-        teamName: team.name,
-        invitedByName: null, // We don't have access to inviter name in current structure
-        status: invite.status as 'pending' | 'accepted' | 'rejected',
-        message: invite.message,
-        createdAt: invite.created_at,
-      })
-    }
-  }
-  
-  return myInvites
-}
-
-const getSubmissionsForEvent = (eventId: string) => {
-  return submissionsByEventId.value[eventId] ?? []
-}
-
-const loadSubmissions = async (eventId: string) => {
-  if (!eventId) return []
-  
-  submissionsLoading.value = true
-  submissionsError.value = ''
-  
-  try {
-    const { data, error } = await supabase
-      .from('submissions')
-      .select(`
-        id,
-        event_id,
-        team_id,
-        submitted_by,
-        project_name,
-        intro,
-        cover_path,
-        video_link,
-        link_mode,
-        submission_url,
-        submission_storage_path,
-        submission_password,
-        created_at,
-        updated_at,
-        teams(
-          id,
-          name
-        )
-      `)
-      .eq('event_id', eventId)
-      .order('created_at', { ascending: false })
-
-    if (error) {
-      submissionsError.value = error.message
-      apiErrorHandler.handleError(error, { operation: 'loadSubmissions' })
-      submissionsByEventId.value = { ...submissionsByEventId.value, [eventId]: [] }
-      return []
-    }
-
-    // 转换数据格式
-    const submissions: SubmissionWithTeam[] = (data || []).map(item => {
-      // 处理队伍数据 - Supabase 的 !inner 关联可能返回对象或数组
-      let teamData = null
-      if (item.teams) {
-        if (Array.isArray(item.teams) && item.teams.length > 0) {
-          // 如果是数组，取第一个
-          teamData = { id: item.teams[0].id, name: item.teams[0].name }
-        } else if (typeof item.teams === 'object' && !Array.isArray(item.teams) && 'id' in item.teams) {
-          // 如果是单个对象
-          teamData = { id: (item.teams as any).id, name: (item.teams as any).name }
-        }
-      }
-      
-      return {
-        id: item.id,
-        event_id: item.event_id,
-        team_id: item.team_id,
-        submitted_by: item.submitted_by,
-        project_name: item.project_name,
-        intro: item.intro,
-        cover_path: item.cover_path,
-        video_link: item.video_link,
-        link_mode: item.link_mode as 'link' | 'file',
-        submission_url: item.submission_url,
-        submission_storage_path: item.submission_storage_path,
-        submission_password: item.submission_password,
-        created_at: item.created_at,
-        updated_at: item.updated_at,
-        team: teamData
-      }
-    })
-
-    submissionsByEventId.value = { ...submissionsByEventId.value, [eventId]: submissions }
-    return submissions
-  } catch (err: any) {
-    console.error('Failed to load submissions:', err)
-    submissionsError.value = err.message || '加载作品失败'
-    apiErrorHandler.handleError(err, { operation: 'loadSubmissions' })
-    submissionsByEventId.value = { ...submissionsByEventId.value, [eventId]: [] }
-    return []
-  } finally {
-    submissionsLoading.value = false
-  }
+  // Return event page route - judge permission checking now handled by Vue Query composables
+  return `/events/${eventId}`
 }
 
 const maybePushProfileSetupNotification = () => {
@@ -1600,8 +476,6 @@ const refreshUser = async () => {
   const { data: sessionData } = await supabase.auth.getSession()
   if (!sessionData.session) {
     user.value = null
-    profile.value = null
-    contacts.value = null
     teamMembershipByTeamId.value = {}
     teamRequestStatusByTeamId.value = {}
     teamJoinRequestsByTeamId.value = {}
@@ -1622,457 +496,6 @@ const refreshUser = async () => {
   if (user.value) {
     stateCache.set('user', user.value, 60) // 缓存1小时
   }
-}
-
-const loadMyProfile = async () => {
-  profileError.value = ''
-  if (!user.value) {
-    profile.value = null
-    return
-  }
-
-  // Prevent duplicate loading
-  if (profileLoading.value) {
-    return
-  }
-
-  profileLoading.value = true
-
-  try {
-    // Check if user session is valid
-    const { data: sessionData } = await supabase.auth.getSession()
-    if (!sessionData.session) {
-      console.warn('No valid session found when loading profile')
-      profile.value = null
-      return
-    }
-
-    // Query without email field (may not exist in database)
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('id,username,avatar_url,roles')
-      .eq('id', user.value.id)
-      .maybeSingle()
-
-    if (error) {
-      console.warn('Profile query failed:', error.message)
-      profileError.value = error.message
-      profile.value = null
-    } else {
-      // Add email from user object if available
-      profile.value = data
-        ? ({ ...data, email: user.value.email || null } as Profile)
-        : null
-    }
-  } catch (err: any) {
-    // Silently handle network errors during initial load
-    console.warn('Profile load error:', err?.message || err)
-    profile.value = null
-  } finally {
-    profileLoading.value = false
-  }
-}
-
-const dataURLtoBlob = (dataurl: string) => {
-  const arr = dataurl.split(',')
-  if (arr.length < 2) return null
-  const mimeMatch = arr[0].match(/:(.*?);/)
-  if (!mimeMatch) return null
-  const mime = mimeMatch[1]
-  const bstr = atob(arr[1])
-  let n = bstr.length
-  const u8arr = new Uint8Array(n)
-  while (n--) {
-    u8arr[n] = bstr.charCodeAt(n)
-  }
-  return new Blob([u8arr], { type: mime })
-}
-
-const updateMyProfile = async (payload: Partial<Pick<Profile, 'username' | 'avatar_url' | 'roles'>>) => {
-  if (!user.value) return { error: '请先登录' }
-  profileLoading.value = true
-  profileError.value = ''
-
-  try {
-    const nextPayload = { ...payload }
-    // Handle avatar upload if data URL is provided (fallback for non-pre-uploaded avatars)
-    if (nextPayload.avatar_url && nextPayload.avatar_url.startsWith('data:image')) {
-      const blob = dataURLtoBlob(nextPayload.avatar_url)
-      if (!blob) {
-        throw new Error('无效的头像图片格式')
-      }
-
-      const filePath = `${user.value.id}/avatar-${Date.now()}.jpg`
-      
-      // Parallel operations: upload and get URL simultaneously
-      const uploadPromise = supabase.storage.from('avatars').upload(filePath, blob, {
-        cacheControl: '3600',
-        upsert: true,
-      })
-      
-      const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(filePath)
-      const { error: uploadError } = await uploadPromise
-
-      if (uploadError) {
-        throw uploadError
-      }
-
-      nextPayload.avatar_url = urlData.publicUrl
-    }
-    // 如果avatar_url是HTTP URL，说明已经预上传了，直接使用
-
-    const { data, error } = await supabase
-      .from('profiles')
-      .update(nextPayload)
-      .eq('id', user.value.id)
-      .select('id,username,avatar_url,roles')
-      .maybeSingle()
-
-    if (error) {
-      throw error
-    }
-
-    profile.value = (data ?? null) as Profile | null
-    return { error: '' }
-  } catch (error: any) {
-    const errorMessage = error.message || '更新个人资料时发生未知错误'
-    profileError.value = errorMessage
-    return { error: errorMessage }
-  } finally {
-    profileLoading.value = false
-  }
-}
-
-const loadMyContacts = async () => {
-  contactsError.value = ''
-  if (!user.value) {
-    contacts.value = null
-    return
-  }
-
-  contactsLoading.value = true
-  const { data, error } = await supabase
-    .from('user_contacts')
-    .select('user_id,phone,qq,updated_at')
-    .eq('user_id', user.value.id)
-    .maybeSingle()
-
-  if (error) {
-    contactsError.value = error.message
-    contacts.value = null
-  } else {
-    contacts.value = (data ?? null) as UserContacts | null
-  }
-
-  contactsLoading.value = false
-}
-
-const upsertMyContacts = async (payload: Partial<Pick<UserContacts, 'phone' | 'qq'>>) => {
-  if (!user.value) return { error: '请先登录' }
-  contactsLoading.value = true
-  contactsError.value = ''
-
-  const { data, error } = await supabase
-    .from('user_contacts')
-    .upsert(
-      {
-        user_id: user.value.id,
-        phone: payload.phone ?? null,
-        qq: payload.qq ?? null,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'user_id' },
-    )
-    .select('user_id,phone,qq,updated_at')
-    .maybeSingle()
-
-  if (error) {
-    contactsError.value = error.message
-    contactsLoading.value = false
-    return { error: error.message }
-  }
-
-  contacts.value = (data ?? null) as UserContacts | null
-  contactsLoading.value = false
-  return { error: '' }
-}
-
-const loadEvents = async () => {
-  return handleNetworkAwareOperation(async () => {
-    eventsError.value = ''
-    eventsLoading.value = true
-
-    const freshData = await loadEventsData()
-    
-    // 更新状态和缓存
-    events.value = freshData
-    eventsLoaded.value = true
-    
-    // 缓存数据和时间戳
-    const now = Date.now()
-    stateCache.set('events', freshData, 60) // 缓存1小时
-    stateCache.set('eventsLoaded', true, 60)
-    stateCache.set('eventsTimestamp', now, 60) // 保存获取时间
-
-    eventsLoading.value = false
-    syncNotifications()
-    
-    return freshData
-  }, {
-    operationName: 'loadEvents',
-    cacheKey: user.value ? `events_${user.value.id}_${isAdmin.value}` : 'events_public',
-    retryable: true
-  }).catch(error => {
-    // 错误处理：只有在没有缓存数据时才清除状态
-    if (events.value.length === 0) {
-      eventsError.value = error.message
-      eventsLoaded.value = false
-      stateCache.remove('events')
-      stateCache.remove('eventsLoaded')
-      stateCache.remove('eventsTimestamp')
-    }
-    eventsLoading.value = false
-    throw error
-  })
-}
-
-// 强制刷新活动数据（忽略缓存）
-const forceReloadEvents = async () => {
-  console.log('Force reloading events...')
-  eventsLoaded.value = false
-  eventsError.value = ''
-  stateCache.remove('events')
-  stateCache.remove('eventsLoaded')
-  stateCache.remove('eventsTimestamp')
-  return await loadEvents()
-}
-
-// 调试方法：检查活动数据状态
-const debugEventsState = () => {
-  const cacheEvents = stateCache.get<Event[]>('events')
-  const cacheLoaded = stateCache.get<boolean>('eventsLoaded')
-  const cacheTimestamp = stateCache.get<number>('eventsTimestamp')
-  
-  const now = Date.now()
-  const dataAge = cacheTimestamp ? Math.floor((now - cacheTimestamp) / 1000) : null
-  const pageAge = Math.floor((now - pageLoadStartTime) / 1000)
-  
-  console.log('=== Events State Debug ===')
-  console.log('events.value.length:', events.value.length)
-  console.log('eventsLoaded.value:', eventsLoaded.value)
-  console.log('eventsLoading.value:', eventsLoading.value)
-  console.log('eventsError.value:', eventsError.value)
-  console.log('cached events length:', cacheEvents ? cacheEvents.length : 'null')
-  console.log('cached eventsLoaded:', cacheLoaded)
-  console.log('cache timestamp:', cacheTimestamp ? new Date(cacheTimestamp).toLocaleString() : 'null')
-  console.log('data age (seconds):', dataAge)
-  console.log('page age (seconds):', pageAge)
-  console.log('isPageFreshLoad:', isPageFreshLoad)
-  console.log('isPageJustRefreshed():', isPageJustRefreshed())
-  console.log('should refresh:', shouldRefreshEvents())
-  console.log('user.value:', user.value ? `${user.value.id} (admin: ${isAdmin.value})` : 'null')
-  console.log('isOnline:', isOnline.value)
-  console.log('networkRetryCount:', networkRetryCount.value)
-  console.log('========================')
-  
-  return {
-    eventsCount: events.value.length,
-    eventsLoaded: eventsLoaded.value,
-    eventsLoading: eventsLoading.value,
-    eventsError: eventsError.value,
-    cachedEventsCount: cacheEvents ? cacheEvents.length : null,
-    cachedEventsLoaded: cacheLoaded,
-    cacheTimestamp: cacheTimestamp,
-    dataAgeSeconds: dataAge,
-    pageAgeSeconds: pageAge,
-    isPageFreshLoad: isPageFreshLoad,
-    isPageJustRefreshed: isPageJustRefreshed(),
-    shouldRefresh: shouldRefreshEvents(),
-    userId: user.value?.id || null,
-    isAdmin: isAdmin.value,
-    isOnline: isOnline.value,
-    networkRetryCount: networkRetryCount.value
-  }
-}
-
-const ensureEventsLoaded = async () => {
-  // 步骤1: 如果有缓存数据，立即显示（不管是否过期）
-  const cachedEvents = stateCache.get<Event[]>('events')
-  
-  if (cachedEvents && cachedEvents.length > 0) {
-    // 立即显示缓存数据
-    events.value = cachedEvents
-    eventsLoaded.value = true
-    console.log('Loaded cached events, fetching fresh data in background...')
-  }
-  
-  // 步骤2: 检查是否正在加载中
-  if (eventsLoading.value) {
-    // 等待当前加载完成，最多等待10秒
-    let attempts = 0
-    while (eventsLoading.value && attempts < 100) {
-      await new Promise(resolve => setTimeout(resolve, 100))
-      attempts++
-    }
-    return
-  }
-  
-  // 步骤3: 检查是否需要后台刷新
-  const shouldRefresh = shouldRefreshEvents()
-  
-  if (shouldRefresh) {
-    // 后台刷新数据（不阻塞UI）
-    void refreshEventsInBackground()
-    
-    // 标记页面已经不是刚加载状态
-    if (isPageFreshLoad) {
-      isPageFreshLoad = false
-      console.log('Page fresh load detected, background refresh initiated')
-    }
-  }
-  
-  // 步骤4: 如果没有任何数据，强制加载
-  if (!eventsLoaded.value || events.value.length === 0) {
-    console.log('No cached data found, loading fresh data...')
-    await loadEvents()
-    // 标记页面已经不是刚加载状态
-    isPageFreshLoad = false
-  }
-}
-
-// 页面加载状态跟踪
-let isPageFreshLoad = true
-
-// 检测页面是否是刚刷新的
-const isPageJustRefreshed = (): boolean => {
-  // 使用 Performance API 检测页面加载类型
-  if (typeof performance !== 'undefined' && performance.navigation) {
-    // navigation.type: 0=navigate, 1=reload, 2=back_forward
-    return performance.navigation.type === 1 // 1 表示刷新
-  }
-  
-  // 备用方案：检查 performance.timing
-  if (typeof performance !== 'undefined' && performance.timing) {
-    const loadTime = performance.timing.loadEventEnd - performance.timing.navigationStart
-    // 如果页面加载时间很短，可能是刷新
-    return loadTime < 100
-  }
-  
-  // 最后备用方案：检查页面加载时间
-  return Date.now() - pageLoadStartTime < 5000 // 5秒内认为是刚加载
-}
-
-// 记录页面加载开始时间
-const pageLoadStartTime = Date.now()
-
-// 判断是否需要刷新数据
-const shouldRefreshEvents = (): boolean => {
-  // 如果是页面刚加载、刷新，或者是第一次调用，总是后台请求
-  if (isPageFreshLoad || isPageJustRefreshed()) {
-    return true
-  }
-  
-  const cacheTimestamp = stateCache.get<number>('eventsTimestamp')
-  if (!cacheTimestamp) return true
-  
-  const now = Date.now()
-  const age = now - cacheTimestamp
-  
-  // 根据用户角色和数据年龄决定刷新频率
-  if (isAdmin.value) {
-    // 管理员：数据超过1分钟就刷新
-    return age > 60 * 1000
-  } else {
-    // 普通用户：数据超过3分钟就刷新
-    return age > 3 * 60 * 1000
-  }
-}
-
-// 后台刷新数据
-const refreshEventsInBackground = async () => {
-  try {
-    console.log('Refreshing events in background...')
-    const freshData = await loadEventsData() // 只获取数据，不更新UI状态
-    
-    // 比较数据是否有变化
-    const hasChanges = compareEventsData(events.value, freshData)
-    
-    if (hasChanges) {
-      console.log('Fresh data received, updating events...')
-      // 平滑更新数据
-      await updateEventsData(freshData)
-      
-      // 可选：显示更新提示
-      setBanner('info', '活动列表已更新')
-    } else {
-      console.log('No changes in fresh data')
-    }
-    
-    // 更新缓存时间戳
-    stateCache.set('eventsTimestamp', Date.now(), 60) // 缓存1小时
-    
-  } catch (error) {
-    console.warn('Background refresh failed:', error)
-    // 静默失败，不影响用户体验
-  }
-}
-
-// 只获取数据，不更新状态
-const loadEventsData = async (): Promise<Event[]> => {
-  let query = supabase.from('events').select(EVENT_SELECT) as any
-
-  if (user.value?.id && isAdmin.value) {
-    query = query.or(`status.eq.published,status.eq.ended,created_by.eq.${user.value.id}`)
-  } else {
-    query = query.in('status', ['published', 'ended'])
-  }
-
-  const { data, error } = await query
-    .order('start_time', { ascending: true })
-    .order('created_at', { ascending: false })
-    .limit(100)
-
-  if (error) {
-    throw error
-  }
-
-  return data as Event[]
-}
-
-// 比较数据是否有变化
-const compareEventsData = (oldData: Event[], newData: Event[]): boolean => {
-  if (oldData.length !== newData.length) return true
-  
-  // 简单比较：检查ID列表和更新时间
-  const oldIds = oldData.map(e => e.id).sort()
-  const newIds = newData.map(e => e.id).sort()
-  
-  if (JSON.stringify(oldIds) !== JSON.stringify(newIds)) return true
-  
-  // 检查是否有内容更新（比较创建时间的总和作为简单指纹）
-  const oldFingerprint = oldData.reduce((sum, e) => sum + new Date(e.created_at).getTime(), 0)
-  const newFingerprint = newData.reduce((sum, e) => sum + new Date(e.created_at).getTime(), 0)
-  
-  return oldFingerprint !== newFingerprint
-}
-
-// 平滑更新数据
-const updateEventsData = async (newData: Event[]) => {
-  // 可以添加动画或渐变效果
-  events.value = newData
-  eventsLoaded.value = true
-  
-  // 更新缓存
-  stateCache.set('events', newData, 60) // 缓存1小时
-  stateCache.set('eventsLoaded', true, 60)
-  
-  syncNotifications()
-}
-
-// 重置页面加载状态（用于测试或手动重置）
-const resetPageLoadState = () => {
-  isPageFreshLoad = true
-  console.log('Page load state reset - next refresh will be treated as fresh load')
 }
 
 const loadMyRegistrations = async () => {
@@ -2123,133 +546,10 @@ const ensureRegistrationsLoaded = async () => {
   await loadMyRegistrations()
 }
 
-const parseTime = (value: string | null) => {
-  if (!value) return null
-  const time = Date.parse(value)
-  if (Number.isNaN(time)) return null
-  return time
-}
-
-const syncTeamJoinResultNotifications = async () => {
-  if (!user.value) return
-  try {
-    const { data: requests, error } = await supabase
-      .from('team_join_requests')
-      .select('id,team_id,status,created_at,updated_at,teams(event_id,name)')
-      .eq('user_id', user.value.id)
-      .in('status', ['approved', 'rejected'])
-
-    if (error || !requests) return
-
-    for (const row of requests as Array<{
-      id: string
-      team_id: string
-      status: string
-      created_at: string
-      updated_at: string | null
-      teams?: { event_id?: string | null; name?: string | null } | null
-    }>) {
-      const statusLabel = row.status === 'approved' ? '已通过' : '已拒绝'
-      const teamName = row.teams?.name || '队伍'
-      const eventId = row.teams?.event_id
-      pushNotification({
-        id: `team-join-result:${row.id}:${row.status}`,
-        title: `入队申请${statusLabel}`,
-        body: `你申请加入的「${teamName}」已${statusLabel}`,
-        created_at: row.updated_at ?? row.created_at ?? new Date().toISOString(),
-        read: false,
-        link: eventId ? `/events/${eventId}/team/${row.team_id}` : undefined,
-      })
-    }
-  } catch {
-    return
-  }
-}
-
 const syncNotifications = () => {
-  if (!user.value || !eventsLoaded.value) return
+  if (!user.value) return
+  // Notification syncing logic simplified - detailed logic moved to Vue Query composables
   if (!notificationsLoaded.value) loadNotifications()
-
-  const now = Date.now()
-  const oneHour = 60 * 60 * 1000
-  const registeredIds = registrationsLoaded.value
-    ? new Set(Object.keys(myRegistrationByEventId.value))
-    : new Set<string>()
-
-  const relevantEvents = displayedEvents.value.filter((event) => {
-    if (isDemoEvent(event)) return false
-    if (event.status === 'draft') return false
-    if (registeredIds.has(event.id)) return true
-    return event.created_by === user.value?.id
-  })
-
-  const addNotification = (id: string, title: string, body: string, link?: string) => {
-    const createdAt = new Date().toISOString()
-    const added = pushNotification({
-      id,
-      title,
-      body,
-      created_at: createdAt,
-      read: false,
-      link,
-    })
-    if (added) {
-      handleSuccessWithBanner(title, setBanner, { 
-        operation: 'notification', 
-        component: 'notification' 
-      })
-    }
-  }
-
-  for (const event of relevantEvents) {
-    const startTime = parseTime(event.start_time)
-    if (startTime && now >= startTime) {
-      addNotification(
-        `event:${event.id}:start`,
-        `活动已开始：${event.title}`,
-        `活动「${event.title}」已经开始，去看看最新进展吧`,
-        `/events/${event.id}`,
-      )
-    }
-
-    const endTime = parseTime(event.end_time)
-    if (endTime) {
-      const remindTime = endTime - oneHour
-      if (now >= remindTime) {
-        addNotification(
-          `event:${event.id}:end-1h`,
-          `活动即将结束：${event.title}`,
-          `距离活动「${event.title}」结束还有 1 小时`,
-          `/events/${event.id}`,
-        )
-      }
-    }
-
-    const submissionStart = parseTime(event.submission_start_time)
-    if (submissionStart && now >= submissionStart) {
-      addNotification(
-        `event:${event.id}:submission-start`,
-        `作品提交开始：${event.title}`,
-        `活动「${event.title}」作品提交通道已开启`,
-        `/events/${event.id}`,
-      )
-    }
-
-    const submissionEnd = parseTime(event.submission_end_time)
-    if (submissionEnd) {
-      const remindTime = submissionEnd - oneHour
-      if (now >= remindTime) {
-        addNotification(
-          `event:${event.id}:submission-end-1h`,
-          `作品提交即将截止：${event.title}`,
-          `距离活动「${event.title}」提交截止还有 1 小时`,
-          `/events/${event.id}`,
-        )
-      }
-    }
-  }
-
-  void syncTeamJoinResultNotifications()
 }
 
 let notificationTicker: number | undefined
@@ -2264,34 +564,6 @@ const stopNotificationTicker = () => {
   if (!notificationTicker) return
   window.clearInterval(notificationTicker)
   notificationTicker = undefined
-}
-
-const getEventById = (id: string) => {
-  return displayedEvents.value.find((event) => event.id === id) ?? null
-}
-
-const fetchEventById = async (id: string) => {
-  const cached = getEventById(id)
-  if (cached) return { data: cached, error: '' }
-
-  const { data, error } = await (supabase.from('events').select(EVENT_SELECT) as any).eq('id', id).maybeSingle()
-
-  if (error) return { data: null, error: error.message }
-  if (!data) return { data: null, error: '活动不存在' }
-
-  const next = data as Event
-  if (next.status === 'draft') {
-    if (!user.value) {
-      await refreshUser()
-    }
-    if (!user.value || next.created_by !== user.value.id) {
-      return { data: null, error: '草稿仅发布者可见' }
-    }
-  }
-  if (!events.value.find((event) => event.id === next.id)) {
-    events.value = [next, ...events.value]
-  }
-  return { data: next as DisplayEvent, error: '' }
 }
 
 const openAuth = (view: AuthView) => {
@@ -2420,8 +692,6 @@ const handleSignOut = async () => {
   stateCache.clear()
   
   user.value = null
-  profile.value = null
-  contacts.value = null
   myRegistrationByEventId.value = {}
   registrationsLoaded.value = false
   teamMembershipByTeamId.value = {}
@@ -2429,7 +699,7 @@ const handleSignOut = async () => {
   teamJoinRequestsByTeamId.value = {}
   myTeamInviteByTeamId.value = {}
   myTeamRequestsByTeamId.value = {} // Clear stored request records
-  void loadEvents()
+  
   void supabase.auth.signOut().then(({ error }) => {
     if (error) authErrorHandler.handleError(error, { operation: 'signOut' })
   })
@@ -2532,7 +802,6 @@ const submitCreate = async () => {
   createTeamMaxSize.value = ''
   createDescription.value = ''
   closeCreateModal()
-  void loadEvents()
   createBusy.value = false
   return data.id as string
 }
@@ -2553,10 +822,6 @@ const updateEvent = async (eventId: string, updates: Partial<Event>) => {
     return { data: null, error: error.message }
   }
 
-  events.value = events.value.map((event) =>
-    event.id === data.id ? { ...event, ...data } : event,
-  )
-
   return { data: data as Event, error: '' }
 }
 
@@ -2564,10 +829,6 @@ const updateEventStatus = async (eventId: string, status: EventStatus, descripti
   if (!isAdmin.value) {
     return { data: null, error: '没有权限：仅管理员可更新活动' }
   }
-
-  // Get current event status for permission persistence tracking
-  const currentEvent = getEventById(eventId)
-  const oldStatus = currentEvent?.status
 
   const payload: { status: EventStatus; description?: string | null } = { status }
   if (description !== undefined) {
@@ -2584,13 +845,6 @@ const updateEventStatus = async (eventId: string, status: EventStatus, descripti
   if (error) {
     return { data: null, error: error.message }
   }
-
-  events.value = events.value.map((event) =>
-    event.id === data.id ? { ...event, status: data.status, description: data.description ?? event.description } : event,
-  )
-
-  // Handle judge permission persistence during event status changes
-  await handleEventStatusChange(eventId, status, oldStatus || undefined)
 
   return { data: data as { id: string; status: EventStatus; description: string | null }, error: '' }
 }
@@ -2639,7 +893,6 @@ const deleteDraftEvent = async (event: DisplayEvent) => {
     return { error: error.message }
   }
 
-  events.value = events.value.filter((item) => item.id !== event.id)
   handleSuccessWithBanner('草稿已删除', setBanner, { 
     operation: 'deleteDraftEvent',
     component: 'event' 
@@ -2670,14 +923,6 @@ const submitRegistration = async (event: DisplayEvent, formResponse: Record<stri
     return { error: 'auth' }
   }
 
-  if (myRegistrationByEventId.value[event.id]) {
-    handleSuccessWithBanner('你已报名该活动', setBanner, { 
-      operation: 'submitRegistration',
-      component: 'validation' 
-    })
-    return { error: '' }
-  }
-
   return handleNetworkAwareOperation(async () => {
     registrationBusyEventId.value = event.id
     
@@ -2703,15 +948,42 @@ const submitRegistration = async (event: DisplayEvent, formResponse: Record<stri
       return { error: '' }
     }
 
+    // Check if user is already registered first
+    const { data: existingRegistration } = await supabase
+      .from('registrations')
+      .select('id,created_at')
+      .eq('event_id', event.id)
+      .eq('user_id', user.value!.id)
+      .maybeSingle()
+
+    if (existingRegistration) {
+      // Update local state to reflect database state
+      myRegistrationByEventId.value = {
+        ...myRegistrationByEventId.value,
+        [event.id]: existingRegistration.id,
+      }
+      
+      handleSuccessWithBanner('你已报名该活动', setBanner, { 
+        operation: 'submitRegistration',
+        component: 'validation' 
+      })
+      registrationBusyEventId.value = null
+      return { error: '' }
+    }
+
+    // Use upsert to handle race conditions gracefully
     const { data, error } = await supabase
       .from('registrations')
-      .insert({
+      .upsert({
         event_id: event.id,
         user_id: user.value!.id,
         status: 'registered',
         form_response: formResponse,
+      }, {
+        onConflict: 'user_id,event_id',
+        ignoreDuplicates: false
       })
-      .select('id,event_id')
+      .select('id,event_id,created_at')
       .single()
 
     if (error) {
@@ -2720,7 +992,7 @@ const submitRegistration = async (event: DisplayEvent, formResponse: Record<stri
       return { error: error.message }
     }
 
-    const row = data as RegistrationRow
+    const row = data as RegistrationRow & { created_at: string }
     myRegistrationByEventId.value = {
       ...myRegistrationByEventId.value,
       [row.event_id]: row.id,
@@ -2731,10 +1003,21 @@ const submitRegistration = async (event: DisplayEvent, formResponse: Record<stri
       await cacheManager.invalidate(`registrations_${user.value.id}`)
     }
     
-    handleSuccessWithBanner('报名成功', setBanner, { 
-      operation: 'submitRegistration',
-      component: 'form' 
-    })
+    // Check if this was a new registration (created recently) or existing one
+    const isNewRegistration = new Date(row.created_at).getTime() > (Date.now() - 5000) // Within last 5 seconds
+    
+    if (isNewRegistration) {
+      handleSuccessWithBanner('报名成功', setBanner, { 
+        operation: 'submitRegistration',
+        component: 'form' 
+      })
+    } else {
+      handleSuccessWithBanner('你已报名该活动', setBanner, { 
+        operation: 'submitRegistration',
+        component: 'validation' 
+      })
+    }
+    
     registrationBusyEventId.value = null
     return { error: '' }
   }, {
@@ -2808,685 +1091,6 @@ const toggleRegistration = async (event: DisplayEvent) => {
   registrationBusyEventId.value = null
 }
 
-// Judge-related functions
-
-const checkJudgePermission = async (eventId: string): Promise<JudgePermission> => {
-  if (!user.value || !eventId) {
-    return {
-      isJudge: false,
-      isEventAdmin: false,
-      canAccessJudgeWorkspace: false,
-      canManageJudges: false,
-    }
-  }
-
-  // Check if cached
-  const cached = judgePermissionsByEventId.value[eventId]
-  if (cached) {
-    return cached
-  }
-
-  try {
-    // Check if user is event admin (creator)
-    const event = getEventById(eventId)
-    const isEventAdmin = event?.created_by === user.value.id
-
-    // Check if user is a judge for this event
-    const { data: judgeRecord, error } = await supabase
-      .from('event_judges')
-      .select('id')
-      .eq('event_id', eventId)
-      .eq('user_id', user.value.id)
-      .maybeSingle()
-
-    if (error) {
-      console.warn('Failed to check judge permission:', error.message)
-      return {
-        isJudge: false,
-        isEventAdmin,
-        canAccessJudgeWorkspace: isEventAdmin,
-        canManageJudges: isEventAdmin,
-      }
-    }
-
-    const isJudge = Boolean(judgeRecord)
-    const permission: JudgePermission = {
-      isJudge,
-      isEventAdmin,
-      canAccessJudgeWorkspace: isEventAdmin || isJudge,
-      canManageJudges: isEventAdmin,
-    }
-
-    // Cache the result
-    judgePermissionsByEventId.value = {
-      ...judgePermissionsByEventId.value,
-      [eventId]: permission,
-    }
-
-    return permission
-  } catch (error: any) {
-    console.error('Error checking judge permission:', error)
-    return {
-      isJudge: false,
-      isEventAdmin: false,
-      canAccessJudgeWorkspace: false,
-      canManageJudges: false,
-    }
-  }
-}
-
-const loadEventJudges = async (eventId: string): Promise<JudgeWithProfile[]> => {
-  if (!eventId) {
-    judgesByEventId.value = { ...judgesByEventId.value, [eventId]: [] }
-    return []
-  }
-
-  // Check if user has permission to view judges
-  if (!user.value) {
-    judgesByEventId.value = { ...judgesByEventId.value, [eventId]: [] }
-    return []
-  }
-
-  try {
-    judgeWorkspaceLoading.value = true
-    judgeWorkspaceError.value = ''
-
-    const { data, error } = await supabase
-      .from('event_judges')
-      .select(`
-        id,
-        event_id,
-        user_id,
-        created_at,
-        updated_at,
-        profiles(
-          id,
-          username,
-          avatar_url,
-          roles
-        )
-      `)
-      .eq('event_id', eventId)
-      .order('created_at', { ascending: true })
-
-    if (error) {
-      const errorMessage = getJudgeErrorMessage(error, '加载评委列表')
-      judgeWorkspaceError.value = errorMessage
-      
-      // Only show banner for non-network errors to avoid spam
-      if (!isNetworkError(error)) {
-        apiErrorHandler.handleError(error, { operation: 'loadEventJudges' })
-      }
-      
-      judgesByEventId.value = { ...judgesByEventId.value, [eventId]: [] }
-      return []
-    }
-
-    // Transform the data
-    const judges: JudgeWithProfile[] = (data || []).map((row: any) => ({
-      id: row.id,
-      event_id: row.event_id,
-      user_id: row.user_id,
-      created_at: row.created_at,
-      updated_at: row.updated_at,
-      profile: row.profiles ? {
-        id: row.profiles.id,
-        username: row.profiles.username || null,
-        avatar_url: row.profiles.avatar_url || null,
-        roles: Array.isArray(row.profiles.roles) ? row.profiles.roles : null,
-      } : {
-        id: row.user_id,
-        username: null,
-        avatar_url: null,
-        roles: null,
-      }
-    }))
-
-    // Cache the result
-    judgesByEventId.value = { ...judgesByEventId.value, [eventId]: judges }
-    judgeWorkspaceError.value = '' // Clear error on success
-    
-    return judges
-
-  } catch (error: any) {
-    console.error('Error loading event judges:', error)
-    const errorMessage = getJudgeErrorMessage(error, '加载评委列表')
-    judgeWorkspaceError.value = errorMessage
-    
-    // Only show banner for non-network errors
-    if (!isNetworkError(error)) {
-      apiErrorHandler.handleError(error, { operation: 'loadEventJudges' })
-    }
-    
-    judgesByEventId.value = { ...judgesByEventId.value, [eventId]: [] }
-    return []
-  } finally {
-    judgeWorkspaceLoading.value = false
-  }
-}
-
-const searchUsersForJudge = async (query: string, eventId: string, limit = 20): Promise<UserSearchResult[]> => {
-  if (!user.value || !eventId || !query.trim()) {
-    return []
-  }
-
-  try {
-    // Check if user has permission to manage judges
-    const permission = await checkJudgePermission(eventId)
-    if (!permission.canManageJudges) {
-      authErrorHandler.handleError(new Error('您没有权限搜索用户'), { 
-        operation: 'searchUsersForJudge',
-        component: 'judge' 
-      })
-      return []
-    }
-
-    // Get existing judges for this event to mark them as already invited
-    const existingJudges = judgesByEventId.value[eventId] || []
-    const existingJudgeIds = new Set(existingJudges.map(judge => judge.user_id))
-
-    // Search for users by username (no exclusion filter)
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('id, username, avatar_url, roles')
-      .ilike('username', `%${query.trim()}%`)
-      .limit(limit)
-
-    if (error) {
-      const errorMessage = getJudgeErrorMessage(error, '搜索用户')
-      throw new Error(errorMessage)
-    }
-
-    // Transform the data and add judge status
-    const users: UserSearchResult[] = (data || [])
-      .filter(row => row.username && row.username.trim()) // Only include users with usernames
-      .map(row => {
-        const isAlreadyJudge = existingJudgeIds.has(row.id)
-        return {
-          id: row.id,
-          username: row.username || '',
-          avatar_url: row.avatar_url || null,
-          roles: Array.isArray(row.roles) ? row.roles : null,
-          isAlreadyJudge, // Add judge status
-        }
-      })
-
-    return users
-
-  } catch (error: any) {
-    console.error('Error searching users for judge:', error)
-    const errorMessage = getJudgeErrorMessage(error, '搜索用户')
-    
-    // Re-throw with user-friendly message for component to handle
-    throw new Error(errorMessage)
-  }
-}
-
-const inviteJudge = async (eventId: string, userId: string): Promise<{ success: boolean; error?: string }> => {
-  if (!user.value || !eventId || !userId) {
-    return { success: false, error: '参数缺失' }
-  }
-
-  // Validate UUID format
-  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
-  if (!uuidRegex.test(eventId)) {
-    console.error('Invalid eventId UUID format:', eventId)
-    return { success: false, error: '活动ID格式无效' }
-  }
-  if (!uuidRegex.test(userId)) {
-    console.error('Invalid userId UUID format:', userId)
-    return { success: false, error: '用户ID格式无效' }
-  }
-
-  try {
-    // Check if user has permission to manage judges
-    const permission = await checkJudgePermission(eventId)
-    if (!permission.canManageJudges) {
-      return { success: false, error: '您没有权限邀请评委' }
-    }
-
-    // Check if user is already a judge
-    const existingJudges = judgesByEventId.value[eventId] || []
-    const isAlreadyJudge = existingJudges.some(judge => judge.user_id === userId)
-    if (isAlreadyJudge) {
-      return { success: false, error: '该用户已经是评委' }
-    }
-
-    // Create judge record
-    const { data, error } = await supabase
-      .from('event_judges')
-      .insert({
-        event_id: eventId,
-        user_id: userId,
-      })
-      .select(`
-        id,
-        event_id,
-        user_id,
-        created_at,
-        updated_at,
-        profiles(
-          id,
-          username,
-          avatar_url,
-          roles
-        )
-      `)
-      .single()
-
-    if (error) {
-      const errorMessage = getJudgeErrorMessage(error, '邀请评委')
-      return { success: false, error: errorMessage }
-    }
-
-    // Transform and add to cache
-    const profileData = data.profiles as any
-    const newJudge: JudgeWithProfile = {
-      id: data.id,
-      event_id: data.event_id,
-      user_id: data.user_id,
-      created_at: data.created_at,
-      updated_at: data.updated_at,
-      profile: profileData ? {
-        id: profileData.id,
-        username: profileData.username || null,
-        avatar_url: profileData.avatar_url || null,
-        roles: Array.isArray(profileData.roles) ? profileData.roles : null,
-      } : {
-        id: data.user_id,
-        username: null,
-        avatar_url: null,
-        roles: null,
-      }
-    }
-
-    // Update cache
-    const currentJudges = judgesByEventId.value[eventId] || []
-    judgesByEventId.value = {
-      ...judgesByEventId.value,
-      [eventId]: [...currentJudges, newJudge]
-    }
-
-    // Send notification to the invited user
-    pushJudgeNotification(eventId, userId, 'invited')
-
-    return { success: true }
-
-  } catch (error: any) {
-    console.error('Error inviting judge:', error)
-    const errorMessage = getJudgeErrorMessage(error, '邀请评委')
-    return { success: false, error: errorMessage }
-  }
-}
-
-const removeJudge = async (eventId: string, userId: string): Promise<{ success: boolean; error?: string }> => {
-  if (!user.value || !eventId || !userId) {
-    return { success: false, error: '参数缺失' }
-  }
-
-  try {
-    // Check if user has permission to manage judges
-    const permission = await checkJudgePermission(eventId)
-    if (!permission.canManageJudges) {
-      return { success: false, error: '您没有权限移除评委' }
-    }
-
-    // Remove judge record
-    const { error } = await supabase
-      .from('event_judges')
-      .delete()
-      .eq('event_id', eventId)
-      .eq('user_id', userId)
-
-    if (error) {
-      const errorMessage = getJudgeErrorMessage(error, '移除评委')
-      return { success: false, error: errorMessage }
-    }
-
-    // Update cache
-    const currentJudges = judgesByEventId.value[eventId] || []
-    const updatedJudges = currentJudges.filter(judge => judge.user_id !== userId)
-    judgesByEventId.value = {
-      ...judgesByEventId.value,
-      [eventId]: updatedJudges
-    }
-
-    // Clear cached permissions for this user if they were removed
-    if (user.value.id === userId) {
-      const currentPermissions = { ...judgePermissionsByEventId.value }
-      delete currentPermissions[eventId]
-      judgePermissionsByEventId.value = currentPermissions
-    }
-
-    // Send notification to the removed user
-    pushJudgeNotification(eventId, userId, 'removed')
-
-    return { success: true }
-
-  } catch (error: any) {
-    console.error('Error removing judge:', error)
-    const errorMessage = getJudgeErrorMessage(error, '移除评委')
-    return { success: false, error: errorMessage }
-  }
-}
-
-// Permission persistence functions
-const validateJudgePermissionPersistence = async (eventId: string): Promise<boolean> => {
-  if (!user.value || !eventId) {
-    return false
-  }
-
-  try {
-    // Get the current event to check its status
-    const event = getEventById(eventId)
-    if (!event) {
-      return false
-    }
-
-    // Judge permissions should persist through all event states except when:
-    // 1. The event is deleted (handled by cascade delete in database)
-    // 2. The judge is explicitly removed
-    // 3. The user account is deleted/disabled (handled by cascade delete)
-    
-    // Check if the judge record still exists in the database
-    const { data: judgeRecord, error } = await supabase
-      .from('event_judges')
-      .select('id, created_at')
-      .eq('event_id', eventId)
-      .eq('user_id', user.value.id)
-      .maybeSingle()
-
-    if (error) {
-      console.warn('Failed to validate judge permission persistence:', error.message)
-      return false
-    }
-
-    // If judge record exists, permission should be valid regardless of event status
-    const hasValidPermission = Boolean(judgeRecord)
-    
-    // Update cached permission if it exists but doesn't match database state
-    const cachedPermission = judgePermissionsByEventId.value[eventId]
-    if (cachedPermission && cachedPermission.isJudge !== hasValidPermission) {
-      // Clear cache to force refresh on next permission check
-      const updatedPermissions = { ...judgePermissionsByEventId.value }
-      delete updatedPermissions[eventId]
-      judgePermissionsByEventId.value = updatedPermissions
-    }
-
-    return hasValidPermission
-  } catch (error: any) {
-    console.error('Error validating judge permission persistence:', error)
-    return false
-  }
-}
-
-const handleEventStatusChange = async (eventId: string, newStatus: EventStatus, oldStatus?: EventStatus) => {
-  if (!eventId) return
-
-  try {
-    // Judge permissions should persist through all event status changes
-    // This function ensures that judge permissions remain valid when events change status
-    
-    // Validate that judge permissions are still intact after status change
-    if (user.value) {
-      const isValidPermission = await validateJudgePermissionPersistence(eventId)
-      
-      // If user was a judge but permission is no longer valid, clear cache
-      const cachedPermission = judgePermissionsByEventId.value[eventId]
-      if (cachedPermission?.isJudge && !isValidPermission) {
-        const updatedPermissions = { ...judgePermissionsByEventId.value }
-        delete updatedPermissions[eventId]
-        judgePermissionsByEventId.value = updatedPermissions
-        
-        // Optionally notify user if they lost judge access unexpectedly
-        if (oldStatus && newStatus !== 'draft') {
-          console.warn(`Judge permission lost for event ${eventId} during status change from ${oldStatus} to ${newStatus}`)
-        }
-      }
-    }
-
-    // Refresh judge data for this event to ensure consistency
-    const currentJudges = judgesByEventId.value[eventId]
-    if (currentJudges && currentJudges.length > 0) {
-      // Reload judges to ensure data consistency
-      await loadEventJudges(eventId)
-    }
-
-  } catch (error: any) {
-    console.error('Error handling event status change for judge permissions:', error)
-  }
-}
-
-const refreshJudgePermissionCache = async (eventId: string) => {
-  if (!eventId) return
-
-  try {
-    // Clear cached permission to force fresh check
-    const updatedPermissions = { ...judgePermissionsByEventId.value }
-    delete updatedPermissions[eventId]
-    judgePermissionsByEventId.value = updatedPermissions
-
-    // Trigger fresh permission check
-    await checkJudgePermission(eventId)
-  } catch (error: any) {
-    console.error('Error refreshing judge permission cache:', error)
-  }
-}
-
-// Optimized caching and state management
-const judgeDataCacheTimestamps = ref<Record<string, number>>({})
-const JUDGE_CACHE_TTL = 5 * 60 * 1000 // 5 minutes cache TTL
-const judgeDataRefreshPromises = ref<Record<string, Promise<any>>>({})
-
-const isCacheValid = (eventId: string): boolean => {
-  const timestamp = judgeDataCacheTimestamps.value[eventId]
-  if (!timestamp) return false
-  return Date.now() - timestamp < JUDGE_CACHE_TTL
-}
-
-const setCacheTimestamp = (eventId: string) => {
-  judgeDataCacheTimestamps.value = {
-    ...judgeDataCacheTimestamps.value,
-    [eventId]: Date.now()
-  }
-}
-
-const optimizedLoadEventJudges = async (eventId: string, forceRefresh = false): Promise<JudgeWithProfile[]> => {
-  if (!eventId) {
-    judgesByEventId.value = { ...judgesByEventId.value, [eventId]: [] }
-    return []
-  }
-
-  // Return cached data if valid and not forcing refresh
-  if (!forceRefresh && isCacheValid(eventId)) {
-    const cached = judgesByEventId.value[eventId]
-    if (cached) {
-      return cached
-    }
-  }
-
-  // Prevent concurrent requests for the same event
-  const existingPromise = judgeDataRefreshPromises.value[eventId]
-  if (existingPromise) {
-    return existingPromise
-  }
-
-  // Create and cache the promise
-  const refreshPromise = loadEventJudges(eventId).then(judges => {
-    setCacheTimestamp(eventId)
-    // Clear the promise from cache
-    const updatedPromises = { ...judgeDataRefreshPromises.value }
-    delete updatedPromises[eventId]
-    judgeDataRefreshPromises.value = updatedPromises
-    return judges
-  }).catch(error => {
-    // Clear the promise from cache on error
-    const updatedPromises = { ...judgeDataRefreshPromises.value }
-    delete updatedPromises[eventId]
-    judgeDataRefreshPromises.value = updatedPromises
-    throw error
-  })
-
-  judgeDataRefreshPromises.value = {
-    ...judgeDataRefreshPromises.value,
-    [eventId]: refreshPromise
-  }
-
-  return refreshPromise
-}
-
-const optimizedCheckJudgePermission = async (eventId: string, forceRefresh = false): Promise<JudgePermission> => {
-  if (!user.value || !eventId) {
-    return {
-      isJudge: false,
-      isEventAdmin: false,
-      canAccessJudgeWorkspace: false,
-      canManageJudges: false,
-    }
-  }
-
-  // Return cached permission if valid and not forcing refresh
-  const cached = judgePermissionsByEventId.value[eventId]
-  if (!forceRefresh && cached) {
-    return cached
-  }
-
-  // Use the original checkJudgePermission function which handles caching
-  return checkJudgePermission(eventId)
-}
-
-// Real-time state synchronization
-let judgeRealtimeSubscription: any = null
-
-const startJudgeRealtimeSync = () => {
-  if (judgeRealtimeSubscription) return
-
-  // Subscribe to changes in event_judges table
-  judgeRealtimeSubscription = supabase
-    .channel('judge-changes')
-    .on(
-      'postgres_changes',
-      {
-        event: '*',
-        schema: 'public',
-        table: 'event_judges'
-      },
-      async (payload) => {
-        const eventId = (payload.new as any)?.event_id || (payload.old as any)?.event_id
-        if (!eventId) return
-
-        // Invalidate cache for this event
-        const updatedTimestamps = { ...judgeDataCacheTimestamps.value }
-        delete updatedTimestamps[eventId]
-        judgeDataCacheTimestamps.value = updatedTimestamps
-
-        // Clear cached permissions
-        const updatedPermissions = { ...judgePermissionsByEventId.value }
-        delete updatedPermissions[eventId]
-        judgePermissionsByEventId.value = updatedPermissions
-
-        // Refresh data if this event is currently being viewed
-        const hasCurrentData = judgesByEventId.value[eventId]
-        if (hasCurrentData) {
-          try {
-            await optimizedLoadEventJudges(eventId, true)
-            // Also refresh permissions if current user might be affected
-            if (user.value && (
-              (payload.new as any)?.user_id === user.value.id || 
-              (payload.old as any)?.user_id === user.value.id
-            )) {
-              await optimizedCheckJudgePermission(eventId, true)
-            }
-          } catch (error) {
-            console.warn('Failed to refresh judge data after realtime update:', error)
-          }
-        }
-      }
-    )
-    .subscribe()
-}
-
-const stopJudgeRealtimeSync = () => {
-  if (judgeRealtimeSubscription) {
-    supabase.removeChannel(judgeRealtimeSubscription)
-    judgeRealtimeSubscription = null
-  }
-}
-
-// Batch operations for better performance
-const batchInvalidateJudgeCache = (eventIds: string[]) => {
-  const updatedTimestamps = { ...judgeDataCacheTimestamps.value }
-  const updatedPermissions = { ...judgePermissionsByEventId.value }
-  
-  eventIds.forEach(eventId => {
-    delete updatedTimestamps[eventId]
-    delete updatedPermissions[eventId]
-  })
-  
-  judgeDataCacheTimestamps.value = updatedTimestamps
-  judgePermissionsByEventId.value = updatedPermissions
-}
-
-const preloadJudgeDataForEvents = async (eventIds: string[]) => {
-  if (!user.value || eventIds.length === 0) return
-
-  // Only preload for events that don't have valid cache
-  const eventsToLoad = eventIds.filter(eventId => !isCacheValid(eventId))
-  
-  if (eventsToLoad.length === 0) return
-
-  // Load judge data for multiple events concurrently
-  const loadPromises = eventsToLoad.map(eventId => 
-    optimizedLoadEventJudges(eventId).catch(error => {
-      console.warn(`Failed to preload judge data for event ${eventId}:`, error)
-      return []
-    })
-  )
-
-  await Promise.all(loadPromises)
-}
-
-// Cleanup function for cache management
-const cleanupJudgeCache = () => {
-  const now = Date.now()
-  const updatedTimestamps: Record<string, number> = {}
-  const updatedJudges: Record<string, JudgeWithProfile[]> = {}
-  const updatedPermissions: Record<string, JudgePermission> = {}
-
-  // Keep only non-expired cache entries
-  Object.entries(judgeDataCacheTimestamps.value).forEach(([eventId, timestamp]) => {
-    if (now - timestamp < JUDGE_CACHE_TTL) {
-      updatedTimestamps[eventId] = timestamp
-      if (judgesByEventId.value[eventId]) {
-        updatedJudges[eventId] = judgesByEventId.value[eventId]
-      }
-      if (judgePermissionsByEventId.value[eventId]) {
-        updatedPermissions[eventId] = judgePermissionsByEventId.value[eventId]
-      }
-    }
-  })
-
-  judgeDataCacheTimestamps.value = updatedTimestamps
-  judgesByEventId.value = updatedJudges
-  judgePermissionsByEventId.value = updatedPermissions
-}
-
-// Periodic cache cleanup
-let cacheCleanupInterval: number | undefined
-
-const startCacheCleanup = () => {
-  if (cacheCleanupInterval) return
-  // Clean up cache every 10 minutes
-  cacheCleanupInterval = window.setInterval(cleanupJudgeCache, 10 * 60 * 1000)
-}
-
-const stopCacheCleanup = () => {
-  if (cacheCleanupInterval) {
-    window.clearInterval(cacheCleanupInterval)
-    cacheCleanupInterval = undefined
-  }
-}
-
 let initialized = false
 let authSubscription: Subscription | null = null
 
@@ -3515,23 +1119,8 @@ const init = async () => {
   maybePushProfileSetupNotification()
   if (user.value) {
     startNotificationTicker()
-    void loadMyProfile()
-    void loadMyContacts()
-    void loadMyRegistrations()
     void loadMyPendingTeamActions()
   }
-  
-  // 确保活动数据加载
-  try {
-    await ensureEventsLoaded()
-  } catch (error) {
-    console.error('Failed to load events during init:', error)
-    // 即使失败也继续初始化其他功能
-  }
-
-  // Start judge-related optimizations
-  startJudgeRealtimeSync()
-  startCacheCleanup()
 
   // 简化：只记录页面加载时间
   performanceMetrics.value.pageLoadTime = performance.now() - pageLoadStart
@@ -3539,8 +1128,6 @@ const init = async () => {
   const { data: listener } = supabase.auth.onAuthStateChange(async (_event, session) => {
     if (!session) {
       user.value = null
-      profile.value = null
-      contacts.value = null
       notifications.value = []
       notificationsLoaded.value = false
       stopNotificationTicker()
@@ -3549,16 +1136,9 @@ const init = async () => {
       pendingRequestsCount.value = 0
       pendingInvitesCount.value = 0
       
-      // Clear judge-related cache on logout
-      judgesByEventId.value = {}
-      judgePermissionsByEventId.value = {}
-      judgeDataCacheTimestamps.value = {}
-      judgeDataRefreshPromises.value = {}
-      
       // Clear network-related state
       networkRetryCount.value = 0
       
-      void loadEvents()
       return
     }
 
@@ -3568,10 +1148,6 @@ const init = async () => {
     loadNotifications()
     maybePushProfileSetupNotification()
     startNotificationTicker()
-    void loadMyProfile()
-    void loadMyContacts()
-    void loadEvents()
-    void loadMyRegistrations()
     void loadMyPendingTeamActions()
   })
 
@@ -3584,22 +1160,11 @@ const handleConnectivityRestoration = async () => {
   try {
     await networkManager.retryFailedRequests()
     
-    // 如果活动数据为空或加载失败，重新加载
-    if (events.value.length === 0 || eventsError.value) {
-      console.log('Network restored, reloading events...')
-      await forceReloadEvents()
-    }
-    
     // Sync offline changes
     const storedForms = await offlineManager.getAllStoredForms()
     if (storedForms.length > 0) {
       console.log(`Found ${storedForms.length} stored forms to sync`)
       // Here you would implement the sync logic
-    }
-    
-    // Refresh critical data
-    if (user.value) {
-      void loadMyRegistrations()
     }
     
     // Show restoration notification
@@ -3623,30 +1188,10 @@ const dispose = () => {
     networkStateCleanup()
     networkStateCleanup = null
   }
-  
-  // Clean up judge-related resources
-  stopJudgeRealtimeSync()
-  stopCacheCleanup()
-  
-  // Clear judge cache
-  judgesByEventId.value = {}
-  judgePermissionsByEventId.value = {}
-  judgeDataCacheTimestamps.value = {}
-  judgeDataRefreshPromises.value = {}
 }
 
 const store = proxyRefs({
   user,
-  events,
-  eventsLoading,
-  eventsError,
-  eventsLoaded,
-  profile,
-  profileLoading,
-  profileError,
-  contacts,
-  contactsLoading,
-  contactsError,
   notifications,
   unreadNotifications,
   pendingRequestsCount,
@@ -3676,105 +1221,51 @@ const store = proxyRefs({
   createDescription,
   createBusy,
   createError,
-  submissionsLoading,
-  submissionsError,
-  judgesByEventId,
-  judgePermissionsByEventId,
-  judgeWorkspaceLoading,
-  judgeWorkspaceError,
   isAuthed,
   isAdmin,
-  showDemoEvents,
-  displayedEvents,
-  publicEvents,
-  myEvents,
   displayName,
   isDemoEvent,
   setBanner,
   clearBanners,
   refreshUser,
-  loadMyProfile,
-  setOptimisticAvatar,
-  updateMyProfile,
-  loadMyContacts,
-  upsertMyContacts,
   loadNotifications,
+  setVueQueryNotificationMutations,
   markNotificationRead,
   markAllNotificationsRead,
   deleteReadNotifications,
   loadMyPendingTeamActions,
-  loadTeams,
+  // Legacy team methods - kept for backward compatibility but should be replaced with Vue Query
   getTeamsForEvent,
-  loadTeamSeekers,
   getTeamSeekersForEvent,
   getMyTeamSeeker,
-  loadTeamMembers,
   getTeamMembers,
   getTeamRequestStatus,
-  loadTeamJoinRequests,
   getTeamJoinRequests,
-  loadMyTeamInvite,
   getMyTeamInvite,
   isTeamMember,
-  createTeam,
-  updateTeam,
-  closeTeam,
-  reopenTeam,
-  deleteTeam,
-  removeTeamMember,
-  updateTeamJoinRequestStatus,
-  requestJoinTeam,
-  cancelTeamJoinRequest,
-  acceptTeamInvite,
-  rejectTeamInvite,
-  sendTeamInvite,
-  getMyTeamsForEvent,
-  getMyTeamRequestsForEvent,
-  getMyTeamInvitesForEvent,
-  saveTeamSeeker,
-  deleteTeamSeeker,
-  getSubmissionsForEvent,
-  loadSubmissions,
-  loadEvents,
-  forceReloadEvents,
-  refreshEventsInBackground,
-  resetPageLoadState,
-  debugEventsState,
-  ensureEventsLoaded,
-  // 调试工具
-  stateCache,
+  // Registration management
   loadMyRegistrations,
   ensureRegistrationsLoaded,
-  getEventById,
-  fetchEventById,
+  // Authentication
   openAuth,
   closeAuth,
   submitAuth,
   handleSignOut,
+  // Event creation (admin only)
   openCreateModal,
   closeCreateModal,
   submitCreate,
   updateEvent,
   updateEventStatus,
   deleteDraftEvent,
+  // Registration actions
   submitRegistration,
   registrationLabel,
   registrationVariant,
   toggleRegistration,
-  checkJudgePermission,
-  loadEventJudges,
-  searchUsersForJudge,
-  inviteJudge,
-  removeJudge,
-  validateJudgePermissionPersistence,
-  handleEventStatusChange,
-  refreshJudgePermissionCache,
-  optimizedLoadEventJudges,
-  optimizedCheckJudgePermission,
-  batchInvalidateJudgeCache,
-  preloadJudgeDataForEvents,
-  cleanupJudgeCache,
+  // Judge notifications
   handleJudgeNotificationClick,
+  // Lifecycle
   init,
   dispose,
   
@@ -3790,7 +1281,6 @@ const store = proxyRefs({
   isOfflineMode,
   offlineCapabilities,
   performanceMetrics,
-  executeNetworkAwareRequest,
   handleNetworkAwareOperation,
   handleConnectivityRestoration,
 })

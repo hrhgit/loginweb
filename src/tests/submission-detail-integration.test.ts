@@ -1,10 +1,55 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createRouter, createWebHistory } from 'vue-router'
+import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query'
 import EventDetailPage from '../pages/EventDetailPage.vue'
 import SubmissionDetailPage from '../pages/SubmissionDetailPage.vue'
 import SubmissionCard from '../components/showcase/SubmissionCard.vue'
 import type { SubmissionWithTeam } from '../store/models'
+
+// Mock Supabase with Vue Query compatible responses
+const mockSupabase = {
+  from: vi.fn(() => ({
+    select: vi.fn(() => ({
+      eq: vi.fn(() => ({
+        order: vi.fn(() => Promise.resolve({ 
+          data: mockSubmissions.map(sub => ({
+            ...sub,
+            teams: sub.team ? { id: sub.team.id, name: sub.team.name } : null
+          })), 
+          error: null 
+        })),
+        maybeSingle: vi.fn(() => ({ data: null, error: null })),
+        single: vi.fn(() => ({ data: null, error: null }))
+      }))
+    }))
+  })),
+  storage: {
+    from: vi.fn(() => ({
+      getPublicUrl: vi.fn((path: string) => ({
+        data: { publicUrl: `https://supabase.co/storage/v1/object/public/bucket/${path}` }
+      })),
+      createSignedUrl: vi.fn(() => ({
+        data: { signedUrl: 'https://supabase.co/storage/signed-url' }
+      }))
+    })
+  }))
+
+vi.mock('../lib/supabase', () => ({
+  supabase: mockSupabase
+}))
+
+// Mock error handlers for Vue Query
+vi.mock('../store/enhancedErrorHandling', () => ({
+  apiErrorHandler: { handleError: vi.fn() },
+  eventErrorHandler: { handleError: vi.fn() },
+  handleSuccessWithBanner: vi.fn()
+}))
+
+// Mock performance utilities
+vi.mock('../utils/vueQueryBatchOptimizer', () => ({
+  prefetchRelatedData: vi.fn()
+}))
 
 // Mock the store with comprehensive submission data
 const mockSubmissions: SubmissionWithTeam[] = [
@@ -60,8 +105,31 @@ const mockSubmissions: SubmissionWithTeam[] = [
     team: null
   }
 ]
+    link_mode: 'link',
+    submission_url: 'javascript:alert("xss")',
+    submission_storage_path: null,
+    submission_password: null,
+    created_at: 'invalid-date',
+    updated_at: '2024-01-17T09:15:00Z',
+    team: null
+  }
+]
 
-const mockStore = {
+vi.mock('../lib/supabase', () => ({
+  supabase: mockSupabase
+}))
+
+// Mock error handlers for Vue Query
+vi.mock('../store/enhancedErrorHandling', () => ({
+  apiErrorHandler: { handleError: vi.fn() },
+  eventErrorHandler: { handleError: vi.fn() },
+  handleSuccessWithBanner: vi.fn()
+}))
+
+// Mock performance utilities
+vi.mock('../utils/vueQueryBatchOptimizer', () => ({
+  prefetchRelatedData: vi.fn()
+}))
   isAuthed: true,
   user: { id: 'user1' },
   displayedEvents: [
@@ -109,31 +177,14 @@ const mockStore = {
   getTeamRequestStatus: vi.fn(() => null)
 }
 
+const mockStore = {
+
+// Mock the store with comprehensive submission data
+const mockSubmissions: SubmissionWithTeam[] = [
+
 // Mock modules
 vi.mock('../store/appStore', () => ({
   useAppStore: () => mockStore
-}))
-
-vi.mock('../lib/supabase', () => ({
-  supabase: {
-    storage: {
-      from: vi.fn(() => ({
-        getPublicUrl: vi.fn((path: string) => ({
-          data: { publicUrl: `https://supabase.co/storage/v1/object/public/bucket/${path}` }
-        })),
-        createSignedUrl: vi.fn(() => ({
-          data: { signedUrl: 'https://supabase.co/storage/signed-url' }
-        }))
-      }))
-    },
-    from: vi.fn(() => ({
-      select: vi.fn(() => ({
-        eq: vi.fn(() => ({
-          maybeSingle: vi.fn(() => ({ data: null, error: null }))
-        }))
-      }))
-    }))
-  }
 }))
 
 // Mock DOM methods
@@ -144,8 +195,23 @@ Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
 
 describe('Submission Detail View Integration Tests', () => {
   let router: any
+  let queryClient: QueryClient
 
   beforeEach(() => {
+    // Create fresh QueryClient for each test
+    queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+          gcTime: 0,
+          staleTime: 0,
+        },
+        mutations: {
+          retry: false,
+        },
+      },
+    })
+
     router = createRouter({
       history: createWebHistory(),
       routes: [
@@ -160,12 +226,16 @@ describe('Submission Detail View Integration Tests', () => {
       ]
     })
 
-    // Reset mocks
+    // Reset mocks and set up Vue Query compatible data
     vi.clearAllMocks()
+    
+    // Set up mock data in QueryClient
+    queryClient.setQueryData(['submissions', 'event', 'event1'], mockSubmissions)
   })
 
   afterEach(() => {
     vi.clearAllMocks()
+    queryClient.clear()
   })
 
   describe('Navigation Flow Integration', () => {
@@ -173,7 +243,9 @@ describe('Submission Detail View Integration Tests', () => {
       // Start at showcase page
       await router.push('/events/event1/showcase')
       const showcaseWrapper = mount(EventDetailPage, {
-        global: { plugins: [router] },
+        global: { 
+          plugins: [router, [VueQueryPlugin, { queryClient }]]
+        },
         props: { tab: 'showcase' }
       })
       await showcaseWrapper.vm.$nextTick()
@@ -184,9 +256,6 @@ describe('Submission Detail View Integration Tests', () => {
 
       // Get the submission data from the card props
       const submissionData = (submissionCard.props() as any).submission
-      
-      // Debug: Check what methods are available on the component
-      console.log('Available methods:', Object.getOwnPropertyNames(showcaseWrapper.vm))
       
       // Trigger the double-click event handler directly on the EventDetailPage
       const eventDetailVm = showcaseWrapper.vm as any
@@ -204,7 +273,9 @@ describe('Submission Detail View Integration Tests', () => {
     it('should navigate from showcase to detail view on title click', async () => {
       await router.push('/events/event1/showcase')
       const showcaseWrapper = mount(EventDetailPage, {
-        global: { plugins: [router] },
+        global: { 
+          plugins: [router, [VueQueryPlugin, { queryClient }]]
+        },
         props: { tab: 'showcase' }
       })
       await showcaseWrapper.vm.$nextTick()
@@ -230,7 +301,9 @@ describe('Submission Detail View Integration Tests', () => {
       // Start at detail page
       await router.push('/events/event1/submissions/sub1')
       const detailWrapper = mount(SubmissionDetailPage, {
-        global: { plugins: [router] }
+        global: { 
+          plugins: [router, [VueQueryPlugin, { queryClient }]]
+        }
       })
       await detailWrapper.vm.$nextTick()
 
@@ -260,7 +333,9 @@ describe('Submission Detail View Integration Tests', () => {
       
       await router.push('/events/event1/showcase')
       const showcaseWrapper = mount(EventDetailPage, {
-        global: { plugins: [router] },
+        global: { 
+          plugins: [router, [VueQueryPlugin, { queryClient }]]
+        },
         props: { tab: 'showcase' }
       })
       await showcaseWrapper.vm.$nextTick()

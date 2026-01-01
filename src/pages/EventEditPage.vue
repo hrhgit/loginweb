@@ -43,11 +43,14 @@ import {
   type TeamLobbyCard,
 } from '../utils/eventDetails'
 
+import { useEvent } from '../composables/useEvents'
+
 const store = useAppStore()
 const route = useRoute()
 const router = useRouter()
 
-const event = ref(store.getEventById(String(route.params.id ?? '')))
+const eventId = computed(() => String(route.params.id ?? ''))
+const { data: event, isLoading: eventLoading, error: eventError } = useEvent(eventId.value)
 const loading = ref(false)
 const loadError = ref('')
 const saveBusy = ref(false)
@@ -667,7 +670,34 @@ const validateAndScroll = (): boolean => {
   return isValid
 }
 
+// Event loading is now handled by Vue Query composables
+// Watch for event data changes and update form accordingly
+watch(event, (newEvent) => {
+  if (newEvent) {
+    // Check permissions and status
+    if (store.isDemoEvent(newEvent)) {
+      loadError.value = '演示活动不支持编辑'
+      return
+    } else if (!store.isAdmin || newEvent.created_by !== store.user.id) {
+      loadError.value = '没有权限编辑此活动'
+      return
+    }
+    
+    // Fill form data
+    populateFormData(newEvent)
+  }
+}, { immediate: true })
+
+// Watch for loading errors
+watch(eventError, (error) => {
+  if (error) {
+    loadError.value = error.message || '加载活动失败'
+  }
+})
+
 const loadEvent = async (id: string) => {
+  // This function is now handled by Vue Query composables
+  // Just ensure user is authenticated
   if (!id) return
   
   loadError.value = ''
@@ -678,43 +708,7 @@ const loadEvent = async (id: string) => {
     loadError.value = '请先登录后再编辑活动'
     return
   }
-
-  // 先检查缓存，避免不必要的加载状态
-  await store.loadEvents()
-  const cached = store.getEventById(id)
-  
-  if (cached) {
-    // 有缓存数据时直接使用，不显示加载状态
-    event.value = cached
-    
-    // 检查权限和状态
-    if (store.isDemoEvent(cached)) {
-      loadError.value = '演示活动不支持编辑'
-      return
-    } else if (!store.isAdmin || cached.created_by !== store.user.id) {
-      loadError.value = '没有权限编辑此活动'
-      return
-    }
-    
-    // 填充表单数据
-    populateFormData(cached)
-    return
-  }
-
-  // 只有在没有缓存数据时才显示加载状态
-  loading.value = true
-  
-  const { data, error } = await store.fetchEventById(id)
-  if (error) {
-    loadError.value = error
-    event.value = null
-  } else {
-    event.value = data
-  }
-
-  if (!event.value) {
-    loadError.value = loadError.value || '活动不存在'
-  } else if (store.isDemoEvent(event.value)) {
+}
     loadError.value = '演示活动不支持编辑'
   } else if (!store.isAdmin || event.value.created_by !== store.user.id) {
     loadError.value = '没有权限编辑此活动'

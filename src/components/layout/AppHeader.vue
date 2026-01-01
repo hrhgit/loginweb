@@ -1,11 +1,18 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, Home, LogOut, Activity } from 'lucide-vue-next'
 import { useAppStore } from '../../store/appStore'
+import { generateAvatarUrl } from '../../utils/imageUrlGenerator'
 
 const store = useAppStore()
 const route = useRoute()
 const router = useRouter()
+
+// Generate avatar URL with cache busting
+const avatarUrl = computed(() => {
+  return generateAvatarUrl(store.profile?.avatar_url)
+})
 
 const handleBack = () => {
   const viewQuery = Array.isArray(route.query.view) ? route.query.view[0] : route.query.view
@@ -42,20 +49,11 @@ const handleBack = () => {
         </div>
 
         <div v-else class="user-actions">
-          <RouterLink 
-            v-if="store.isAdmin" 
-            class="btn btn--ghost btn--compact" 
-            to="/admin/dashboard"
-            title="系统监控"
-          >
-            <Activity :size="16" />
-            监控
-          </RouterLink>
           <RouterLink class="user-pill" to="/me">
             <div class="user-pill__avatar-container">
               <img
-                v-if="store.profile?.avatar_url"
-                :src="store.profile.avatar_url"
+                v-if="avatarUrl"
+                :src="avatarUrl"
                 alt="Avatar"
                 class="user-pill__avatar"
               />

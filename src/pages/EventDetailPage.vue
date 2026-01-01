@@ -19,8 +19,14 @@ import {
   Trash2,
   Send,
 } from 'lucide-vue-next'
+import { useEvent } from '../composables/useEvents'
+import { useCurrentUserData } from '../composables/useUsers'
 import { useAppStore } from '../store/appStore'
 import { supabase } from '../lib/supabase'
+// Vue Query hooks for data management
+import { useTeamData, useJoinTeamRequest, useSaveTeamSeeker, useDeleteTeamSeeker, useSendTeamInvite } from '../composables/useTeams'
+import { useSubmissionData } from '../composables/useSubmissions'
+import { useJudgePermissions } from '../composables/useJudges'
 // Lazy load heavy components for better performance
 const MyTeamsTabContent = defineAsyncComponent(() => import('../components/MyTeamsTabContent.vue'))
 const SubmissionCard = defineAsyncComponent(() => import('../components/showcase/SubmissionCard.vue'))
@@ -48,15 +54,21 @@ import {
 } from '../store/enhancedErrorHandling'
 
 const store = useAppStore()
+const { profile, contacts } = useCurrentUserData()
 const route = useRoute()
 const router = useRouter()
 
 type DetailTab = 'intro' | 'registration' | 'form' | 'team' | 'showcase'
 const props = defineProps<{ tab: DetailTab }>()
 
-const event = ref(store.getEventById(String(route.params.id ?? '')))
-const loading = ref(false)
-const error = ref('')
+const eventId = computed(() => String(route.params.id ?? ''))
+
+// Use Vue Query for event data
+const eventQuery = useEvent(eventId.value)
+const event = computed(() => eventQuery.data.value)
+
+const loading = computed(() => eventQuery.isLoading.value)
+const error = computed(() => eventQuery.error.value?.message || '')
 const registrationModalOpen = ref(false)
 const registrationSubmitBusy = ref(false)
 const revertBusy = ref(false)
@@ -75,7 +87,6 @@ const formLoading = ref(false)
 const joinModalOpen = ref(false)
 const joinTargetTeamId = ref<string | null>(null)
 const joinMessage = ref('')
-const joinSubmitBusy = ref(false)
 const joinError = ref('')
 const registrationCount = ref<number | null>(null)
 
@@ -153,7 +164,22 @@ watch(registrationModalOpen, (open) => {
   if (!open) closeAutocompleteScope('reg')
 })
 
-const eventId = computed(() => String(route.params.id ?? ''))
+// Vue Query data hooks
+const { teams, seekers } = useTeamData(eventId.value)
+const { submissions } = useSubmissionData(eventId.value)
+const joinTeamMutation = useJoinTeamRequest()
+const saveTeamSeekerMutation = useSaveTeamSeeker()
+const deleteTeamSeekerMutation = useDeleteTeamSeeker()
+const sendTeamInviteMutation = useSendTeamInvite()
+
+// Judge permissions hook
+const judgePermissionsQuery = useJudgePermissions(eventId.value, store.user?.id || '')
+
+// Replace original computed properties with Vue Query data
+const teamLobbyTeams = computed(() => teams.data.value || [])
+const teamSeekers = computed(() => seekers.data.value || [])
+const allSubmissions = computed(() => submissions.data.value || [])
+
 const detailTab = computed<DetailTab>(() => props.tab)
 const goTab = async (tab: DetailTab) => {
   const id = eventId.value
@@ -177,8 +203,8 @@ const canRevertToDraft = computed(() => {
 })
 
 // Judge-related computed properties
-const judgePermission = ref<any>(null)
-const judgePermissionLoading = ref(false)
+const judgePermission = computed(() => judgePermissionsQuery.data.value)
+const judgePermissionLoading = computed(() => judgePermissionsQuery.isLoading.value)
 
 const canAccessJudgeWorkspace = computed(() => judgePermission.value?.canAccessJudgeWorkspace ?? false)
 const eventSummary = computed(() => getEventSummaryText(event.value?.description ?? null))
@@ -192,22 +218,19 @@ const teamCreateNeedsRegistration = computed(
 const teamCreateLabel = computed(() => (teamCreateNeedsRegistration.value ? '请先报名' : '创建队伍'))
 type TeamLobbyTab = 'teams' | 'seekers' | 'myteams'
 const teamLobbyTab = ref<TeamLobbyTab>('teams')
-const teamLobbyTeams = computed(() => store.getTeamsForEvent(eventId.value))
-const teamSeekers = computed(() => store.getTeamSeekersForEvent(eventId.value))
 const myTeamSeeker = computed(() => store.getMyTeamSeeker(eventId.value))
 const myTeamsCount = computed(() => {
   if (!store.user) return 0
-  const teams = store.getMyTeamsForEvent(eventId.value)
-  return teams.length
+  // Get user's teams from Vue Query data
+  const userTeams = teamLobbyTeams.value.filter(team => team.leader_id === store.user?.id)
+  return userTeams.length
 })
 
 type ShowcaseTab = 'all' | 'mine'
 const showcaseTab = ref<ShowcaseTab>('all')
-const submissions = computed(() => store.getSubmissionsForEvent(eventId.value))
-const allSubmissions = computed(() => submissions.value)
 const mySubmissions = computed(() => {
   if (!store.user) return []
-  return submissions.value.filter(submission => 
+  return allSubmissions.value.filter(submission => 
     submission.submitted_by === store.user?.id
   )
 })
@@ -224,11 +247,6 @@ const canSubmit = computed(() => {
   if (!isSubmissionStarted.value) return false
   return true
 })
-
-const loadSubmissionsData = async () => {
-  if (!eventId.value) return
-  await store.loadSubmissions(eventId.value)
-}
 
 const handleSubmissionClick = (_submission: any) => {
   // Handle single click - currently no action, reserved for future functionality
@@ -323,7 +341,7 @@ const roleKeyToLabel = (key: string) => {
   return match?.label ?? ''
 }
 const profileRoleLabels = computed(() => {
-  const roles = store.profile?.roles
+  const roles = profile.data.value?.roles
   if (!roles || !roles.length) return []
   const labels = roles.map(roleKeyToLabel).filter(Boolean)
   return sortRoleLabels(labels)
@@ -528,11 +546,9 @@ const openSeekerModal = async () => {
     })
     return
   }
-  if (!store.contacts) {
-    await store.loadMyContacts()
-  }
+  // Contacts are now loaded via Vue Query composables in useCurrentUserData
   seekerIntro.value = myTeamSeeker.value?.intro ?? ''
-  seekerQq.value = myTeamSeeker.value?.qq || store.contacts?.qq || ''
+  seekerQq.value = myTeamSeeker.value?.qq || contacts.data.value?.qq || ''
   seekerRoles.value =
     (myTeamSeeker.value?.roles && myTeamSeeker.value.roles.length
       ? [...myTeamSeeker.value.roles]
@@ -560,43 +576,46 @@ const handleSeekerQqInput = (event: Event) => {
 const saveSeeker = async () => {
   if (!event.value) return
   if (!store.user) return
+  
   seekerBusy.value = true
   seekerError.value = ''
+  
   const payload = {
     intro: seekerIntro.value.trim(),
     qq: sanitizeDigits(seekerQq.value),
     roles: seekerRoles.value.map((role) => role.trim()).filter(Boolean),
   }
-  const { error: saveError } = await store.saveTeamSeeker(event.value.id, payload)
-  if (saveError) {
-    seekerError.value = saveError
+  
+  try {
+    await saveTeamSeekerMutation.mutateAsync({
+      eventId: event.value.id,
+      seekerData: payload,
+    })
+    
+    seekerModalOpen.value = false
+  } catch (error: any) {
+    seekerError.value = error.message || '保存失败，请重试'
+  } finally {
     seekerBusy.value = false
-    return
   }
-  handleSuccessWithBanner(myTeamSeeker.value ? '求组队卡片已更新' : '进行中求组队卡片', store.setBanner, { 
-    operation: 'saveTeamSeeker',
-    component: 'team' 
-  })
-  seekerModalOpen.value = false
-  seekerBusy.value = false
 }
 
 const deleteSeeker = async (seekerId: string) => {
   if (!event.value) return
   const confirmed = window.confirm('确定要删除求组队卡片吗？删除后将从列表移除')
   if (!confirmed) return
-  const { error: deleteError } = await store.deleteTeamSeeker(event.value.id, seekerId)
-  if (deleteError) {
-    handleErrorWithBanner(new Error(deleteError), store.setBanner, { 
+  
+  try {
+    await deleteTeamSeekerMutation.mutateAsync({
+      eventId: event.value.id,
+      seekerId,
+    })
+  } catch (error: any) {
+    handleErrorWithBanner(error, store.setBanner, { 
       operation: 'deleteTeamSeeker',
       component: 'team' 
     })
-    return
   }
-  handleSuccessWithBanner('求组队卡片已删除', store.setBanner, { 
-    operation: 'deleteTeamSeeker',
-    component: 'team' 
-  })
 }
 
 const handleInviteSeeker = (seekerId: string) => {
@@ -646,27 +665,29 @@ const submitInvite = async () => {
 
   inviteBusy.value = true
   inviteError.value = ''
-  const { error } = await store.sendTeamInvite(
-    inviteSelectedTeamId.value,
-    inviteTarget.value.user_id,
-    inviteMessage.value.trim() ? inviteMessage.value.trim() : undefined,
-  )
-  if (error) {
-    inviteError.value = error
+
+  try {
+    await sendTeamInviteMutation.mutateAsync({
+      teamId: inviteSelectedTeamId.value,
+      userId: inviteTarget.value.user_id,
+      message: inviteMessage.value.trim() || undefined,
+    })
+    
+    const teamName = inviteTeamOptions.value.find((t) => t.id === inviteSelectedTeamId.value)?.name ?? '队伍'
+    handleSuccessWithBanner(`已邀请 ${seekerDisplayName(inviteTarget.value)} 加入：${teamName}`, store.setBanner, { 
+      operation: 'sendTeamInvite',
+      component: 'team' 
+    })
+    closeInviteModal()
+  } catch (error: any) {
+    inviteError.value = error.message || '邀请失败，请重试'
+  } finally {
     inviteBusy.value = false
-    return
   }
-  const teamName = inviteTeamOptions.value.find((t) => t.id === inviteSelectedTeamId.value)?.name ?? '队伍'
-  handleSuccessWithBanner(`已邀请 ${seekerDisplayName(inviteTarget.value)} 加入：${teamName}`, store.setBanner, { 
-    operation: 'sendTeamInvite',
-    component: 'team' 
-  })
-  inviteBusy.value = false
-  closeInviteModal()
 }
 
 const closeJoinModal = () => {
-  if (joinSubmitBusy.value) return
+  if (joinTeamMutation.isPending.value) return
   joinModalOpen.value = false
   joinTargetTeamId.value = null
   joinMessage.value = ''
@@ -675,26 +696,22 @@ const closeJoinModal = () => {
 
 const submitJoinRequest = async () => {
   if (!joinTargetTeamId.value) return
-  joinSubmitBusy.value = true
-  joinError.value = ''
-  const message = joinMessage.value.trim()
-  const { error: requestError } = await store.requestJoinTeam(
-    joinTargetTeamId.value,
-    message ? message : undefined,
-  )
-  if (requestError) {
-    joinError.value = requestError
-    joinSubmitBusy.value = false
-    return
+  
+  try {
+    const message = joinMessage.value.trim()
+    await joinTeamMutation.mutateAsync({
+      teamId: joinTargetTeamId.value,
+      message: message || undefined,
+    })
+    
+    // 成功后关闭模态框
+    joinModalOpen.value = false
+    joinTargetTeamId.value = null
+    joinMessage.value = ''
+    joinError.value = ''
+  } catch (error: any) {
+    joinError.value = error.message || '申请失败，请重试'
   }
-  handleSuccessWithBanner('已提交入队申请', store.setBanner, { 
-    operation: 'requestJoinTeam',
-    component: 'team' 
-  })
-  joinModalOpen.value = false
-  joinTargetTeamId.value = null
-  joinMessage.value = ''
-  joinSubmitBusy.value = false
 }
 const isDependencyMet = (
   dependency: QuestionDependency,
@@ -780,21 +797,21 @@ const openRegistrationForm = () => {
       if (!q.linkedProfileField) return
 
       if (isTextLikeQuestion(q)) {
-        if (q.linkedProfileField === 'username' && store.profile?.username) {
-          registrationAnswers.value[q.id] = store.profile.username
-        } else if (q.linkedProfileField === 'phone' && store.contacts?.phone) {
-          registrationAnswers.value[q.id] = store.contacts.phone
-        } else if (q.linkedProfileField === 'qq' && store.contacts?.qq) {
-          registrationAnswers.value[q.id] = store.contacts.qq
+        if (q.linkedProfileField === 'username' && profile.data.value?.username) {
+          registrationAnswers.value[q.id] = profile.data.value.username
+        } else if (q.linkedProfileField === 'phone' && contacts.data.value?.phone) {
+          registrationAnswers.value[q.id] = contacts.data.value.phone
+        } else if (q.linkedProfileField === 'qq' && contacts.data.value?.qq) {
+          registrationAnswers.value[q.id] = contacts.data.value.qq
         }
-      } else if (q.linkedProfileField === 'roles' && store.profile?.roles?.length) {
+      } else if (q.linkedProfileField === 'roles' && profile.data.value?.roles?.length) {
         const ROLE_MAP: Record<string, string> = {
           programmer: '程序',
           planner: '策划',
           artist: '美术',
           audio: '音乐音效',
         }
-        const userLabels = store.profile.roles.map((r) => ROLE_MAP[r]).filter(Boolean)
+        const userLabels = profile.data.value.roles.map((r: any) => ROLE_MAP[r]).filter(Boolean)
 
         if (q.type === 'multi') {
           const matches =
@@ -1029,7 +1046,8 @@ const handleRevertToDraft = async () => {
   if (error) {
     eventErrorHandler.handleError(new Error(error), { operation: 'revertToDraft' })
   } else {
-    event.value = { ...event.value, status: 'draft' }
+    // Refetch the event data to get the updated status
+    await eventQuery.refetch()
     store.setBanner('info', '已退回草稿（仅你可见，可在“我发起的活动”中继续编辑）')
   }
   revertBusy.value = false
@@ -1052,23 +1070,6 @@ const handleRegistrationClick = async () => {
     return
   }
   await store.submitRegistration(event.value, {})
-}
-
-const loadJudgePermission = async () => {
-  if (!event.value || !store.user) {
-    judgePermission.value = null
-    return
-  }
-  judgePermissionLoading.value = true
-  try {
-    const permission = await store.checkJudgePermission(event.value.id)
-    judgePermission.value = permission
-  } catch (error) {
-    console.error('Failed to load judge permission:', error)
-    judgePermission.value = null
-  } finally {
-    judgePermissionLoading.value = false
-  }
 }
 
 const handleJudgeWorkspaceClick = async () => {
@@ -1194,70 +1195,23 @@ const loadRegistrationCount = async (id: string) => {
   }
 }
 
-const loadEvent = async (id: string) => {
-  if (!id) return
-  
-  // 先检查是否有缓存数据，避免不必要的加载状态
-  await store.ensureEventsLoaded()
-  const cached = store.getEventById(id)
-  
-  if (cached) {
-    // 有缓存数据时，直接使用，不显示加载状态
-    event.value = cached
-    loadDetails()
-    await store.loadTeams(id)
-    await store.loadTeamSeekers(id)
-    await loadRegistrationFormResponse()
-    await loadRegistrationCount(id)
-    return
-  }
-
-  // 只有在没有缓存数据时才显示加载状态
-  loading.value = true
-  error.value = ''
-
-  const { data, error: fetchError } = await store.fetchEventById(id)
-  if (fetchError) {
-    error.value = fetchError
-    event.value = null
-  } else {
-    event.value = data
-  }
-  loadDetails()
-  await store.loadTeams(id)
-  await store.loadTeamSeekers(id)
-  await loadRegistrationFormResponse()
-  await loadRegistrationCount(id)
-  loading.value = false
-}
-
 onMounted(async () => {
   // 先初始化基础数据，避免闪烁
   await store.refreshUser()
-  await store.ensureEventsLoaded()
-  await store.ensureRegistrationsLoaded()
-  
-  // 检查是否已有事件数据（可能来自路由缓存）
-  const currentEvent = store.getEventById(eventId.value)
-  if (currentEvent && !event.value) {
-    event.value = currentEvent
-    loadDetails()
-  }
-  
-  // 加载事件详情
-  await loadEvent(eventId.value)
+  // Registrations are now loaded via Vue Query composables
   
   if (eventId.value) {
-    await loadSubmissionsData()
-    await loadJudgePermission()
+    // Vue Query 会自动处理事件数据和评委权限加载
+    await loadRegistrationFormResponse()
+    await loadRegistrationCount(eventId.value)
   }
 })
 
 watch(eventId, async (id) => {
-  await loadEvent(id)
   if (id) {
-    await loadSubmissionsData()
-    await loadJudgePermission()
+    // Vue Query 会自动处理事件数据和评委权限加载
+    await loadRegistrationFormResponse()
+    await loadRegistrationCount(id)
   }
 })
 
@@ -1265,10 +1219,19 @@ watch(
   () => store.user?.id,
   async () => {
     if (!eventId.value || isDemo.value) return
-    await store.loadTeams(eventId.value)
-    await store.loadTeamSeekers(eventId.value)
-    await loadJudgePermission()
+    // Vue Query 会自动处理用户变化时的数据重新获取，包括评委权限
   },
+)
+
+// Watch for event data changes to update details
+watch(
+  () => event.value,
+  (newEvent) => {
+    if (newEvent) {
+      loadDetails()
+    }
+  },
+  { immediate: true }
 )
 
 watch(isRegistered, async (value) => {
@@ -1296,7 +1259,10 @@ watch(isRegistered, async (value) => {
     <section v-else-if="error && !event" class="empty-state">
       <h2>活动未找到</h2>
       <p class="muted">{{ error }}</p>
-      <RouterLink class="btn btn--ghost" to="/events">返回活动页</RouterLink>
+      <div class="empty-state__actions">
+        <RouterLink class="btn btn--ghost" to="/events">返回活动页</RouterLink>
+        <button class="btn btn--primary" @click="eventQuery.refetch()">重试</button>
+      </div>
     </section>
 
     <section v-else-if="event" class="detail-hero">
@@ -1827,15 +1793,15 @@ watch(isRegistered, async (value) => {
           </div>
           
           <!-- 加载状态 -->
-          <div v-if="store.submissionsLoading" class="showcase-loading">
+          <div v-if="submissions.isLoading.value" class="showcase-loading">
             <div class="loading-spinner"></div>
             <p>加载作品中...</p>
           </div>
 
           <!-- 错误状态 -->
-          <div v-else-if="store.submissionsError" class="showcase-error">
-            <p>{{ store.submissionsError }}</p>
-            <button class="btn btn--ghost" @click="loadSubmissionsData">
+          <div v-else-if="submissions.error.value" class="showcase-error">
+            <p>{{ submissions.error.value?.message }}</p>
+            <button class="btn btn--ghost" @click="submissions.refetch()">
               重新加载
             </button>
           </div>
@@ -2256,9 +2222,9 @@ watch(isRegistered, async (value) => {
           <p v-if="joinError" class="alert error">{{ joinError }}</p>
 
           <div class="modal__actions">
-            <button class="btn btn--ghost" type="button" :disabled="joinSubmitBusy" @click="closeJoinModal">取消</button>
-            <button class="btn btn--primary" type="submit" :disabled="joinSubmitBusy">
-              {{ joinSubmitBusy ? '提交中...' : '提交申请' }}
+            <button class="btn btn--ghost" type="button" :disabled="joinTeamMutation.isPending.value" @click="closeJoinModal">取消</button>
+            <button class="btn btn--primary" type="submit" :disabled="joinTeamMutation.isPending.value">
+              {{ joinTeamMutation.isPending.value ? '提交中...' : '提交申请' }}
             </button>
           </div>
         </form>

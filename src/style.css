@@ -807,6 +807,16 @@ img {
   gap: 10px;
 }
 .detail-section,
+/* 
+ * Event Detail Tabs - Responsive Design with Complete Row Filling
+ * 
+ * Base: Flexbox layout with equal-width tabs (fills entire width)
+ * 720px-641px: CSS Grid with auto-fit columns (minimum 120px)
+ * 640px-481px: CSS Grid with 3 tabs per row, complete filling
+ * 480px-: CSS Grid with 2 tabs per row, complete filling
+ * 
+ * Each breakpoint ensures complete row filling
+ */
 .detail-tabs {
   display: grid;
   gap: 14px;
@@ -820,6 +830,7 @@ img {
 }
 .detail-tabs__bar {
   display: flex;
+  width: 100%;
   border-bottom: 1px solid var(--border);
   background: var(--surface-muted);
 }
@@ -835,6 +846,10 @@ img {
     background 0.18s ease,
     color 0.18s ease,
     box-shadow 0.18s ease;
+  /* Ensure text doesn't break awkwardly */
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .detail-tabs__btn + .detail-tabs__btn {
   border-left: 1px solid var(--border);
@@ -2394,6 +2409,24 @@ img {
   box-shadow: 0 0 0 4px var(--accent-soft);
 }
 
+/* Medium screens - optimize tab layout for tablets */
+@media (max-width: 720px) and (min-width: 641px) {
+  .detail-tabs__bar {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 0;
+  }
+  
+  .detail-tabs__btn {
+    border-left: none;
+    border-right: 1px solid var(--border);
+  }
+  
+  .detail-tabs__btn:last-child {
+    border-right: none;
+  }
+}
+
 /* Mobile form improvements */
 @media (max-width: 640px) {
   .field input,
@@ -2411,6 +2444,64 @@ img {
   .field--inline input[type="checkbox"] {
     width: 20px;
     height: 20px;
+  }
+
+  /* Responsive tabs - use grid for complete row filling (3 per row) */
+  .detail-tabs__bar {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0;
+  }
+  
+  .detail-tabs__btn {
+    border-left: none;
+    border-right: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    /* Better touch targets on mobile */
+    min-height: 48px;
+    padding: 14px 8px;
+    font-size: 13px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  
+  /* Remove right border for last column */
+  .detail-tabs__btn:nth-child(3n) {
+    border-right: none;
+  }
+  
+  /* Remove bottom border for last row */
+  .detail-tabs__btn:nth-last-child(-n+3) {
+    border-bottom: none;
+  }
+}
+
+/* Extra small screens - force 2 tabs per row with complete filling */
+@media (max-width: 480px) {
+  .detail-tabs__bar {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0;
+  }
+  
+  .detail-tabs__btn {
+    border-left: none;
+    border-right: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+    padding: 12px 6px;
+    min-height: 44px;
+  }
+  
+  /* Remove right border for even columns (2nd, 4th, etc.) */
+  .detail-tabs__btn:nth-child(2n) {
+    border-right: none;
+  }
+  
+  /* Remove bottom border for last row */
+  .detail-tabs__btn:nth-last-child(-n+2) {
+    border-bottom: none;
   }
 }
 
@@ -2963,26 +3054,17 @@ img {
 
 /* Global Fix for Tab Auto-fill */
 .editor-tabs--wide {
-  display: flex !important;
+  display: flex;
   width: 100%;
 }
 
 .editor-tab {
-  flex: 1 !important;
-  text-align: center !important;
-  justify-content: center !important;
+  flex: 1;
+  text-align: center;
+  justify-content: center;
 }
 
-.detail-tabs__bar {
-  display: flex !important;
-  width: 100%;
-}
-
-.detail-tabs__btn {
-  flex: 1 !important;
-  text-align: center !important;
-  justify-content: center !important;
-}
+/* Detail tabs base styles are handled above with responsive breakpoints */
 
 /* User Pill Avatar Styles */
 .user-pill {
@@ -3031,31 +3113,20 @@ img {
 
 /* Global Fix for Tab Auto-fill */
 .editor-tabs--wide {
-  display: flex !important;
-  width: calc(100% + 36px) !important;
-  margin: -18px -18px 24px !important;
+  display: flex;
+  width: calc(100% + 36px);
+  margin: -18px -18px 24px;
 }
 
 .editor-tab {
-  flex: 1 !important;
-  text-align: center !important;
-  display: flex !important;
-  justify-content: center !important;
-  align-items: center !important;
+  flex: 1;
+  text-align: center;
+  display: flex;
+  justify-content: center;
+  align-items: center;
 }
 
-.detail-tabs__bar {
-  display: flex !important;
-  width: 100%;
-}
-
-.detail-tabs__btn {
-  flex: 1 !important;
-  text-align: center !important;
-  display: flex !important;
-  justify-content: center !important;
-  align-items: center !important;
-}
+/* Detail tabs responsive styles are handled above */
 
 /* Link Menu Styles */
 .link-menu-wrapper {

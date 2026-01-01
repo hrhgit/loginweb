@@ -3,6 +3,7 @@ import { ref, onMounted, onUnmounted, watch, computed } from 'vue';
 import { Upload, Save, X, RotateCcw, Loader2 } from 'lucide-vue-next';
 import { supabase } from '../../lib/supabase';
 import { useAppStore } from '../../store/appStore';
+import { generateAvatarUrl } from '../../utils/imageUrlGenerator';
 
 const props = defineProps<{
   initialImage?: string;
@@ -216,9 +217,9 @@ const preUploadAvatar = async (dataUrl: string) => {
     }
     
     // 获取公开 URL
-    const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(filePath);
+    const avatarUrl = generateAvatarUrl(filePath);
     
-    uploadedUrl.value = urlData.publicUrl;
+    uploadedUrl.value = avatarUrl;
     uploadedPath.value = filePath;
     uploadProgress.value = 100;
     

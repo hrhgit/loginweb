@@ -147,6 +147,8 @@
 import { computed, onMounted, ref } from 'vue'
 import { Download, Loader2, AlertCircle, FileText, CheckCircle, X } from 'lucide-vue-next'
 import { useAppStore } from '../../store/appStore'
+import { useEvent } from '../../composables/useEvents'
+import { useSubmissionData } from '../../composables/useSubmissions'
 import SubmissionCard from '../showcase/SubmissionCard.vue'
 import { 
   downloadSubmissionsBatch,
@@ -165,9 +167,11 @@ const props = defineProps<Props>()
 
 const store = useAppStore()
 
+// Vue Query hooks
+const eventQuery = useEvent(props.eventId)
+const submissionsQuery = useSubmissionData(props.eventId)
+
 // State
-const loading = ref(false)
-const error = ref('')
 const downloadProcessing = ref(false)
 const downloadProgress = ref<ExportProgress | null>(null)
 const downloadSummary = ref<BatchDownloadSummary | null>(null)
@@ -175,8 +179,10 @@ const showDownloadSummary = ref(false)
 const selectedSubmissions = ref<string[]>([])
 
 // Computed properties
-const event = computed(() => store.getEventById(props.eventId))
-const displayedSubmissions = computed(() => store.getSubmissionsForEvent(props.eventId))
+const event = computed(() => eventQuery.data.value)
+const displayedSubmissions = computed(() => submissionsQuery.submissions.data.value || [])
+const loading = computed(() => submissionsQuery.submissions.isLoading.value)
+const error = computed(() => submissionsQuery.submissions.error.value?.message || '')
 
 const isAllSelected = computed(() => {
   return displayedSubmissions.value.length > 0 && 
@@ -197,16 +203,10 @@ const downloadProgressPercentage = computed(() => {
 const loadSubmissions = async () => {
   if (!props.eventId) return
   
-  loading.value = true
-  error.value = ''
-  
   try {
-    await store.loadSubmissions(props.eventId)
+    await submissionsQuery.submissions.refetch()
   } catch (err: any) {
-    error.value = err.message || '加载作品失败'
-    store.setBanner('error', error.value)
-  } finally {
-    loading.value = false
+    store.setBanner('error', err.message || '加载作品失败')
   }
 }
 
@@ -321,7 +321,8 @@ const formatDuration = (ms: number): string => {
 
 // Lifecycle
 onMounted(() => {
-  loadSubmissions()
+  // Vue Query will automatically load data when component mounts
+  // No need to manually call loadSubmissions
 })
 </script>
 
