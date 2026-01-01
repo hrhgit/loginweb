@@ -1089,34 +1089,52 @@ const init = async () => {
   if (initialized) return
   initialized = true
 
-  // Initialize network state monitoring
-  networkStateCleanup = networkManager.addNetworkStateListener((state) => {
-    networkState.value = state
-    
-    // Update performance metrics
-    performanceMetrics.value.networkLatency = state.rtt
-    
-    // Handle connectivity restoration
-    if (state.isOnline && !networkState.value.isOnline) {
-      handleConnectivityRestoration()
-    }
-  })
+  console.log('🚀 Initializing app store...')
 
-  // 简化：移除性能监控初始化，只记录基本的页面加载时间
-  const pageLoadStart = performance.now()
-
-  await refreshUser()
-  loadNotifications()
-  maybePushProfileSetupNotification()
-  if (user.value) {
-    startNotificationTicker()
-    void loadMyPendingTeamActions()
+  // 简化初始化流程，优先加载用户数据
+  try {
+    await refreshUser()
+    console.log('✅ User data loaded')
+  } catch (error) {
+    console.warn('⚠️ Failed to load user data:', error)
   }
 
-  // 简化：只记录页面加载时间
+  // 异步加载其他数据，不阻塞主流程
+  setTimeout(() => {
+    loadNotifications()
+    maybePushProfileSetupNotification()
+    if (user.value) {
+      startNotificationTicker()
+      void loadMyPendingTeamActions()
+    }
+  }, 100)
+
+  // 延迟初始化网络状态监控
+  setTimeout(() => {
+    try {
+      // Initialize network state monitoring
+      networkStateCleanup = networkManager.addNetworkStateListener((state) => {
+        networkState.value = state
+        
+        // Update performance metrics
+        performanceMetrics.value.networkLatency = state.rtt
+        
+        // Handle connectivity restoration
+        if (state.isOnline && !networkState.value.isOnline) {
+          handleConnectivityRestoration()
+        }
+      })
+      console.log('✅ Network monitoring initialized')
+    } catch (error) {
+      console.warn('⚠️ Failed to initialize network monitoring:', error)
+    }
+  }, 1000)
+
+  // 记录页面加载时间
+  const pageLoadStart = performance.now()
   performanceMetrics.value.pageLoadTime = performance.now() - pageLoadStart
 
-  const { data: listener } = supabase.auth.onAuthStateChange(async (_event, session) => {
+  const { data: listener } = supabase.auth.onAuthStateChange(async (event, session) => {
     if (!session) {
       user.value = null
       notifications.value = []
@@ -1140,9 +1158,15 @@ const init = async () => {
     maybePushProfileSetupNotification()
     startNotificationTicker()
     void loadMyPendingTeamActions()
+    
+    // 登录成功后刷新内容
+    if (event === 'SIGNED_IN') {
+      await refreshContentAfterLogin()
+    }
   })
 
   authSubscription = listener.subscription
+  console.log('✅ App store initialized')
 }
 
 // Handle connectivity restoration
@@ -1165,6 +1189,27 @@ const handleConnectivityRestoration = async () => {
     })
   } catch (error) {
     console.warn('Failed to handle connectivity restoration:', error)
+  }
+}
+
+// 登录后刷新内容
+const refreshContentAfterLogin = async () => {
+  try {
+    console.log('🔄 Refreshing content after login...')
+    
+    // 使用专门的组合函数处理登录后的数据刷新
+    const { useAuthRefresh } = await import('../composables/useAuthRefresh')
+    const { refreshContentAfterLogin: doRefresh } = useAuthRefresh()
+    
+    await doRefresh()
+    
+  } catch (error) {
+    console.warn('⚠️ Failed to refresh content after login:', error)
+    // 不要因为刷新失败而影响登录流程，只记录错误
+    authErrorHandler.handleError(error, { 
+      operation: 'refreshContentAfterLogin',
+      component: 'auth' 
+    })
   }
 }
 
@@ -1259,6 +1304,9 @@ const store = proxyRefs({
   // Lifecycle
   init,
   dispose,
+  
+  // Content refresh
+  refreshContentAfterLogin,
   
   // Network state
   networkState,

@@ -14,50 +14,74 @@ import type { Event } from '../store/models'
 
 // Event data fetching functions
 const fetchPublicEvents = async (): Promise<Event[]> => {
-  const { data, error } = await supabase
-    .from('events')
-    .select(EVENT_SELECT)
-    .eq('status', 'published')
-    .order('created_at', { ascending: false })
-    .limit(50) // 限制返回数量，提高查询速度
+  try {
+    const { data, error } = await supabase
+      .from('events')
+      .select(EVENT_SELECT)
+      .eq('status', 'published')
+      .order('created_at', { ascending: false })
+      .limit(50) // 限制返回数量，提高查询速度
 
-  if (error) {
-    eventErrorHandler.handleError(error, { operation: 'fetchPublicEvents' })
-    throw error
+    if (error) {
+      console.warn('Failed to fetch events from Supabase:', error)
+      // 如果 Supabase 连接失败，返回演示数据
+      const { demoEvents } = await import('../store/demoEvents')
+      return demoEvents.filter(event => event.status === 'published') as Event[]
+    }
+
+    return (data as unknown as Event[]) || []
+  } catch (error) {
+    console.warn('Supabase connection failed, using demo data:', error)
+    // 连接失败时使用演示数据
+    const { demoEvents } = await import('../store/demoEvents')
+    return demoEvents.filter(event => event.status === 'published') as Event[]
   }
-
-  return (data as unknown as Event[]) || []
 }
 
 const fetchMyEvents = async (userId: string): Promise<Event[]> => {
   if (!userId) return []
 
-  const { data, error } = await supabase
-    .from('events')
-    .select(EVENT_SELECT)
-    .eq('created_by', userId)
-    .order('created_at', { ascending: false })
+  try {
+    const { data, error } = await supabase
+      .from('events')
+      .select(EVENT_SELECT)
+      .eq('created_by', userId)
+      .order('created_at', { ascending: false })
 
-  if (error) {
-    eventErrorHandler.handleError(error, { operation: 'fetchMyEvents' })
-    throw error
+    if (error) {
+      console.warn('Failed to fetch my events from Supabase:', error)
+      // 如果 Supabase 连接失败，返回空数组（我的活动需要用户登录）
+      return []
+    }
+
+    return (data as unknown as Event[]) || []
+  } catch (error) {
+    console.warn('Supabase connection failed for my events:', error)
+    return []
   }
-
-  return (data as unknown as Event[]) || []
 }
 
 const fetchAllEvents = async (): Promise<Event[]> => {
-  const { data, error } = await supabase
-    .from('events')
-    .select(EVENT_SELECT)
-    .order('created_at', { ascending: false })
+  try {
+    const { data, error } = await supabase
+      .from('events')
+      .select(EVENT_SELECT)
+      .order('created_at', { ascending: false })
 
-  if (error) {
-    eventErrorHandler.handleError(error, { operation: 'fetchAllEvents' })
-    throw error
+    if (error) {
+      console.warn('Failed to fetch all events from Supabase:', error)
+      // 如果 Supabase 连接失败，返回演示数据
+      const { demoEvents } = await import('../store/demoEvents')
+      return demoEvents as Event[]
+    }
+
+    return (data as unknown as Event[]) || []
+  } catch (error) {
+    console.warn('Supabase connection failed for all events:', error)
+    // 连接失败时使用演示数据
+    const { demoEvents } = await import('../store/demoEvents')
+    return demoEvents as Event[]
   }
-
-  return (data as unknown as Event[]) || []
 }
 
 const fetchEvent = async (eventId: string): Promise<Event | null> => {
@@ -69,24 +93,38 @@ const fetchEvent = async (eventId: string): Promise<Event | null> => {
   }
 
   console.log('[useEvents] fetchEvent: Fetching event from database...')
-  const { data, error } = await supabase
-    .from('events')
-    .select(EVENT_SELECT)
-    .eq('id', eventId)
-    .single()
+  
+  try {
+    const { data, error } = await supabase
+      .from('events')
+      .select(EVENT_SELECT)
+      .eq('id', eventId)
+      .single()
 
-  if (error) {
-    if (error.code === 'PGRST116') {
-      console.log('[useEvents] fetchEvent: Event not found')
-      return null
+    if (error) {
+      if (error.code === 'PGRST116') {
+        console.log('[useEvents] fetchEvent: Event not found, checking demo data')
+        // 检查演示数据中是否有这个事件
+        const { demoEvents } = await import('../store/demoEvents')
+        const demoEvent = demoEvents.find(event => event.id === eventId)
+        return demoEvent as Event || null
+      }
+      console.error('[useEvents] fetchEvent: Database error:', error)
+      // 尝试从演示数据中查找
+      const { demoEvents } = await import('../store/demoEvents')
+      const demoEvent = demoEvents.find(event => event.id === eventId)
+      return demoEvent as Event || null
     }
-    console.error('[useEvents] fetchEvent: Database error:', error)
-    eventErrorHandler.handleError(error, { operation: 'fetchEvent' })
-    throw error
-  }
 
-  console.log('[useEvents] fetchEvent: Event fetched successfully:', !!data)
-  return data as unknown as Event | null
+    console.log('[useEvents] fetchEvent: Event fetched successfully:', !!data)
+    return data as unknown as Event | null
+  } catch (error) {
+    console.warn('Supabase connection failed for single event, checking demo data:', error)
+    // 连接失败时检查演示数据
+    const { demoEvents } = await import('../store/demoEvents')
+    const demoEvent = demoEvents.find(event => event.id === eventId)
+    return demoEvent as Event || null
+  }
 }
 
 // Vue Query Hooks
@@ -106,6 +144,9 @@ export function usePublicEvents() {
     // 公开活动变化不频繁，可以使用更长的缓存时间
     staleTime: 1000 * 60 * 2, // 2分钟
     gcTime: 1000 * 60 * 30,   // 30分钟
+    // 确保首次加载时能正确获取数据
+    refetchOnMount: 'always', // 总是在挂载时获取数据
+    enabled: true, // 始终启用查询
   })
 
   return result

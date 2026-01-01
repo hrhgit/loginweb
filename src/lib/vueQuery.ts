@@ -58,27 +58,43 @@ export async function setupVueQuery(app: App) {
   // 使用预创建的 QueryClient 实例
   queryClient = queryClientInstance
   
-  // 初始化缓存优化器
-  const { vueQueryCacheOptimizer } = await import('../utils/vueQueryCacheOptimizer')
-  vueQueryCacheOptimizer.initialize(queryClient)
-  
   // 安装插件
   app.use(VueQueryPlugin, vueQueryOptions)
   
   // 开发环境下启用详细日志
   if (import.meta.env.DEV) {
-    console.log('🚀 Vue Query initialized with cache optimization')
+    console.log('🚀 Vue Query initialized')
     
     // 暴露调试工具到全局
     ;(window as any).__VUE_QUERY_DEBUG__ = {
-      cacheOptimizer: vueQueryCacheOptimizer,
       queryClient,
       // 便捷方法
-      getCacheStats: () => vueQueryCacheOptimizer.getCacheStats(),
-      optimizeCache: () => vueQueryCacheOptimizer.optimize(),
+      getCacheStats: () => {
+        const cache = queryClient.getQueryCache()
+        return {
+          totalQueries: cache.getAll().length
+        }
+      },
       clearCache: () => queryClient.clear(),
     }
   }
+  
+  // 延迟初始化缓存优化器，避免阻塞应用启动
+  setTimeout(async () => {
+    try {
+      const { vueQueryCacheOptimizer } = await import('../utils/vueQueryCacheOptimizer')
+      vueQueryCacheOptimizer.initialize(queryClient)
+      
+      if (import.meta.env.DEV) {
+        console.log('🚀 Cache optimizer initialized')
+        ;(window as any).__VUE_QUERY_DEBUG__.cacheOptimizer = vueQueryCacheOptimizer
+        ;(window as any).__VUE_QUERY_DEBUG__.getCacheStats = () => vueQueryCacheOptimizer.getCacheStats()
+        ;(window as any).__VUE_QUERY_DEBUG__.optimizeCache = () => vueQueryCacheOptimizer.optimize()
+      }
+    } catch (error) {
+      console.warn('Failed to initialize cache optimizer:', error)
+    }
+  }, 2000) // 2秒后初始化
 }
 
 // 获取 QueryClient 实例

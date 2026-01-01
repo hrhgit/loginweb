@@ -19,7 +19,7 @@ const publicEvents = usePublicEvents()
 
 // Network-aware features
 const isLoading = computed(() => 
-  publicEvents.isLoading.value || store.networkAwareLoading
+  publicEvents.isLoading.value
 )
 
 const shouldShowNetworkIndicator = computed(() => 
@@ -32,17 +32,14 @@ const loadingMessage = computed(() => {
   return '正在加载活动列表...'
 })
 
-// 防止闪烁：只有在真正需要加载且没有数据时才显示加载状态
+// 简化加载状态判断
 const shouldShowLoading = computed(() => {
-  // 如果已经有数据，即使在加载中也不显示加载状态（避免闪烁）
+  // 如果已经有数据，不显示加载状态（避免闪烁）
   const events = publicEvents.data.value || []
   if (events.length > 0) return false
   
-  // 如果数据已加载完成且没有数据，不显示加载状态（显示空状态）
-  if (!publicEvents.isLoading.value && events.length === 0) return false
-  
   // 只有在真正加载中且没有数据时才显示加载状态
-  return isLoading.value
+  return publicEvents.isLoading.value
 })
 
 const shouldIgnoreCardNav = (event: MouseEvent) => {
