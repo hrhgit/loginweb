@@ -1,20 +1,20 @@
 # Development files
 node_modules
-src
 docs
 scripts
 .git
 .vscode
 .kiro
 
-# Build files (keep dist)
+# Build files (keep dist and src for building)
 # dist
+# src - needed for building
+# tsconfig.json - needed for TypeScript compilation
+# vite.config.ts - needed for Vite build
 
-# Config files
-tsconfig.json
-vite.config.ts
-vitest.config.ts
+# Config files that aren't needed for deployment
 build.sh
+vitest.config.ts
 
 # Test files
 **/*.test.*
