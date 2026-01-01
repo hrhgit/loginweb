@@ -63,6 +63,24 @@ const getRegistrationCountLabel = (eventId: string) => {
 <span class="meta-item"><Users :size="16" /> 点击查看详情</span>
 ```
 
+### 3. 修复 MyEventsPage.vue 中的问题
+
+**问题**：同样在模板渲染过程中调用 `useRegistrationCount`
+
+**修复方案**：
+- 移除动态报名人数查询
+- 改为显示 "点击后台管理查看"
+- 管理员可以通过后台管理功能查看详细的报名信息
+
+### 4. 修复 ProfilePage.vue 中的问题
+
+**问题**：在个人资料页面的活动列表中调用 `useRegistrationCount`
+
+**修复方案**：
+- 在已报名活动中显示 "点击查看详情"
+- 在创建的活动中显示 "点击后台管理查看"
+- 保持功能完整性，只是调整了显示方式
+
 ### 3. 创建安全的 Vue Query 包装器
 
 创建了 `src/composables/useSafeQuery.ts` 文件，提供：
@@ -101,6 +119,16 @@ registrationDataQuery.formData.value
    - 移除了在模板渲染中调用 `useRegistrationCount` 的问题
    - 改为静态显示，避免为每个事件创建单独的查询
    - 提高了性能并避免了 Vue Query 作用域问题
+
+3. **src/pages/MyEventsPage.vue**
+   - 修复了同样的 `useRegistrationCount` 调用问题
+   - 改为显示 "点击后台管理查看"
+   - 管理员可以通过后台管理功能查看详细信息
+
+4. **src/pages/ProfilePage.vue**
+   - 修复了个人资料页面中的 `useRegistrationCount` 调用问题
+   - 在不同场景下显示相应的提示文本
+   - 保持了功能的完整性
 
 3. **src/composables/useSafeQuery.ts** (新建)
    - 提供安全的 Vue Query 包装器

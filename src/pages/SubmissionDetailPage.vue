@@ -16,7 +16,7 @@
         <button 
           v-if="!error.includes('权限') && !error.includes('不存在')"
           class="btn btn--primary" 
-          @click="loadSubmissionData"
+          @click="refetchSubmissions"
         >
           重试
         </button>
@@ -220,8 +220,9 @@ import { truncateTeamIntro } from '../utils/textUtils'
 import type { SubmissionWithTeam } from '../store/models'
 import { generateCoverUrl } from '../utils/imageUrlGenerator'
 
-import { useSubmissions } from '../composables/useSubmissions'
-import { useTeams } from '../composables/useTeams'
+import { useSubmissionData } from '../composables/useSubmissions'
+import { useTeamData } from '../composables/useTeams'
+import { useEvent } from '../composables/useEvents'
 
 const route = useRoute()
 const router = useRouter()
@@ -231,13 +232,28 @@ const store = useAppStore()
 const eventId = computed(() => String(route.params.eventId ?? ''))
 const submissionId = computed(() => String(route.params.submissionId ?? ''))
 
-const { data: submissions } = useSubmissions(eventId.value)
-const { data: teams } = useTeams(eventId.value)
+const { submissions, isLoading: submissionsLoading, error: submissionsError, refetch: refetchSubmissions } = useSubmissionData(eventId.value)
+const { teams } = useTeamData(eventId.value)
+const { data: event } = useEvent(eventId.value)
 
-// Reactive state
-const loading = ref(true)
-const error = ref('')
-const submission = ref<SubmissionWithTeam | null>(null)
+// Computed submission from Vue Query data
+const submission = computed(() => {
+  if (!submissions.data.value) return null
+  const submissionsList = submissions.data.value || []
+  return submissionsList.find(s => s.id === submissionId.value) || null
+})
+
+// Loading and error states from Vue Query
+const loading = computed(() => submissionsLoading.value && !submission.value)
+const error = computed(() => {
+  if (submissionsError.value) {
+    return submissionsError.value.message || '加载失败'
+  }
+  if (!submissionsLoading.value && !submission.value) {
+    return '未找到该作品'
+  }
+  return ''
+})
 
 // Enhanced image loading state
 const imageLoading = ref(false)
@@ -251,15 +267,15 @@ const passwordCopied = ref(false)
 
 // Enhanced computed properties
 const eventTitle = computed(() => {
-  const event = store.displayedEvents.find(e => e.id === eventId.value)
-  return event?.title?.trim() || '活动详情'
+  return event.value?.title?.trim() || '活动详情'
 })
 
 // Team Data Computation
 const teamDetails = computed(() => {
   if (!submission.value || !submission.value.team_id) return null
-  const teams = store.getTeamsForEvent(eventId.value)
-  return teams.find(t => t.id === submission.value?.team_id) || null
+  if (!teams.data.value) return null
+  const teamsData = teams.data.value || []
+  return teamsData.find(t => t.id === submission.value?.team_id) || null
 })
 
 const teamName = computed(() => {
@@ -435,48 +451,6 @@ const getFileExtension = (path: string) => {
   return ext ? `.${ext.toUpperCase()}` : ''
 }
 
-// Data loading
-const loadSubmissionData = async () => {
-  error.value = ''
-
-  try {
-    // Data is now loaded via Vue Query composables
-    // Check if submission exists in the loaded data
-    const submissionsList = submissions.value || []
-    const teamsData = teams.value || []
-    
-    const cachedSubmissions = store.getSubmissionsForEvent(eventId.value)
-    const cachedSubmission = cachedSubmissions.find(s => s.id === submissionId.value)
-    
-    if (cachedSubmission) {
-      // 有缓存数据时直接使用，不显示加载状态
-      submission.value = cachedSubmission
-      return
-    }
-
-    // 只有在没有缓存数据时才显示加载状态
-    loading.value = true
-    
-    // Data is now loaded via Vue Query composables
-    const submissionsList = submissions.value || []
-    const teamsData = teams.value || []
-    
-    const allSubmissions = store.getSubmissionsForEvent(eventId.value)
-    const found = allSubmissions.find(s => s.id === submissionId.value)
-    
-    if (!found) {
-      error.value = '未找到该作品'
-      return
-    }
-
-    submission.value = found
-  } catch (err: any) {
-    error.value = err.message || '加载失败'
-  } finally {
-    loading.value = false
-  }
-}
-
 const handleBack = () => {
   router.push(`/events/${eventId.value}/showcase`)
 }
@@ -573,14 +547,9 @@ const handleCustomDownload = async () => {
   }
 }
 
-onMounted(async () => {
-  try {
-    await store.ensureEventsLoaded()
-    await loadSubmissionData()
-  } catch {
-    error.value = '初始化失败'
-    loading.value = false
-  }
+onMounted(() => {
+  // Vue Query composables handle data loading automatically
+  // No manual initialization needed
 })
 
 onUnmounted(() => {

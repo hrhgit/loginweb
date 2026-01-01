@@ -12,7 +12,6 @@ import { formatDateRange, formatDateTime, locationLabel, teamSizeLabel } from '.
 import { getEventSummaryText } from '../utils/eventDetails'
 import { getRoleTagKey, sortRoleLabels } from '../utils/roleTags'
 import { generateAvatarUrl } from '../utils/imageUrlGenerator'
-import { useRegistrationCount } from '../composables/useRegistrationForm'
 
 import { useEvents } from '../composables/useEvents'
 
@@ -152,14 +151,8 @@ const createdEvents = computed(() => {
   return store.myEvents
 })
 
-// 创建一个函数来获取活动的报名人数标签
-const getRegistrationCountLabel = (eventId: string) => {
-  const countQuery = useRegistrationCount(eventId)
-  return computed(() => {
-    const count = countQuery.data.value
-    return count !== undefined ? `${count} 人已报名` : '—'
-  })
-}
+// 暂时移除动态报名人数查询，避免 Vue Query 警告
+// 在个人资料页面，用户可以点击进入活动详情查看报名信息
 
 const notifications = computed(() => notificationsQuery.data.value || [])
 const unreadNotifications = computed(() => unreadCount.value)
@@ -1194,7 +1187,7 @@ watch(
               </template>
               <template #meta>
                 <span class="meta-item">地点：{{ locationLabel(event.location) }}</span>
-                <span class="meta-item">报名人数：{{ getRegistrationCountLabel(event.id).value }}</span>
+                <span class="meta-item">报名人数：点击查看详情</span>
               </template>
               <template #actions>
                 <RouterLink class="btn btn--primary" :to="`/events/${event.id}`">查看详情</RouterLink>
@@ -1231,7 +1224,7 @@ watch(
               </template>
               <template #meta>
                 <span class="meta-item">地点：{{ locationLabel(event.location) }}</span>
-                <span class="meta-item">报名人数：{{ getRegistrationCountLabel(event.id).value }}</span>
+                <span class="meta-item">报名人数：点击后台管理查看</span>
               </template>
               <template #actions>
                 <RouterLink class="btn btn--primary" :to="`/events/${event.id}`">管理活动</RouterLink>

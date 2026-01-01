@@ -6,7 +6,6 @@ import { Settings, Edit, Undo2, UserPlus, Plus } from 'lucide-vue-next'
 import { useAppStore } from '../store/appStore'
 import EventCard from '../components/events/EventCard.vue'
 import UserSearchModal from '../components/modals/UserSearchModal.vue'
-import { useRegistrationCount } from '../composables/useRegistrationForm'
 import {
   teamSizeLabel,
   formatDateRange,
@@ -49,14 +48,8 @@ onMounted(async () => {
   isInitializing.value = false
 })
 
-// 创建一个函数来获取活动的报名人数标签
-const getRegistrationCountLabel = (eventId: string) => {
-  const countQuery = useRegistrationCount(eventId)
-  return computed(() => {
-    const count = countQuery.data.value
-    return count !== undefined ? `${count} 人已报名` : '—'
-  })
-}
+// 暂时移除动态报名人数查询，避免 Vue Query 警告
+// 在我的活动页面，管理员可以点击进入后台管理查看详细的报名信息
 
 // 监听用户状态变化，如果用户登录状态发生变化也更新初始化状态
 watch(() => store.user, () => {
@@ -176,7 +169,7 @@ const handleCloseInviteModal = () => {
           </template>
           <template #meta>
             <span class="meta-item">地点：{{ locationLabel(event.location) }}</span>
-            <span class="meta-item">报名人数：{{ getRegistrationCountLabel(event.id).value }}</span>
+            <span class="meta-item">报名人数：点击后台管理查看</span>
           </template>
           <template #actions>
             <template v-if="store.isDemoEvent(event)">

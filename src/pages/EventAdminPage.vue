@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, Download, FileText, Loader2, CheckCircle, AlertCircle, User, ExternalLink, ChevronUp, ChevronDown, ChevronsUpDown, Users } from 'lucide-vue-next'
+import { Download, FileText, Loader2, CheckCircle, AlertCircle, User, ExternalLink, ChevronUp, ChevronDown, ChevronsUpDown, Users } from 'lucide-vue-next'
 import { useAppStore } from '../store/appStore'
 import { supabase } from '../lib/supabase'
 import { getEventDetailsFromDescription } from '../utils/eventDetails'
@@ -677,9 +677,6 @@ const { BATCH_DOWNLOAD_LIMITS: limits } = { BATCH_DOWNLOAD_LIMITS }
   <main class="admin-page">
     <section class="page-head">
       <div class="head-row">
-        <button class="btn btn--ghost btn--icon" @click="router.push('/events/mine')">
-          <ArrowLeft :size="20" />
-        </button>
         <div class="head-content">
           <h1>活动后台管理</h1>
           <p class="muted">{{ event?.title || '加载中...' }}</p>
@@ -835,7 +832,7 @@ const { BATCH_DOWNLOAD_LIMITS: limits } = { BATCH_DOWNLOAD_LIMITS }
             >
               <template #footer-actions>
                 <div class="table-footer-actions">
-                  <span class="export-hint">完整数据请导出 Excel 查看</span>
+                
                   <button class="btn btn--primary btn--compact" @click="downloadForms">
                     <Download :size="16" />
                     导出 Excel
