@@ -7,23 +7,17 @@
     "dev": "vite",
     "build": "vite build",
     "build:check": "tsc --noEmit --skipLibCheck && vite build",
+    "build:verify": "vite build && node scripts/verify-build.js",
+    "verify-build": "node scripts/verify-build.js",
     "preview": "vite preview",
-    "test": "vitest --run",
-    "test:watch": "vitest",
-    "test:ui": "vitest --ui",
     "docs:organize": "node scripts/organize-docs.js"
   },
   "devDependencies": {
     "@types/node": "^25.0.3",
     "@vitejs/plugin-vue": "^6.0.1",
-    "@vitest/ui": "^4.0.16",
-    "@vue/test-utils": "^2.4.6",
-    "fast-check": "^4.5.2",
-    "jsdom": "^27.4.0",
     "supabase": "^2.70.5",
     "typescript": "~5.9.3",
-    "vite": "^7.2.4",
-    "vitest": "^4.0.16"
+    "vite": "^7.2.4"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.89.0",
