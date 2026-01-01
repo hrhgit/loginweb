@@ -15,28 +15,14 @@ export default defineConfig({
     minify: 'esbuild',
     rollupOptions: {
       output: {
-        // Improved chunk naming strategy for predictable paths
+        // Simplified chunk naming strategy for better compatibility
         chunkFileNames: (chunkInfo) => {
           // Handle vendor chunks with consistent naming
           if (chunkInfo.name?.includes('vendor')) {
             return 'assets/vendors/[name]-[hash].js'
           }
           
-          // Handle page chunks with predictable naming
-          if (chunkInfo.facadeModuleId?.includes('/pages/')) {
-            const pageName = chunkInfo.facadeModuleId
-              .split('/pages/')[1]
-              .replace('.vue', '')
-              .toLowerCase()
-            return `assets/pages/${pageName}-[hash].js`
-          }
-          
-          // Handle component chunks
-          if (chunkInfo.facadeModuleId?.includes('/components/')) {
-            return 'assets/components/[name]-[hash].js'
-          }
-          
-          // Default chunk naming
+          // Use default naming for all other chunks to avoid path issues
           return 'assets/chunks/[name]-[hash].js'
         },
         
@@ -51,7 +37,7 @@ export default defineConfig({
           return 'assets/[name]-[hash][extname]'
         },
         
-        // Enhanced manual chunks for better code splitting
+        // Simplified manual chunks for better compatibility
         manualChunks: (id) => {
           // Vendor chunks
           if (id.includes('node_modules')) {
@@ -74,17 +60,7 @@ export default defineConfig({
             return 'vendor'
           }
           
-          // Store and utilities chunks
-          if (id.includes('/store/')) {
-            return 'store'
-          }
-          if (id.includes('/utils/') || id.includes('/composables/')) {
-            return 'utils'
-          }
-          if (id.includes('/components/')) {
-            return 'components'
-          }
-          
+          // Let Vite handle other chunks automatically
           return undefined
         }
       }

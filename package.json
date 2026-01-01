@@ -9,6 +9,7 @@
     "build:check": "tsc --noEmit --skipLibCheck && vite build",
     "build:verify": "vite build && node scripts/verify-build.js",
     "verify-build": "node scripts/verify-build.js",
+    "pre-deploy": "node scripts/pre-deploy-check.js",
     "preview": "vite preview",
     "docs:organize": "node scripts/organize-docs.js"
   },

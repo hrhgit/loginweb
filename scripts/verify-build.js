@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 
+/**
+ * 构建验证脚本 - 验证 Vite 构建输出的完整性
+ */
+
 import { readFileSync, existsSync, readdirSync, statSync } from 'fs'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
@@ -9,260 +13,197 @@ const __dirname = dirname(__filename)
 const projectRoot = join(__dirname, '..')
 const distDir = join(projectRoot, 'dist')
 
-/**
- * Build verification script for module loading fix
- * Validates that all dynamic imports have corresponding chunk files
- */
+console.log('🔍 验证构建输出...\n')
 
-class BuildVerifier {
-  constructor() {
-    this.errors = []
-    this.warnings = []
-    this.dynamicImports = new Set()
-    this.generatedChunks = new Set()
-  }
+// 验证基本文件存在
+const requiredFiles = [
+  'index.html',
+  'vite.svg',
+  'sw.js',
+  'background-worker.js'
+]
 
-  /**
-   * Extract dynamic imports from router and other source files
-   */
-  extractDynamicImports() {
-    console.log('🔍 Extracting dynamic imports...')
-    
-    // Check router file for dynamic imports
-    const routerPath = join(projectRoot, 'src/router.ts')
-    if (existsSync(routerPath)) {
-      const routerContent = readFileSync(routerPath, 'utf-8')
-      
-      // Match import() statements
-      const importMatches = routerContent.match(/import\(['"`]([^'"`]+)['"`]\)/g)
-      if (importMatches) {
-        importMatches.forEach(match => {
-          const path = match.match(/import\(['"`]([^'"`]+)['"`]\)/)[1]
-          this.dynamicImports.add(path)
-        })
-      }
-    }
+console.log('📁 检查基本文件:')
+let hasErrors = false
 
-    console.log(`📦 Found ${this.dynamicImports.size} dynamic imports:`)
-    this.dynamicImports.forEach(imp => console.log(`   - ${imp}`))
-  }
-
-  /**
-   * Scan dist directory for generated chunks
-   */
-  scanGeneratedChunks() {
-    console.log('\n🔍 Scanning generated chunks...')
-    
-    if (!existsSync(distDir)) {
-      this.errors.push('Build directory does not exist. Run build first.')
-      return
-    }
-
-    this.scanDirectory(distDir)
-    
-    console.log(`📦 Found ${this.generatedChunks.size} chunk files:`)
-    this.generatedChunks.forEach(chunk => console.log(`   - ${chunk}`))
-  }
-
-  /**
-   * Recursively scan directory for JS files
-   */
-  scanDirectory(dir) {
-    try {
-      const items = readdirSync(dir)
-      
-      items.forEach(item => {
-        const fullPath = join(dir, item)
-        const stat = statSync(fullPath)
-        
-        if (stat.isDirectory()) {
-          this.scanDirectory(fullPath)
-        } else if (item.endsWith('.js')) {
-          // Store relative path from dist
-          const relativePath = fullPath.replace(distDir, '').replace(/^[\\\/]/, '')
-          this.generatedChunks.add(relativePath)
-        }
-      })
-    } catch (error) {
-      this.errors.push(`Error scanning directory ${dir}: ${error.message}`)
-    }
-  }
-
-  /**
-   * Verify chunk naming follows expected patterns
-   */
-  verifyChunkNaming() {
-    console.log('\n🔍 Verifying chunk naming patterns...')
-    
-    const expectedPatterns = {
-      pages: /^assets[\\\/]pages[\\\/][a-z0-9-]+-[a-zA-Z0-9_-]+\.js$/i,
-      vendors: /^assets[\\\/]vendors[\\\/][a-z0-9-]+-[a-zA-Z0-9_-]+\.js$/i,
-      components: /^assets[\\\/]components[\\\/][a-z0-9-]+-[a-zA-Z0-9_-]+\.js$/i,
-      chunks: /^assets[\\\/]chunks[\\\/][a-z0-9-]+-[a-zA-Z0-9_-]+\.js$/i,
-      entry: /^assets[\\\/][a-z0-9-]+-[a-zA-Z0-9_-]+\.js$/i
-    }
-
-    let patternsFound = {
-      pages: 0,
-      vendors: 0,
-      components: 0,
-      chunks: 0,
-      entry: 0,
-      other: 0
-    }
-
-    this.generatedChunks.forEach(chunk => {
-      let matched = false
-      
-      // Skip service worker files
-      if (chunk === 'background-worker.js' || chunk === 'sw.js') {
-        patternsFound.other++
-        return
-      }
-      
-      for (const [type, pattern] of Object.entries(expectedPatterns)) {
-        if (pattern.test(chunk)) {
-          patternsFound[type]++
-          matched = true
-          break
-        }
-      }
-      
-      if (!matched) {
-        this.warnings.push(`Chunk doesn't match expected naming pattern: ${chunk}`)
-      }
-    })
-
-    console.log('📊 Chunk distribution:')
-    Object.entries(patternsFound).forEach(([type, count]) => {
-      console.log(`   - ${type}: ${count} files`)
-    })
-
-    // Verify we have expected vendor chunks
-    const hasVueVendor = Array.from(this.generatedChunks).some(chunk => 
-      chunk.includes('vue-vendor'))
-    const hasSupabaseVendor = Array.from(this.generatedChunks).some(chunk => 
-      chunk.includes('supabase-vendor'))
-    
-    if (hasVueVendor) {
-      console.log('✅ Vue vendor chunk found')
-    } else {
-      this.warnings.push('Vue vendor chunk not found')
-    }
-    
-    if (hasSupabaseVendor) {
-      console.log('✅ Supabase vendor chunk found')
-    } else {
-      this.warnings.push('Supabase vendor chunk not found')
-    }
-  }
-
-  /**
-   * Verify that dynamic imports have corresponding chunks
-   */
-  verifyDynamicImportChunks() {
-    console.log('\n🔍 Verifying dynamic import chunks...')
-    
-    this.dynamicImports.forEach(importPath => {
-      // Extract component name from path
-      const componentName = importPath
-        .replace('./pages/', '')
-        .replace('./components/', '')
-        .replace('.vue', '')
-        .toLowerCase()
-      
-      // Check if there's a corresponding chunk
-      const hasChunk = Array.from(this.generatedChunks).some(chunk => {
-        return chunk.includes(componentName) || 
-               chunk.includes(importPath.replace('./', '').replace('.vue', ''))
-      })
-      
-      if (!hasChunk) {
-        this.warnings.push(`No chunk found for dynamic import: ${importPath}`)
-      }
-    })
-  }
-
-  /**
-   * Check for MIME type issues in index.html
-   */
-  verifyIndexHtml() {
-    console.log('\n🔍 Verifying index.html...')
-    
-    const indexPath = join(distDir, 'index.html')
-    if (!existsSync(indexPath)) {
-      this.errors.push('index.html not found in build output')
-      return
-    }
-
-    const indexContent = readFileSync(indexPath, 'utf-8')
-    
-    // Check for proper script tags
-    const scriptTags = indexContent.match(/<script[^>]*src="[^"]*"[^>]*>/g) || []
-    
-    scriptTags.forEach(tag => {
-      // Verify script tags have proper type (should be module or no type for JS)
-      if (!tag.includes('type="module"') && !tag.includes('.js"')) {
-        this.warnings.push(`Script tag may have MIME type issues: ${tag}`)
-      }
-    })
-
-    console.log(`📄 Found ${scriptTags.length} script tags in index.html`)
-  }
-
-  /**
-   * Run all verification checks
-   */
-  async verify() {
-    console.log('🚀 Starting build verification...\n')
-    
-    try {
-      this.extractDynamicImports()
-      this.scanGeneratedChunks()
-      this.verifyChunkNaming()
-      this.verifyDynamicImportChunks()
-      this.verifyIndexHtml()
-      
-      this.printResults()
-      
-      return this.errors.length === 0
-    } catch (error) {
-      console.error('❌ Verification failed:', error.message)
-      return false
-    }
-  }
-
-  /**
-   * Print verification results
-   */
-  printResults() {
-    console.log('\n' + '='.repeat(50))
-    console.log('📋 BUILD VERIFICATION RESULTS')
-    console.log('='.repeat(50))
-    
-    if (this.errors.length === 0 && this.warnings.length === 0) {
-      console.log('✅ All checks passed! Build is ready for deployment.')
-    } else {
-      if (this.errors.length > 0) {
-        console.log('\n❌ ERRORS:')
-        this.errors.forEach(error => console.log(`   - ${error}`))
-      }
-      
-      if (this.warnings.length > 0) {
-        console.log('\n⚠️  WARNINGS:')
-        this.warnings.forEach(warning => console.log(`   - ${warning}`))
-      }
-    }
-    
-    console.log(`\n📊 Summary: ${this.errors.length} errors, ${this.warnings.length} warnings`)
-    
-    if (this.errors.length > 0) {
-      console.log('\n💡 Fix errors before deploying to production.')
-      process.exit(1)
-    }
+for (const file of requiredFiles) {
+  const filePath = join(distDir, file)
+  if (existsSync(filePath)) {
+    console.log(`  ✅ ${file}`)
+  } else {
+    console.log(`  ❌ ${file} - 文件不存在`)
+    hasErrors = true
   }
 }
 
-// Run verification if called directly
-const verifier = new BuildVerifier()
-verifier.verify().catch(console.error)
+// 验证 assets 目录结构
+const assetsDir = join(distDir, 'assets')
+if (existsSync(assetsDir)) {
+  console.log('\n📦 检查 assets 目录结构:')
+  
+  const expectedDirs = ['chunks', 'styles', 'vendors']
+  for (const dir of expectedDirs) {
+    const dirPath = join(assetsDir, dir)
+    if (existsSync(dirPath)) {
+      const files = readdirSync(dirPath)
+      console.log(`  ✅ ${dir}/ (${files.length} 个文件)`)
+    } else {
+      console.log(`  ❌ ${dir}/ - 目录不存在`)
+      hasErrors = true
+    }
+  }
+} else {
+  console.log('\n❌ assets 目录不存在')
+  hasErrors = true
+}
+
+// 验证 index.html 中的模块引用
+console.log('\n🔗 检查 index.html 模块引用:')
+try {
+  const indexHtml = readFileSync(join(distDir, 'index.html'), 'utf-8')
+  
+  // 检查主入口文件
+  const mainScriptMatch = indexHtml.match(/src="([^"]+index-[^"]+\.js)"/)
+  if (mainScriptMatch) {
+    const mainScript = mainScriptMatch[1].replace(/^\//, '')
+    const mainScriptPath = join(distDir, mainScript)
+    if (existsSync(mainScriptPath)) {
+      console.log(`  ✅ 主入口文件: ${mainScript}`)
+    } else {
+      console.log(`  ❌ 主入口文件不存在: ${mainScript}`)
+      hasErrors = true
+    }
+  } else {
+    console.log('  ❌ 未找到主入口文件引用')
+    hasErrors = true
+  }
+  
+  // 检查预加载模块
+  const preloadMatches = indexHtml.matchAll(/href="([^"]+\.js)"/g)
+  let preloadCount = 0
+  for (const match of preloadMatches) {
+    const preloadScript = match[1].replace(/^\//, '')
+    const preloadPath = join(distDir, preloadScript)
+    if (existsSync(preloadPath)) {
+      console.log(`  ✅ 预加载模块: ${preloadScript}`)
+      preloadCount++
+    } else {
+      console.log(`  ❌ 预加载模块不存在: ${preloadScript}`)
+      hasErrors = true
+    }
+  }
+  
+  console.log(`  📊 总计 ${preloadCount} 个预加载模块`)
+  
+} catch (error) {
+  console.log(`  ❌ 读取 index.html 失败: ${error.message}`)
+  hasErrors = true
+}
+
+// 验证 JavaScript 文件的 MIME 类型兼容性
+console.log('\n🎭 检查 JavaScript 文件:')
+try {
+  const checkJsFiles = (dir, prefix = '') => {
+    const items = readdirSync(dir)
+    let jsCount = 0
+    
+    for (const item of items) {
+      const itemPath = join(dir, item)
+      const stat = statSync(itemPath)
+      
+      if (stat.isDirectory()) {
+        jsCount += checkJsFiles(itemPath, `${prefix}${item}/`)
+      } else if (item.endsWith('.js')) {
+        // 检查文件内容是否为有效的 JavaScript
+        try {
+          const content = readFileSync(itemPath, 'utf-8')
+          if (content.trim().length === 0) {
+            console.log(`  ⚠️  空文件: ${prefix}${item}`)
+          } else if (content.startsWith('<!DOCTYPE html>') || content.startsWith('<html')) {
+            console.log(`  ❌ HTML 内容在 JS 文件中: ${prefix}${item}`)
+            hasErrors = true
+          } else {
+            console.log(`  ✅ ${prefix}${item} (${(content.length / 1024).toFixed(1)}KB)`)
+          }
+          jsCount++
+        } catch (error) {
+          console.log(`  ❌ 读取失败: ${prefix}${item} - ${error.message}`)
+          hasErrors = true
+        }
+      }
+    }
+    
+    return jsCount
+  }
+  
+  const totalJsFiles = checkJsFiles(assetsDir)
+  console.log(`  📊 总计 ${totalJsFiles} 个 JavaScript 文件`)
+  
+} catch (error) {
+  console.log(`  ❌ 检查 JavaScript 文件失败: ${error.message}`)
+  hasErrors = true
+}
+
+// 验证 CSS 文件
+console.log('\n🎨 检查 CSS 文件:')
+try {
+  const stylesDir = join(assetsDir, 'styles')
+  if (existsSync(stylesDir)) {
+    const cssFiles = readdirSync(stylesDir).filter(f => f.endsWith('.css'))
+    console.log(`  📊 总计 ${cssFiles.length} 个 CSS 文件`)
+    
+    for (const cssFile of cssFiles.slice(0, 5)) { // 只显示前5个
+      const cssPath = join(stylesDir, cssFile)
+      const content = readFileSync(cssPath, 'utf-8')
+      console.log(`  ✅ ${cssFile} (${(content.length / 1024).toFixed(1)}KB)`)
+    }
+    
+    if (cssFiles.length > 5) {
+      console.log(`  ... 还有 ${cssFiles.length - 5} 个 CSS 文件`)
+    }
+  }
+} catch (error) {
+  console.log(`  ❌ 检查 CSS 文件失败: ${error.message}`)
+  hasErrors = true
+}
+
+// 计算总体构建大小
+console.log('\n📊 构建统计:')
+try {
+  const calculateSize = (dir) => {
+    let totalSize = 0
+    const items = readdirSync(dir)
+    
+    for (const item of items) {
+      const itemPath = join(dir, item)
+      const stat = statSync(itemPath)
+      
+      if (stat.isDirectory()) {
+        totalSize += calculateSize(itemPath)
+      } else {
+        totalSize += stat.size
+      }
+    }
+    
+    return totalSize
+  }
+  
+  const totalSize = calculateSize(distDir)
+  console.log(`  📦 总构建大小: ${(totalSize / 1024 / 1024).toFixed(2)} MB`)
+  
+  const assetsSize = calculateSize(assetsDir)
+  console.log(`  🎯 Assets 大小: ${(assetsSize / 1024 / 1024).toFixed(2)} MB`)
+  
+} catch (error) {
+  console.log(`  ❌ 计算构建大小失败: ${error.message}`)
+}
+
+// 最终结果
+console.log('\n' + '='.repeat(50))
+if (hasErrors) {
+  console.log('❌ 构建验证失败 - 发现问题需要修复')
+  process.exit(1)
+} else {
+  console.log('✅ 构建验证通过 - 所有文件正常')
+  console.log('\n🚀 可以安全部署到 Vercel')
+}
