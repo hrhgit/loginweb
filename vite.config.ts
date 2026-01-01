@@ -12,6 +12,29 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: false,
-    minify: 'esbuild'
+    minify: 'esbuild',
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vue-vendor': ['vue', 'vue-router'],
+          'supabase-vendor': ['@supabase/supabase-js'],
+          'query-vendor': ['@tanstack/vue-query'],
+          'ui-vendor': ['lucide-vue-next', 'vue-advanced-cropper']
+        },
+        chunkFileNames: 'chunks/[name].[hash].js',
+        entryFileNames: '[name].[hash].js',
+        assetFileNames: 'assets/[name].[hash].[ext]'
+      }
+    },
+    assetsDir: 'assets',
+    target: 'es2020'
+  },
+  server: {
+    port: 5173,
+    host: true
+  },
+  preview: {
+    port: 4173,
+    host: true
   }
 })
