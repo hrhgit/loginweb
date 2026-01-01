@@ -76,6 +76,10 @@ const handleRefresh = async () => {
 const handleNetworkRetry = () => {
   store.handleConnectivityRestoration()
 }
+
+// 暂时移除动态报名人数查询，避免 Vue Query 警告
+// 在事件列表页面，我们不显示具体的报名人数，用户可以点击进入详情页查看
+// 这样可以避免为每个事件创建单独的查询，提高性能并避免 Vue Query 作用域问题
 </script>
 
 <template>
@@ -168,7 +172,7 @@ const handleNetworkRetry = () => {
           </template>
           <template #meta>
             <span class="meta-item"><MapPin :size="16" /> {{ locationLabel(event.location) }}</span>
-            <span class="meta-item"><Users :size="16" /> {{ teamSizeLabel(event.team_max_size) }}</span>
+            <span class="meta-item"><Users :size="16" /> 点击查看详情</span>
           </template>
           <template #actions>
             <template v-if="store.isDemoEvent(event)">

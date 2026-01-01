@@ -80,7 +80,6 @@ const editTeamMaxSize = ref('')
 const savedSnapshot = ref('')
 const allowNavigation = ref(false)
 
-const eventId = computed(() => String(route.params.id ?? ''))
 const isDemo = computed(() => (event.value ? store.isDemoEvent(event.value) : false))
 const canEdit = computed(() => {
   if (!event.value || !store.user || isDemo.value) return false
@@ -708,9 +707,10 @@ const loadEvent = async (id: string) => {
     loadError.value = '请先登录后再编辑活动'
     return
   }
-}
+
+  if (isDemo.value) {
     loadError.value = '演示活动不支持编辑'
-  } else if (!store.isAdmin || event.value.created_by !== store.user.id) {
+  } else if (!store.isAdmin || !event.value || event.value.created_by !== store.user.id) {
     loadError.value = '没有权限编辑此活动'
   }
 

@@ -4,8 +4,6 @@
  * 提供统一的错误处理API、错误分类器、消息本地化器和重试机制
  */
 
-import { performanceMonitor } from './performanceMonitor'
-
 // ============================================================================
 // 类型定义
 // ============================================================================
@@ -724,8 +722,6 @@ export class ErrorHandlerAPI {
    * 主要错误处理方法 - 性能优化版本
    */
   handleError(error: any, context?: ErrorContext): ErrorResponse {
-    performanceMonitor.startMeasurement('errorHandling')
-    
     try {
       // Performance optimization: Use cached classification if available
       const errorKey = this.generateErrorKey(error, context)
@@ -734,7 +730,6 @@ export class ErrorHandlerAPI {
       
       if (!cachedClassification) {
         classification = this.classifier.classifyError(error)
-        performanceMonitor.recordCacheMiss()
         
         // Cache only the classification metadata, not the originalError reference
         const classificationToCache = {
@@ -754,7 +749,6 @@ export class ErrorHandlerAPI {
         }
         this.classificationCache.set(errorKey, classificationToCache)
       } else {
-        performanceMonitor.recordCacheHit()
         // Create a fresh classification with the current error object
         classification = {
           type: cachedClassification.type,
@@ -789,8 +783,17 @@ export class ErrorHandlerAPI {
         severity: classification.severity,
         suggestions: localizedMessage.suggestions
       }
-    } finally {
-      performanceMonitor.endMeasurement('errorHandling')
+    } catch (handlingError) {
+      // 错误处理过程中出现错误的兜底处理
+      console.error('Error in error handler:', handlingError)
+      return {
+        id: 'error-handler-failure',
+        type: ErrorType.UNKNOWN,
+        message: '系统错误，请稍后重试',
+        canRetry: true,
+        severity: MessageSeverity.FATAL,
+        suggestions: ['刷新页面', '联系技术支持']
+      }
     }
   }
 

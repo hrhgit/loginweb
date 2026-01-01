@@ -54,10 +54,7 @@ vi.mock('../store/enhancedErrorHandling', () => ({
   handleSuccessWithBanner: vi.fn()
 }))
 
-// Mock performance utilities
-vi.mock('../utils/vueQueryBatchOptimizer', () => ({
-  prefetchRelatedData: vi.fn()
-}))
+// Mock performance utilities have been removed
 
 import { useTeams } from '../composables/useTeams'
 import { useSubmissions } from '../composables/useSubmissions'

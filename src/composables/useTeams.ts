@@ -9,7 +9,6 @@ import { supabase } from '../lib/supabase'
 import { queryKeys, createOptimizedQuery } from '../lib/vueQuery'
 import { useAppStore } from '../store/appStore'
 import { teamErrorHandler } from '../store/enhancedErrorHandling'
-import { prefetchRelatedData } from '../utils/vueQueryBatchOptimizer'
 import type { 
   TeamLobbyTeam, 
   TeamMember, 
@@ -159,11 +158,6 @@ export function useTeams(eventId: string) {
     ...queryConfig,
     enabled: computed(() => Boolean(eventId)),
   })
-  
-  // 预取相关数据以提高性能
-  if (result.data.value && eventId) {
-    prefetchRelatedData(queryKeys.teams.byEvent(eventId))
-  }
   
   return result
 }

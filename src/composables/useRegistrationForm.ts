@@ -170,10 +170,17 @@ export function useUpdateRegistrationForm() {
   return useMutation({
     mutationFn: updateRegistrationForm,
     onSuccess: (_, variables) => {
-      // 清除相关缓存
+      // 清除相关缓存 - 需要清除特定的表单缓存
       queryClient.invalidateQueries({
         queryKey: queryKeys.registrations.all
       })
+      
+      // 也清除用户注册缓存，确保数据同步
+      if (store.user?.id) {
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.user.registrations(store.user.id)
+        })
+      }
       
       // 显示成功消息
       handleSuccessWithBanner('报名表单已更新', store.setBanner, { 

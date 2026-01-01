@@ -46,10 +46,7 @@ vi.mock('../store/enhancedErrorHandling', () => ({
   handleSuccessWithBanner: vi.fn()
 }))
 
-// Mock performance utilities
-vi.mock('../utils/vueQueryBatchOptimizer', () => ({
-  prefetchRelatedData: vi.fn()
-}))
+// Mock performance utilities have been removed
 
 // Mock the store with comprehensive submission data
 const mockSubmissions: SubmissionWithTeam[] = [
@@ -126,10 +123,7 @@ vi.mock('../store/enhancedErrorHandling', () => ({
   handleSuccessWithBanner: vi.fn()
 }))
 
-// Mock performance utilities
-vi.mock('../utils/vueQueryBatchOptimizer', () => ({
-  prefetchRelatedData: vi.fn()
-}))
+// Mock performance utilities have been removed
   isAuthed: true,
   user: { id: 'user1' },
   displayedEvents: [

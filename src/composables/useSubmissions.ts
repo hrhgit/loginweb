@@ -9,7 +9,6 @@ import { supabase } from '../lib/supabase'
 import { queryKeys, createOptimizedQuery } from '../lib/vueQuery'
 import { useAppStore } from '../store/appStore'
 import { apiErrorHandler } from '../store/enhancedErrorHandling'
-import { prefetchRelatedData } from '../utils/vueQueryBatchOptimizer'
 import type { SubmissionWithTeam } from '../store/models'
 
 // 作品数据获取函数
@@ -149,11 +148,6 @@ export function useSubmissions(eventId: string) {
     ...queryConfig,
     enabled: computed(() => Boolean(eventId)),
   })
-  
-  // 预取相关数据以提高性能
-  if (result.data.value && eventId) {
-    prefetchRelatedData(queryKeys.submissions.byEvent(eventId))
-  }
   
   return result
 }

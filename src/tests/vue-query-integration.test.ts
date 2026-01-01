@@ -99,10 +99,7 @@ vi.mock('../store/enhancedErrorHandling', () => ({
   handleSuccessWithBanner: vi.fn()
 }))
 
-// Mock performance utilities
-vi.mock('../utils/vueQueryBatchOptimizer', () => ({
-  prefetchRelatedData: vi.fn()
-}))
+// Mock performance utilities have been removed
 
 import EventDetailPage from '../pages/EventDetailPage.vue'
 import TeamCreatePage from '../pages/TeamCreatePage.vue'

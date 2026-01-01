@@ -93,10 +93,7 @@ vi.mock('../store/enhancedErrorHandling', () => ({
   handleSuccessWithBanner: vi.fn()
 }))
 
-// Mock performance utilities
-vi.mock('../utils/vueQueryBatchOptimizer', () => ({
-  prefetchRelatedData: vi.fn()
-}))
+// Mock performance utilities have been removed
 
 // Mock utils
 vi.mock('../utils/roleTags', () => ({

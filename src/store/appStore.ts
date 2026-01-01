@@ -15,7 +15,6 @@ import {
   type NetworkState
 } from '../utils/networkManager'
 import { cacheManager } from '../utils/cacheManager'
-import { performanceMonitor } from '../utils/performanceMonitor'
 import { offlineManager } from '../utils/offlineManager'
 import { stateCache } from '../utils/simpleStateCache'
 import type {
@@ -178,15 +177,10 @@ const handleNetworkAwareOperation = async <T>(
 ): Promise<T> => {
   const { operationName, showLoading = true, retryable = true } = options
   
-  // Track performance
-  const operationId = `${operationName}_${Date.now()}`
-  
   try {
     if (showLoading) {
       networkAwareLoading.value = true
     }
-
-    performanceMonitor.startMeasurement(operationId)
 
     // Check offline capabilities
     if (!isOnline.value) {
@@ -199,13 +193,10 @@ const handleNetworkAwareOperation = async <T>(
     const result = await operation()
 
     // Record successful operation
-    performanceMonitor.endMeasurement(operationId)
     networkRetryCount.value = 0 // Reset retry count on success
 
     return result
   } catch (error: any) {
-    performanceMonitor.endMeasurement(operationId)
-    
     console.error(`Network operation failed: ${operationName}`, error)
     
     // Enhanced error handling with network awareness

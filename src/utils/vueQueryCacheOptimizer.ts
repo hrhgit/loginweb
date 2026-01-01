@@ -5,7 +5,6 @@
  */
 
 import { QueryClient } from '@tanstack/vue-query'
-import { vueQueryMemoryManager } from './vueQueryMemoryManager'
 
 export class VueQueryCacheOptimizer {
   private queryClient: QueryClient | null = null
@@ -46,11 +45,13 @@ export class VueQueryCacheOptimizer {
   performOptimization(): void {
     if (!this.queryClient) return
 
-    const stats = vueQueryMemoryManager.getMemoryStats()
+    const cache = this.queryClient.getQueryCache()
+    const queries = cache.getAll()
+    const cacheEntries = queries.length
     
-    // 如果内存使用超过25MB或缓存条目超过40个，执行优化
-    if (stats.memoryUsage > 25 || stats.cacheEntries > 40) {
-      console.log(`🔧 Performing cache optimization - Memory: ${stats.memoryUsage.toFixed(2)}MB, Entries: ${stats.cacheEntries}`)
+    // 如果缓存条目超过40个，执行优化
+    if (cacheEntries > 40) {
+      console.log(`🔧 Performing cache optimization - Entries: ${cacheEntries}`)
       
       // 1. 清理过期的事件数据（超过5分钟）
       this.cleanupEventQueries(5)
@@ -65,8 +66,8 @@ export class VueQueryCacheOptimizer {
       this.cleanupUserQueries(15)
       
       // 5. 如果还是太多，执行更激进的清理
-      const newStats = vueQueryMemoryManager.getMemoryStats()
-      if (newStats.cacheEntries > 30) {
+      const newQueries = cache.getAll()
+      if (newQueries.length > 30) {
         this.aggressiveCleanup()
       }
     }

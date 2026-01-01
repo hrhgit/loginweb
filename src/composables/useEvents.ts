@@ -10,7 +10,6 @@ import { queryKeys, createOptimizedQuery } from '../lib/vueQuery'
 import { useAppStore } from '../store/appStore'
 import { eventErrorHandler, handleSuccessWithBanner } from '../store/enhancedErrorHandling'
 import { EVENT_SELECT } from '../store/eventSchema'
-import { prefetchRelatedData } from '../utils/vueQueryBatchOptimizer'
 import type { Event } from '../store/models'
 
 // Event data fetching functions
@@ -108,11 +107,6 @@ export function usePublicEvents() {
     staleTime: 1000 * 60 * 2, // 2分钟
     gcTime: 1000 * 60 * 30,   // 30分钟
   })
-
-  // Prefetch related data
-  if (result.data.value) {
-    prefetchRelatedData(queryKeys.events.public)
-  }
 
   return result
 }

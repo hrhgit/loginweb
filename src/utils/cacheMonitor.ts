@@ -17,10 +17,14 @@ export function startCacheMonitoring() {
     console.log('🔍 Starting cache monitoring...')
     
     // 初始状态
-    const initialStats = debug.getMemoryStats()
+    const initialStats = debug.getCacheStats()
     console.log('📊 Initial cache state:', {
-      entries: initialStats.cacheEntries,
-      memory: `${initialStats.memoryUsage.toFixed(2)}MB`
+      totalQueries: initialStats.totalQueries,
+      eventQueries: initialStats.eventQueries,
+      teamQueries: initialStats.teamQueries,
+      submissionQueries: initialStats.submissionQueries,
+      userQueries: initialStats.userQueries,
+      otherQueries: initialStats.otherQueries
     })
 
     // 禁用定期内存监控警告
@@ -59,19 +63,20 @@ export function analyzeCacheUsage() {
     return
   }
 
-  const memoryStats = debug.getMemoryStats()
   const cacheStats = debug.getCacheStats()
   
   console.group('🔍 Cache Usage Analysis')
-  console.log('Memory Usage:', `${memoryStats.memoryUsage.toFixed(2)}MB`)
-  console.log('Total Cache Entries:', memoryStats.cacheEntries)
-  console.log('Cache Breakdown:', cacheStats)
-  console.log('Oldest Entry Age:', `${Math.round(memoryStats.oldestEntry / 1000 / 60)}min`)
-  console.log('Newest Entry Age:', `${Math.round(memoryStats.newestEntry / 1000 / 60)}min`)
+  console.log('Total Cache Entries:', cacheStats.totalQueries)
+  console.log('Cache Breakdown:', {
+    events: cacheStats.eventQueries,
+    teams: cacheStats.teamQueries,
+    submissions: cacheStats.submissionQueries,
+    users: cacheStats.userQueries,
+    others: cacheStats.otherQueries
+  })
   console.groupEnd()
 
   return {
-    memoryStats,
     cacheStats
   }
 }

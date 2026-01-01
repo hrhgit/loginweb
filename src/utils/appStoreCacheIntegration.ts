@@ -195,8 +195,8 @@ export async function invalidateUserCaches(userId: string) {
  * Track cache performance metrics
  */
 export function setupCachePerformanceMonitoring() {
-  // This would integrate with the existing performanceMonitor
-  // to track cache hit rates and performance improvements
+  // Cache performance tracking has been removed
+  // Use browser dev tools and Vue Query dev tools for monitoring
   
   setInterval(() => {
     const stats = getCacheStats()

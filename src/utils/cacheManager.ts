@@ -5,7 +5,6 @@
  * for API responses and static assets with TTL management and invalidation.
  */
 
-import { performanceMonitor } from './performanceMonitor'
 import { networkManager } from './networkManager'
 import { registerNetworkCleanup } from './memoryManager'
 
@@ -69,7 +68,6 @@ class MemoryCache<T> {
     
     if (!entry) {
       this.stats.misses++
-      performanceMonitor.recordCacheMiss()
       return null
     }
 
@@ -79,14 +77,12 @@ class MemoryCache<T> {
       this.accessOrder.delete(key)
       this.updateStats()
       this.stats.misses++
-      performanceMonitor.recordCacheMiss()
       return null
     }
 
     // Update access order for LRU
     this.accessOrder.set(key, ++this.accessCounter)
     this.stats.hits++
-    performanceMonitor.recordCacheHit()
     return entry.data
   }
 

@@ -157,11 +157,11 @@ const EVENT_DETAIL_SELECT = EVENT_SELECT
 
 ### 监控方法
 ```javascript
-// 在浏览器控制台查看性能统计
-__VUE_QUERY_DEBUG__.performanceMonitor.getPerformanceReport()
+// 在浏览器控制台查看缓存统计
+__VUE_QUERY_DEBUG__.getCacheStats()
 
-// 查看具体查询时间
-__VUE_QUERY_DEBUG__.performanceMonitor.getQueryMetrics()
+// 查看内存使用情况
+__VUE_QUERY_DEBUG__.getMemoryStats()
 ```
 
 ## 🔍 故障排查

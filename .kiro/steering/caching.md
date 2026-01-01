@@ -286,12 +286,16 @@ retry: (failureCount, error) => {
 1. **浏览器开发者工具** - Network标签观察请求
 2. **Vue DevTools** - 查看组件状态
 3. **控制台日志** - Vue Query输出的调试信息
+4. **Vue Query 调试工具** - 使用 `__VUE_QUERY_DEBUG__` 全局对象
 
-### 生产环境监控
+### 可用的调试方法
 
-- 监控API调用频率
-- 跟踪缓存命中率
-- 观察用户体验指标
+```javascript
+// 在浏览器控制台中使用
+__VUE_QUERY_DEBUG__.getCacheStats()     // 查看缓存统计
+__VUE_QUERY_DEBUG__.optimizeCache()     // 手动优化缓存
+__VUE_QUERY_DEBUG__.clearCache()        // 清空所有缓存
+```
 
 ## 常见问题和解决方案
 

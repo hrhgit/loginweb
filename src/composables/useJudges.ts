@@ -3,7 +3,7 @@
  * 提供智能缓存、后台更新、离线支持等功能
  */
 
-import { computed } from 'vue'
+import { computed, type Ref, unref } from 'vue'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
 import { supabase } from '../lib/supabase'
 import { queryKeys } from '../lib/vueQuery'
@@ -220,11 +220,16 @@ export function useEventJudges(eventId: string) {
 /**
  * 搜索用户以添加为评委
  */
-export function useSearchUsersForJudge(query: string, eventId: string) {
+export function useSearchUsersForJudge(query: Ref<string> | string, eventId: string) {
+  const queryValue = computed(() => {
+    const q = unref(query)
+    return typeof q === 'string' ? q : ''
+  })
+  
   return useQuery({
-    queryKey: ['judges', 'search', eventId, query],
-    queryFn: () => searchUsersForJudge(query, eventId),
-    enabled: computed(() => Boolean(query.trim() && eventId)),
+    queryKey: computed(() => ['judges', 'search', eventId, queryValue.value]),
+    queryFn: () => searchUsersForJudge(queryValue.value, eventId),
+    enabled: computed(() => Boolean(queryValue.value.trim() && eventId)),
     staleTime: 1000 * 60, // 1分钟内搜索结果保持新鲜
     gcTime: 1000 * 60 * 5, // 5分钟后清除搜索结果
   })

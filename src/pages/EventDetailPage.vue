@@ -164,7 +164,7 @@ watch(registrationModalOpen, (open) => {
   if (!open) closeAutocompleteScope('reg')
 })
 
-// Vue Query data hooks
+// Vue Query data hooks - 直接调用，使用 enabled 控制执行
 const { teams, seekers } = useTeamData(eventId.value)
 const { submissions } = useSubmissionData(eventId.value)
 const joinTeamMutation = useJoinTeamRequest()
@@ -172,10 +172,10 @@ const saveTeamSeekerMutation = useSaveTeamSeeker()
 const deleteTeamSeekerMutation = useDeleteTeamSeeker()
 const sendTeamInviteMutation = useSendTeamInvite()
 
-// Judge permissions hook
+// Judge permissions hook - 直接调用，使用 enabled 控制执行
 const judgePermissionsQuery = useJudgePermissions(eventId.value, store.user?.id || '')
 
-// Registration form data hook
+// Registration form data hook - 直接调用，使用 enabled 控制执行
 const registrationDataQuery = useRegistrationData(eventId.value, store.user?.id || '')
 const updateRegistrationFormMutation = useUpdateRegistrationForm()
 
@@ -755,10 +755,42 @@ const isRegistered = computed(() => {
     eventId: event.value.id,
     userId: store.user.id,
     userRegistrations: userRegistrations.map(r => ({ id: r.id, eventId: r.eventId })),
-    registered
+    registered,
+    registrationsLoading: registrations.isLoading.value,
+    registrationsError: registrations.error.value?.message
   })
   
   return registered
+})
+
+// 获取当前活动的注册ID，用于表单编辑
+const currentRegistrationId = computed(() => {
+  if (!event.value || !store.user || !isRegistered.value) return null
+  
+  const userRegistrations = registrations.data.value || []
+  const registration = userRegistrations.find(reg => reg.eventId === event.value!.id)
+  
+  return registration?.id || null
+})
+
+// 本地报名按钮标签逻辑，使用 Vue Query 数据
+const localRegistrationLabel = computed(() => {
+  if (!event.value) return '加载中...'
+  if (store.isDemoEvent(event.value)) return '仅展示'
+  if (event.value.status === 'draft') return '草稿中'
+  if (!store.user) return '登录后报名'
+  if (registrations.isLoading.value) return '加载中...'
+  return isRegistered.value ? '取消报名' : '报名'
+})
+
+// 本地报名按钮样式逻辑
+const localRegistrationVariant = computed(() => {
+  if (!event.value) return 'btn--ghost'
+  if (store.isDemoEvent(event.value)) return 'btn--ghost'
+  if (event.value.status === 'draft') return 'btn--ghost'
+  if (!store.user) return 'btn--primary'
+  if (registrations.isLoading.value) return 'btn--ghost'
+  return isRegistered.value ? 'btn--danger' : 'btn--primary'
 })
 const isSubmissionStarted = computed(() => {
   if (!event.value || isDemo.value) return false
@@ -1048,10 +1080,10 @@ const submitRegistrationForm = async () => {
   } else if (!error) {
     registrationModalOpen.value = false
     applyFormResponse(filteredAnswers)
-    // Refetch registration count using Vue Query
+    // 刷新用户注册数据
+    await registrations.refetch()
+    // 刷新报名人数
     registrationDataQuery.refetchCount()
-    // Refetch user registrations to update isRegistered status
-    registrations.refetch()
     await goTab('form')
   }
   registrationSubmitBusy.value = false
@@ -1076,24 +1108,34 @@ const handleRevertToDraft = async () => {
 
 const handleRegistrationClick = async () => {
   if (!event.value) return
+  
   if (isRegistered.value) {
+    // 取消报名逻辑
     await store.toggleRegistration(event.value)
-    // Refetch registration count using Vue Query
+    // 刷新用户注册数据
+    await registrations.refetch()
+    // 刷新报名人数
     registrationDataQuery.refetchCount()
-    // Refetch user registrations to update isRegistered status
-    registrations.refetch()
     return
   }
+  
   if (!store.user) {
     store.openAuth('sign_in')
     store.authInfo = '请先登录后报名'
     return
   }
+  
   if (hasRegistrationForm.value) {
     openRegistrationForm()
     return
   }
+  
+  // 直接报名（无表单）
   await store.submitRegistration(event.value, {})
+  // 刷新用户注册数据
+  await registrations.refetch()
+  // 刷新报名人数
+  registrationDataQuery.refetchCount()
 }
 
 const handleJudgeWorkspaceClick = async () => {
@@ -1160,8 +1202,13 @@ const saveFormEdit = async () => {
     return
   }
   if (!validateFormAnswers()) return
-  const registrationId = store.myRegistrationByEventId[event.value.id]
-  if (!registrationId) return
+  
+  const registrationId = currentRegistrationId.value
+  if (!registrationId) {
+    console.error('[EventDetailPage] saveFormEdit: No registration ID found')
+    formSaveError.value = '找不到报名记录，请重新报名'
+    return
+  }
   
   formSaveBusy.value = true
   formSaveError.value = ''
@@ -1185,7 +1232,12 @@ const saveFormEdit = async () => {
 onMounted(async () => {
   // 先初始化基础数据，避免闪烁
   await store.refreshUser()
-  // Registration data is now loaded via Vue Query composables automatically
+  
+  // 如果用户已登录，立即刷新注册数据以确保最新状态
+  if (store.user) {
+    console.log('[EventDetailPage] User logged in, refreshing registration data')
+    registrations.refetch()
+  }
 })
 
 watch(eventId, async () => {
@@ -1195,9 +1247,25 @@ watch(eventId, async () => {
 
 watch(
   () => store.user?.id,
-  async () => {
+  async (newUserId, oldUserId) => {
     if (!eventId.value || isDemo.value) return
-    // Vue Query will automatically handle user changes and data refetching, including judge permissions
+    
+    console.log('[EventDetailPage] User ID changed:', { newUserId, oldUserId })
+    
+    if (newUserId && newUserId !== oldUserId) {
+      // 用户登录或切换，刷新注册数据
+      console.log('[EventDetailPage] User logged in or changed, refreshing registration data')
+      await registrations.refetch()
+    } else if (!newUserId && oldUserId) {
+      // 用户登出，清空本地状态
+      console.log('[EventDetailPage] User logged out, clearing form state')
+      formEditMode.value = false
+      formAnswers.value = {}
+      formOtherText.value = {}
+      formSnapshot.value = ''
+      formErrors.value = {}
+      formSaveError.value = ''
+    }
   },
 )
 
@@ -1221,15 +1289,72 @@ watch(
       isRegistered: isRegistered.value,
       formDataKeys: formData ? Object.keys(formData) : [],
       eventId: eventId.value,
-      userId: store.user?.id
+      userId: store.user?.id,
+      formLoading: registrationDataQuery.formLoading.value,
+      formError: registrationDataQuery.formError.value?.message
     })
     
-    if (formData && isRegistered.value) {
+    if (formData && isRegistered.value && Object.keys(formData).length > 0) {
       console.log('[EventDetailPage] Applying form response:', formData)
       applyFormResponse(formData)
     }
   },
   { immediate: true }
+)
+
+// Watch for user registrations data changes to sync with store
+watch(
+  () => registrations.data.value,
+  (userRegistrations) => {
+    if (!userRegistrations || !store.user) return
+    
+    console.log('[EventDetailPage] User registrations changed:', {
+      registrationsCount: userRegistrations.length,
+      registrations: userRegistrations.map(r => ({ id: r.id, eventId: r.eventId })),
+      userId: store.user.id
+    })
+    
+    // 同步到 store 的 myRegistrationByEventId
+    const registrationMap: Record<string, string> = {}
+    userRegistrations.forEach(reg => {
+      registrationMap[reg.eventId] = reg.id
+    })
+    
+    // 更新 store 中的注册映射 - 直接赋值给 ref 的 value
+    Object.assign(store.myRegistrationByEventId, registrationMap)
+    
+    console.log('[EventDetailPage] Store myRegistrationByEventId updated:', store.myRegistrationByEventId)
+  },
+  { immediate: true }
+)
+
+// Watch for store registration changes to refresh Vue Query cache
+watch(
+  () => store.myRegistrationByEventId,
+  (newRegistrations, oldRegistrations) => {
+    if (!store.user || !newRegistrations || !oldRegistrations) return
+    
+    // 检查是否有变化
+    const hasChanges = Object.keys(newRegistrations).length !== Object.keys(oldRegistrations).length ||
+      Object.keys(newRegistrations).some(eventId => newRegistrations[eventId] !== oldRegistrations[eventId])
+    
+    if (hasChanges) {
+      console.log('[EventDetailPage] Store registrations changed, refreshing Vue Query cache:', {
+        old: oldRegistrations,
+        new: newRegistrations
+      })
+      
+      // 刷新用户注册数据
+      registrations.refetch()
+      
+      // 如果当前活动的注册状态发生变化，也刷新表单数据
+      if (eventId.value && 
+          newRegistrations[eventId.value] !== oldRegistrations[eventId.value]) {
+        registrationDataQuery.refetchForm()
+      }
+    }
+  },
+  { deep: true }
 )
 
 watch(isRegistered, async (value) => {
@@ -1320,13 +1445,13 @@ watch(isRegistered, async (value) => {
           <div class="detail-hero__cta">
             <button
               class="btn btn--xl"
-              :class="store.registrationVariant(event)"
+              :class="localRegistrationVariant"
               type="button"
               :disabled="
                 isDemo ||
                 event.status === 'draft' ||
                 store.registrationBusyEventId === event.id ||
-                store.registrationsLoading ||
+                registrations.isLoading.value ||
                 registrationSubmitBusy
               "
               @click="handleRegistrationClick"
@@ -1334,9 +1459,9 @@ watch(isRegistered, async (value) => {
               {{
                 store.registrationBusyEventId === event.id
                   ? '处理中...'
-                  : store.registrationsLoading
-                    ? '加载中...'
-                    : store.registrationLabel(event)
+                  : registrationSubmitBusy
+                    ? '提交中...'
+                    : localRegistrationLabel
               }}
             </button>
             <button
