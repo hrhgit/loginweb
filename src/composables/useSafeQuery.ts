@@ -99,6 +99,12 @@ export function useConditionalQuery<TData = unknown, TError = Error>(
   
   return useSafeQuery({
     ...options,
-    enabled: computed(() => shouldExecute.value && (options.enabled?.value ?? true)),
+    enabled: computed(() => {
+      const optionsAny = options as any
+      const baseEnabled = typeof optionsAny.enabled === 'function' 
+        ? optionsAny.enabled() 
+        : optionsAny.enabled?.value ?? optionsAny.enabled ?? true
+      return shouldExecute.value && baseEnabled
+    }),
   })
 }

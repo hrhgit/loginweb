@@ -123,7 +123,7 @@ export function useRegistrationForm(eventId: string, userId: string) {
     refetchOnReconnect: true,          // 网络重连时直接重新获取
     
     // 重试策略
-    retry: (failureCount, error) => {
+    retry: (failureCount, error: any) => {
       const isNetworkError = error?.message?.includes('网络') || 
                             error?.message?.includes('fetch') ||
                             error?.code === 'NETWORK_ERROR'
@@ -151,7 +151,7 @@ export function useRegistrationCount(eventId: string) {
     refetchOnReconnect: true,
     
     // 重试策略
-    retry: (failureCount, error) => {
+    retry: (failureCount, error: any) => {
       const isNetworkError = error?.message?.includes('网络') || 
                             error?.message?.includes('fetch') ||
                             error?.code === 'NETWORK_ERROR'
@@ -169,7 +169,7 @@ export function useUpdateRegistrationForm() {
 
   return useMutation({
     mutationFn: updateRegistrationForm,
-    onSuccess: (_, variables) => {
+    onSuccess: () => {
       // 清除相关缓存 - 需要清除特定的表单缓存
       queryClient.invalidateQueries({
         queryKey: queryKeys.registrations.all

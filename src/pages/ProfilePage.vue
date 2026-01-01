@@ -428,17 +428,8 @@ const loadMyTeamsOverview = async () => {
       })
       .filter((item) => item.status === 'pending')
 
-    const eventIds = new Set<string>()
-    for (const team of myTeams.value) {
-      if (team.eventId) eventIds.add(team.eventId)
-    }
-    for (const request of myTeamRequests.value) {
-      if (request.eventId) eventIds.add(request.eventId)
-    }
-    for (const invite of myTeamInvites.value) {
-      if (invite.eventId) eventIds.add(invite.eventId)
-    }
-    await Promise.all(Array.from(eventIds).map((id) => store.fetchEventById(id)))
+    // Event data is already available through publicEvents from useEvents composable
+    // No need to fetch individual events as they're cached via Vue Query
     teamsLoaded.value = true
   } catch (error) {
     const message = error instanceof Error ? error.message : '队伍信息加载失败'

@@ -70,12 +70,13 @@ export async function setupVueQuery(app: App) {
       queryClient,
       // 便捷方法
       getCacheStats: () => {
+        if (!queryClient) return { totalQueries: 0 }
         const cache = queryClient.getQueryCache()
         return {
           totalQueries: cache.getAll().length
         }
       },
-      clearCache: () => queryClient.clear(),
+      clearCache: () => queryClient?.clear(),
     }
   }
   
@@ -83,7 +84,9 @@ export async function setupVueQuery(app: App) {
   setTimeout(async () => {
     try {
       const { vueQueryCacheOptimizer } = await import('../utils/vueQueryCacheOptimizer')
-      vueQueryCacheOptimizer.initialize(queryClient)
+      if (queryClient) {
+        vueQueryCacheOptimizer.initialize(queryClient)
+      }
       
       if (import.meta.env.DEV) {
         console.log('🚀 Cache optimizer initialized')

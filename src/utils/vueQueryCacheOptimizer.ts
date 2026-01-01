@@ -193,7 +193,6 @@ export class VueQueryCacheOptimizer {
 
     const cache = this.queryClient.getQueryCache()
     const queries = cache.getAll()
-    const now = Date.now()
 
     // 按最后更新时间排序，保留最近的20个查询
     const sortedQueries = queries

@@ -34,13 +34,15 @@ import { generateFormResponseTable } from '../utils/formResponseParser'
 import * as XLSX from 'xlsx'
 
 import { useEvent } from '../composables/useEvents'
+import type { Event } from '../store/models'
 
 const route = useRoute()
 const router = useRouter()
 const store = useAppStore()
 
 const eventId = computed(() => String(route.params.id ?? ''))
-const { data: event, isLoading: eventLoading, error: eventError } = useEvent(eventId.value)
+const eventQuery = useEvent(eventId.value)
+const { data: event, isLoading: eventLoading, error: eventError } = eventQuery
 
 const loading = ref(false)
 const registrations = ref<RegistrationData[]>([])
@@ -244,17 +246,18 @@ const loadData = async () => {
       router.replace('/events/mine')
       return
     }
-    const { data: fetchedEvent, error: fetchError } = await store.fetchEventById(eventId.value)
-    
-    if (fetchError || !fetchedEvent) {
-      console.error('EventAdminPage - Event not found or error:', fetchError)
-      store.setBanner('error', `活动不存在或您没有访问权限: ${fetchError || '未知错误'}`)
+    // Event data is already loaded via useEvent composable
+    if (!event.value) {
+      console.error('EventAdminPage - Event not found')
+      store.setBanner('error', '活动不存在或您没有访问权限')
       router.replace('/events/mine')
       return
     }
+    
     // Check if user is the creator or admin
-    if (fetchedEvent.created_by !== store.user?.id && !store.isAdmin) {
-      console.error('EventAdminPage - Permission denied for fetched event')
+    const currentEvent = event.value as Event
+    if (currentEvent.created_by !== store.user?.id && !store.isAdmin) {
+      console.error('EventAdminPage - Permission denied for event')
       store.setBanner('error', '您没有管理此活动的权限')
       router.replace('/events/mine')
       return
