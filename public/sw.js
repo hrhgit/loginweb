@@ -5,20 +5,26 @@
  * for the event management platform.
  */
 
-const CACHE_NAME = 'event-platform-v1'
-const STATIC_CACHE = 'static-v1'
-const DYNAMIC_CACHE = 'dynamic-v1'
+const CACHE_NAME = 'event-platform-v2'
+const STATIC_CACHE = 'static-v2'
+const DYNAMIC_CACHE = 'dynamic-v2'
 
 // Essential assets to cache for offline functionality
+// Only include assets that definitely exist in production
 const ESSENTIAL_ASSETS = [
   '/',
   '/index.html',
-  '/src/main.ts',
-  '/src/style.css',
-  '/public/fonts/sora-latin.woff2',
-  '/public/fonts/worksans-latin.woff2',
-  '/public/icons/home.svg',
-  '/public/icons/arrow-left.svg'
+  '/vite.svg'
+]
+
+// Optional assets to cache if available
+const OPTIONAL_ASSETS = [
+  '/fonts/sora-latin.woff2',
+  '/fonts/worksans-latin.woff2',
+  '/fonts/sora-latin-ext.woff2',
+  '/fonts/worksans-latin-ext.woff2',
+  '/icons/home.svg',
+  '/icons/arrow-left.svg'
 ]
 
 // Routes that should work offline (cached pages)
@@ -44,16 +50,43 @@ self.addEventListener('install', (event) => {
   
   event.waitUntil(
     caches.open(STATIC_CACHE)
-      .then((cache) => {
+      .then(async (cache) => {
         console.log('Service Worker: Caching essential assets')
-        return cache.addAll(ESSENTIAL_ASSETS)
+        
+        // Cache essential assets (must succeed)
+        try {
+          await cache.addAll(ESSENTIAL_ASSETS)
+          console.log('Service Worker: Essential assets cached successfully')
+        } catch (error) {
+          console.error('Service Worker: Failed to cache essential assets', error)
+          // Continue anyway - some functionality may still work
+        }
+        
+        // Cache optional assets (failures are acceptable)
+        console.log('Service Worker: Caching optional assets')
+        const optionalPromises = OPTIONAL_ASSETS.map(async (asset) => {
+          try {
+            const response = await fetch(asset)
+            if (response.ok) {
+              await cache.put(asset, response)
+              console.log(`Service Worker: Cached optional asset ${asset}`)
+            } else {
+              console.log(`Service Worker: Optional asset not available: ${asset} (${response.status})`)
+            }
+          } catch (error) {
+            console.log(`Service Worker: Could not cache optional asset ${asset}:`, error.message)
+          }
+        })
+        
+        await Promise.allSettled(optionalPromises)
+        console.log('Service Worker: Asset caching completed')
       })
       .then(() => {
-        console.log('Service Worker: Essential assets cached')
+        console.log('Service Worker: Installation completed')
         return self.skipWaiting()
       })
       .catch((error) => {
-        console.error('Service Worker: Failed to cache essential assets', error)
+        console.error('Service Worker: Installation failed', error)
       })
   )
 })
