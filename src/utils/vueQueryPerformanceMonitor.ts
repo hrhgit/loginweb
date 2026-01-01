@@ -364,22 +364,28 @@ export function measureQueryPerformance<T>(
   queryKey: string,
   queryFn: () => Promise<T>
 ): Promise<T> {
+  console.log('[measureQueryPerformance] Starting query:', queryKey)
   const startTime = performance.now()
   
-  return queryFn().then(
+  // 直接执行查询函数，不做额外包装
+  const promise = queryFn()
+  
+  // 确保返回的是一个有效的Promise
+  if (!promise || typeof promise.then !== 'function') {
+    console.error('[measureQueryPerformance] queryFn did not return a Promise for:', queryKey)
+    return Promise.reject(new Error(`Query function for ${queryKey} did not return a Promise`))
+  }
+  
+  return promise.then(
     (result) => {
       const duration = performance.now() - startTime
+      console.log(`[measureQueryPerformance] Query completed: ${queryKey} in ${duration.toFixed(0)}ms`)
       vueQueryPerformanceMonitor.recordQueryTime(duration)
-      
-      // 禁用慢查询警告
-      // if (import.meta.env.DEV && duration > 3000) { // 调整到3秒
-      //   console.warn(`🐌 Slow query detected: ${queryKey} took ${duration.toFixed(0)}ms`)
-      // }
-      
       return result
     },
     (error) => {
       const duration = performance.now() - startTime
+      console.error(`[measureQueryPerformance] Query failed: ${queryKey} in ${duration.toFixed(0)}ms`, error)
       vueQueryPerformanceMonitor.recordQueryTime(duration)
       throw error
     }

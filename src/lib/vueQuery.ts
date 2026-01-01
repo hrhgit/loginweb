@@ -142,9 +142,24 @@ export function createOptimizedQuery<T>(
 ) {
   const config = vueQueryPerformanceMonitor.getCacheConfig(`${dataType}Data` as any)
   
+  // 创建包装的查询函数，添加日志
+  const wrappedQueryFn = async () => {
+    const keyString = queryKey.join('-')
+    console.log(`[createOptimizedQuery] Executing query: ${keyString}`)
+    
+    try {
+      const result = await measureQueryPerformance(keyString, queryFn)
+      console.log(`[createOptimizedQuery] Query success: ${keyString}`)
+      return result
+    } catch (error) {
+      console.error(`[createOptimizedQuery] Query error: ${keyString}`, error)
+      throw error
+    }
+  }
+  
   return {
     queryKey,
-    queryFn: () => measureQueryPerformance(queryKey.join('-'), queryFn),
+    queryFn: wrappedQueryFn,
     ...config,
     retry: (failureCount: number, error: any) => {
       const isNetworkError = error?.message?.includes('网络') || 
@@ -195,6 +210,14 @@ export const queryKeys = {
     profile: (userId: string) => ['user', 'profile', userId] as const,
     contacts: (userId: string) => ['user', 'contacts', userId] as const,
     registrations: (userId: string) => ['user', 'registrations', userId] as const,
+  },
+  
+  // 报名相关
+  registrations: {
+    all: ['registrations'] as const,
+    form: (eventId: string, userId: string) => ['registrations', 'form', eventId, userId] as const,
+    count: (eventId: string) => ['registrations', 'count', eventId] as const,
+    byEvent: (eventId: string) => ['registrations', 'event', eventId] as const,
   },
   
   // 评委相关

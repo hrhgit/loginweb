@@ -22,11 +22,11 @@ import {
 import { useEvent } from '../composables/useEvents'
 import { useCurrentUserData } from '../composables/useUsers'
 import { useAppStore } from '../store/appStore'
-import { supabase } from '../lib/supabase'
 // Vue Query hooks for data management
 import { useTeamData, useJoinTeamRequest, useSaveTeamSeeker, useDeleteTeamSeeker, useSendTeamInvite } from '../composables/useTeams'
 import { useSubmissionData } from '../composables/useSubmissions'
 import { useJudgePermissions } from '../composables/useJudges'
+import { useRegistrationData, useUpdateRegistrationForm } from '../composables/useRegistrationForm'
 // Lazy load heavy components for better performance
 const MyTeamsTabContent = defineAsyncComponent(() => import('../components/MyTeamsTabContent.vue'))
 const SubmissionCard = defineAsyncComponent(() => import('../components/showcase/SubmissionCard.vue'))
@@ -54,7 +54,7 @@ import {
 } from '../store/enhancedErrorHandling'
 
 const store = useAppStore()
-const { profile, contacts } = useCurrentUserData()
+const { profile, contacts, registrations } = useCurrentUserData()
 const route = useRoute()
 const router = useRouter()
 
@@ -83,12 +83,12 @@ const formErrors = ref<Record<string, string>>({})
 const formAnswers = ref<Record<string, string | string[]>>({})
 const formOtherText = ref<Record<string, string>>({})
 const formSnapshot = ref('')
-const formLoading = ref(false)
+// Remove formLoading as it's now handled by Vue Query
 const joinModalOpen = ref(false)
 const joinTargetTeamId = ref<string | null>(null)
 const joinMessage = ref('')
 const joinError = ref('')
-const registrationCount = ref<number | null>(null)
+// Remove registrationCount as it's now handled by Vue Query
 
 type AutocompleteScope = 'reg' | 'form'
 const autocompleteOpen = ref<Record<string, boolean>>({})
@@ -174,6 +174,10 @@ const sendTeamInviteMutation = useSendTeamInvite()
 
 // Judge permissions hook
 const judgePermissionsQuery = useJudgePermissions(eventId.value, store.user?.id || '')
+
+// Registration form data hook
+const registrationDataQuery = useRegistrationData(eventId.value, store.user?.id || '')
+const updateRegistrationFormMutation = useUpdateRegistrationForm()
 
 // Replace original computed properties with Vue Query data
 const teamLobbyTeams = computed(() => teams.data.value || [])
@@ -739,9 +743,23 @@ const visibleFormQuestions = computed(() =>
   registrationQuestions.value.filter((question) => isQuestionVisible(question, formAnswers.value)),
 )
 const hasRegistrationForm = computed(() => registrationQuestions.value.length > 0)
-const isRegistered = computed(() =>
-  event.value ? Boolean(store.myRegistrationByEventId[event.value.id]) : false,
-)
+const isRegistered = computed(() => {
+  if (!event.value || !store.user) return false
+  
+  // 使用已经获取的用户注册数据
+  const userRegistrations = registrations.data.value || []
+  
+  const registered = userRegistrations.some(reg => reg.eventId === event.value!.id)
+  
+  console.log('[EventDetailPage] isRegistered computed:', {
+    eventId: event.value.id,
+    userId: store.user.id,
+    userRegistrations: userRegistrations.map(r => ({ id: r.id, eventId: r.eventId })),
+    registered
+  })
+  
+  return registered
+})
 const isSubmissionStarted = computed(() => {
   if (!event.value || isDemo.value) return false
   if (!event.value.submission_start_time) return false
@@ -1029,10 +1047,13 @@ const submitRegistrationForm = async () => {
     registrationError.value = error
   } else if (!error) {
     registrationModalOpen.value = false
-  applyFormResponse(filteredAnswers)
-  await loadRegistrationCount(event.value.id)
-  await goTab('form')
-}
+    applyFormResponse(filteredAnswers)
+    // Refetch registration count using Vue Query
+    registrationDataQuery.refetchCount()
+    // Refetch user registrations to update isRegistered status
+    registrations.refetch()
+    await goTab('form')
+  }
   registrationSubmitBusy.value = false
 }
 
@@ -1057,7 +1078,10 @@ const handleRegistrationClick = async () => {
   if (!event.value) return
   if (isRegistered.value) {
     await store.toggleRegistration(event.value)
-    await loadRegistrationCount(event.value.id)
+    // Refetch registration count using Vue Query
+    registrationDataQuery.refetchCount()
+    // Refetch user registrations to update isRegistered status
+    registrations.refetch()
     return
   }
   if (!store.user) {
@@ -1138,88 +1162,42 @@ const saveFormEdit = async () => {
   if (!validateFormAnswers()) return
   const registrationId = store.myRegistrationByEventId[event.value.id]
   if (!registrationId) return
+  
   formSaveBusy.value = true
   formSaveError.value = ''
   const response = buildFormResponse(formAnswers.value, formOtherText.value, visibleFormQuestions.value)
-  const { error } = await supabase
-    .from('registrations')
-    .update({ form_response: response })
-    .eq('id', registrationId)
-    .select('id')
-    .single()
-
-  if (error) {
-    formSaveError.value = error.message
-  } else {
-    handleSuccessWithBanner('报名表单已更新', store.setBanner, { 
-      operation: 'updateRegistrationForm',
-      component: 'form' 
+  
+  try {
+    await updateRegistrationFormMutation.mutateAsync({
+      registrationId,
+      formResponse: response,
     })
+    
     applyFormResponse(response)
     formEditMode.value = false
-  }
-  formSaveBusy.value = false
-}
-
-const loadRegistrationFormResponse = async () => {
-  if (!event.value || !store.user || !isRegistered.value) return
-  if (isDemo.value) return
-  const registrationId = store.myRegistrationByEventId[event.value.id]
-  if (!registrationId) return
-  formLoading.value = true
-  formSaveError.value = ''
-  const { data, error } = await supabase
-    .from('registrations')
-    .select('form_response')
-    .eq('id', registrationId)
-    .maybeSingle()
-
-  if (error) {
-    formSaveError.value = error.message
-  } else {
-    const response = (data?.form_response ?? {}) as Record<string, string | string[]>
-    applyFormResponse(response)
-  }
-  formLoading.value = false
-}
-
-const loadRegistrationCount = async (id: string) => {
-  registrationCount.value = null
-  if (!id || isDemo.value) return
-  const { count, error } = await supabase
-    .from('registrations')
-    .select('id', { count: 'exact', head: true })
-    .eq('event_id', id)
-  if (!error && typeof count === 'number') {
-    registrationCount.value = count
+  } catch (error: any) {
+    formSaveError.value = error.message || '保存失败，请重试'
+  } finally {
+    formSaveBusy.value = false
   }
 }
 
 onMounted(async () => {
   // 先初始化基础数据，避免闪烁
   await store.refreshUser()
-  // Registrations are now loaded via Vue Query composables
-  
-  if (eventId.value) {
-    // Vue Query 会自动处理事件数据和评委权限加载
-    await loadRegistrationFormResponse()
-    await loadRegistrationCount(eventId.value)
-  }
+  // Registration data is now loaded via Vue Query composables automatically
 })
 
-watch(eventId, async (id) => {
-  if (id) {
-    // Vue Query 会自动处理事件数据和评委权限加载
-    await loadRegistrationFormResponse()
-    await loadRegistrationCount(id)
-  }
+watch(eventId, async () => {
+  // Vue Query will automatically handle event data and judge permissions loading
+  // Registration data will be automatically refetched when eventId changes
 })
 
 watch(
   () => store.user?.id,
   async () => {
     if (!eventId.value || isDemo.value) return
-    // Vue Query 会自动处理用户变化时的数据重新获取，包括评委权限
+    // Vue Query will automatically handle user changes and data refetching, including judge permissions
   },
 )
 
@@ -1234,10 +1212,28 @@ watch(
   { immediate: true }
 )
 
+// Watch for registration form data changes to apply to form
+watch(
+  () => registrationDataQuery.formData.value,
+  (formData) => {
+    console.log('[EventDetailPage] Form data changed:', { 
+      hasFormData: !!formData, 
+      isRegistered: isRegistered.value,
+      formDataKeys: formData ? Object.keys(formData) : [],
+      eventId: eventId.value,
+      userId: store.user?.id
+    })
+    
+    if (formData && isRegistered.value) {
+      console.log('[EventDetailPage] Applying form response:', formData)
+      applyFormResponse(formData)
+    }
+  },
+  { immediate: true }
+)
+
 watch(isRegistered, async (value) => {
-  if (value) {
-    await loadRegistrationFormResponse()
-  } else {
+  if (!value) {
     formEditMode.value = false
     formAnswers.value = {}
     formOtherText.value = {}
@@ -1316,7 +1312,7 @@ watch(isRegistered, async (value) => {
                 </div>
                 <div>
                   <span class="meta-label"><UserPlus :size="16" /> 已报名人数</span>
-                  <p>{{ registrationCount !== null ? `${registrationCount} 人` : '—' }}</p>
+                  <p>{{ registrationDataQuery.registrationCount.value !== undefined ? `${registrationDataQuery.registrationCount.value} 人` : '—' }}</p>
                 </div>
               </div>
             </div>
@@ -1872,7 +1868,7 @@ watch(isRegistered, async (value) => {
               </div>
             </div>
 
-            <div v-if="formLoading" class="detail-panel">
+            <div v-if="registrationDataQuery.formLoading.value" class="detail-panel">
               <p class="muted">正在加载报名表单...</p>
             </div>
             <div v-else-if="!isRegistered" class="detail-panel">

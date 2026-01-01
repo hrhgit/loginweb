@@ -201,22 +201,9 @@ class VueQueryBatchOptimizer {
    * Private: Set up query interception for batching
    */
   private setupQueryInterception(): void {
-    if (!this.queryClient) return
-
-    // Override the default query behavior to enable batching
-    const originalFetchQuery = this.queryClient.fetchQuery.bind(this.queryClient)
-    
-    this.queryClient.fetchQuery = async (options: any) => {
-      // Check if this query should be batched
-      const batchKey = this.getBatchKey(options.queryKey)
-      
-      if (batchKey && this.shouldBatch(options.queryKey)) {
-        return this.addToBatch(batchKey, options)
-      }
-      
-      // Execute immediately if not batchable
-      return originalFetchQuery(options)
-    }
+    // 禁用查询拦截，因为它可能导致查询挂起
+    // 直接让Vue Query处理所有查询
+    console.log('⚡ Query batching disabled - using direct query execution')
   }
 
   /**

@@ -62,8 +62,14 @@ const fetchAllEvents = async (): Promise<Event[]> => {
 }
 
 const fetchEvent = async (eventId: string): Promise<Event | null> => {
-  if (!eventId) return null
+  console.log('[useEvents] fetchEvent called with eventId:', eventId)
+  
+  if (!eventId) {
+    console.log('[useEvents] fetchEvent: No eventId provided, returning null')
+    return null
+  }
 
+  console.log('[useEvents] fetchEvent: Fetching event from database...')
   const { data, error } = await supabase
     .from('events')
     .select(EVENT_SELECT)
@@ -72,13 +78,15 @@ const fetchEvent = async (eventId: string): Promise<Event | null> => {
 
   if (error) {
     if (error.code === 'PGRST116') {
-      // Event not found
+      console.log('[useEvents] fetchEvent: Event not found')
       return null
     }
+    console.error('[useEvents] fetchEvent: Database error:', error)
     eventErrorHandler.handleError(error, { operation: 'fetchEvent' })
     throw error
   }
 
+  console.log('[useEvents] fetchEvent: Event fetched successfully:', !!data)
   return data as unknown as Event | null
 }
 

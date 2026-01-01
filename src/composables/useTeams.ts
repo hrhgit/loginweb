@@ -18,8 +18,14 @@ import type {
 
 // 队伍数据获取函数
 const fetchTeams = async (eventId: string): Promise<TeamLobbyTeam[]> => {
-  if (!eventId) return []
+  console.log('[useTeams] fetchTeams called with eventId:', eventId)
+  
+  if (!eventId) {
+    console.log('[useTeams] fetchTeams: No eventId provided, returning empty array')
+    return []
+  }
 
+  console.log('[useTeams] fetchTeams: Fetching teams from database...')
   const { data, error } = await supabase
     .from('teams')
     .select('*')
@@ -27,9 +33,12 @@ const fetchTeams = async (eventId: string): Promise<TeamLobbyTeam[]> => {
     .order('created_at', { ascending: false })
 
   if (error) {
+    console.error('[useTeams] fetchTeams: Database error:', error)
     teamErrorHandler.handleError(error, { operation: 'fetchTeams' })
     throw error
   }
+
+  console.log('[useTeams] fetchTeams: Teams fetched successfully, count:', data?.length || 0)
 
   // 获取队伍成员数量
   const teamIds = data.map(team => team.id).filter(Boolean)

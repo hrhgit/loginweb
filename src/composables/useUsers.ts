@@ -31,15 +31,23 @@ type Registration = {
 
 // 用户资料获取函数
 const fetchProfile = async (userId: string): Promise<Profile | null> => {
-  if (!userId) return null
-
-  // 检查用户会话是否有效
-  const { data: sessionData } = await supabase.auth.getSession()
-  if (!sessionData.session) {
-    console.warn('No valid session found when loading profile')
+  console.log('[useUsers] fetchProfile called with userId:', userId)
+  
+  if (!userId) {
+    console.log('[useUsers] fetchProfile: No userId provided, returning null')
     return null
   }
 
+  // 检查用户会话是否有效
+  const { data: sessionData } = await supabase.auth.getSession()
+  console.log('[useUsers] fetchProfile: Session check result:', !!sessionData.session)
+  
+  if (!sessionData.session) {
+    console.warn('[useUsers] fetchProfile: No valid session found when loading profile')
+    return null
+  }
+
+  console.log('[useUsers] fetchProfile: Fetching profile from database...')
   const { data, error } = await supabase
     .from('profiles')
     .select('id,username,avatar_url,roles')
@@ -47,9 +55,12 @@ const fetchProfile = async (userId: string): Promise<Profile | null> => {
     .maybeSingle()
 
   if (error) {
+    console.error('[useUsers] fetchProfile: Database error:', error)
     profileErrorHandler.handleError(error, { operation: 'fetchProfile' })
     throw error
   }
+
+  console.log('[useUsers] fetchProfile: Profile fetched successfully:', !!data)
 
   // 从会话中获取邮箱信息
   const email = sessionData.session.user?.email || null
