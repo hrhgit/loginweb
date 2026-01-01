@@ -42,6 +42,34 @@ const CACHEABLE_APIS = [
   '/rest/v1/teams'
 ]
 
+// Network status tracking
+let isOnline = true
+let networkFailureCount = 0
+const MAX_NETWORK_FAILURES = 3
+
+/**
+ * Check if we're likely offline based on recent failures
+ */
+function isLikelyOffline() {
+  return networkFailureCount >= MAX_NETWORK_FAILURES
+}
+
+/**
+ * Record network success/failure for offline detection
+ */
+function recordNetworkResult(success) {
+  if (success) {
+    networkFailureCount = Math.max(0, networkFailureCount - 1)
+    isOnline = true
+  } else {
+    networkFailureCount++
+    if (networkFailureCount >= MAX_NETWORK_FAILURES) {
+      isOnline = false
+      console.log('Service Worker: Detected offline state')
+    }
+  }
+}
+
 /**
  * Install event - cache essential assets
  */
@@ -133,6 +161,13 @@ self.addEventListener('fetch', (event) => {
     return
   }
   
+  // Skip requests to other domains (unless it's API)
+  if (url.origin !== self.location.origin && !isApiCall(url)) {
+    return
+  }
+  
+  console.log('Service Worker: Handling fetch for', request.url)
+  
   event.respondWith(handleFetch(request))
 })
 
@@ -162,10 +197,32 @@ async function handleFetch(request) {
     return await networkFirst(request)
     
   } catch (error) {
-    console.error('Service Worker: Fetch error', error)
+    console.log('Service Worker: Fetch error for', request.url, error)
     
     // Return offline fallback if available
-    return await getOfflineFallback(request)
+    try {
+      return await getOfflineFallback(request)
+    } catch (fallbackError) {
+      console.error('Service Worker: Fallback also failed', fallbackError)
+      
+      // Last resort: return a basic error response
+      return new Response(
+        JSON.stringify({
+          error: 'service_worker_error',
+          message: '服务不可用',
+          url: request.url,
+          timestamp: new Date().toISOString()
+        }),
+        {
+          status: 503,
+          statusText: 'Service Unavailable',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Service-Worker-Error': 'true'
+          }
+        }
+      )
+    }
   }
 }
 
@@ -184,12 +241,35 @@ async function cacheFirst(request) {
     
     if (networkResponse.ok) {
       const cache = await caches.open(STATIC_CACHE)
-      cache.put(request, networkResponse.clone())
+      cache.put(request, networkResponse.clone()).catch(() => {
+        // Silently ignore cache put errors
+      })
     }
     
     return networkResponse
   } catch (error) {
-    console.error('Service Worker: Network error for static asset', error)
+    console.log('Service Worker: Network error for static asset', error)
+    
+    // For static assets, return a minimal fallback or re-throw
+    const url = new URL(request.url)
+    
+    // For CSS files, return empty stylesheet
+    if (url.pathname.endsWith('.css')) {
+      return new Response('/* Offline - CSS not available */', {
+        status: 200,
+        headers: { 'Content-Type': 'text/css' }
+      })
+    }
+    
+    // For JS files, return empty script
+    if (url.pathname.endsWith('.js')) {
+      return new Response('// Offline - Script not available', {
+        status: 200,
+        headers: { 'Content-Type': 'application/javascript' }
+      })
+    }
+    
+    // For other static assets, re-throw to let handleFetch deal with it
     throw error
   }
 }
@@ -198,17 +278,39 @@ async function cacheFirst(request) {
  * Network-first strategy for API calls
  */
 async function networkFirst(request) {
+  // If we're likely offline, try cache first
+  if (isLikelyOffline()) {
+    console.log('Service Worker: Likely offline, trying cache first for', request.url)
+    const cachedResponse = await caches.match(request)
+    if (cachedResponse) {
+      const response = cachedResponse.clone()
+      response.headers.set('X-Served-From-Cache', 'true')
+      return response
+    }
+  }
+  
   try {
-    const networkResponse = await fetch(request)
+    const networkResponse = await fetch(request, {
+      // Add timeout to prevent hanging requests
+      signal: AbortSignal.timeout ? AbortSignal.timeout(10000) : undefined
+    })
+    
+    // Record successful network request
+    recordNetworkResult(true)
     
     if (networkResponse.ok && isCacheableApi(request)) {
       const cache = await caches.open(DYNAMIC_CACHE)
-      cache.put(request, networkResponse.clone())
+      cache.put(request, networkResponse.clone()).catch(() => {
+        // Silently ignore cache put errors
+      })
     }
     
     return networkResponse
   } catch (error) {
-    console.log('Service Worker: Network failed, trying cache', error)
+    // Record network failure
+    recordNetworkResult(false)
+    
+    console.log('Service Worker: Network failed, trying cache', error.message)
     
     const cachedResponse = await caches.match(request)
     if (cachedResponse) {
@@ -218,6 +320,31 @@ async function networkFirst(request) {
       return response
     }
     
+    // If no cache available, return a proper error response instead of throwing
+    console.log('Service Worker: No cache available for failed request', request.url)
+    
+    // For API requests, return structured error
+    const url = new URL(request.url)
+    if (isApiCall(url)) {
+      return new Response(
+        JSON.stringify({
+          error: 'network_unavailable',
+          message: '网络不可用，请检查网络连接',
+          offline: true,
+          timestamp: new Date().toISOString()
+        }),
+        {
+          status: 503,
+          statusText: 'Service Unavailable',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Offline-Response': 'true'
+          }
+        }
+      )
+    }
+    
+    // For other requests, re-throw to let handleFetch deal with it
     throw error
   }
 }
