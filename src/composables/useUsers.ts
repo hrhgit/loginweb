@@ -3,7 +3,7 @@
  * 提供用户资料、联系方式、注册状态的智能缓存和状态管理
  */
 
-import { computed } from 'vue'
+import { computed, toValue, type MaybeRefOrGetter } from 'vue'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
 import { supabase } from '../lib/supabase'
 import { queryKeys } from '../lib/vueQuery'
@@ -129,11 +129,13 @@ const dataURLtoBlob = (dataurl: string): Blob | null => {
 /**
  * 获取用户资料
  */
-export function useProfile(userId: string) {
+export function useProfile(userId: MaybeRefOrGetter<string>) {
+  const resolvedUserId = computed(() => toValue(userId))
+
   return useQuery({
-    queryKey: queryKeys.user.profile(userId),
-    queryFn: () => fetchProfile(userId),
-    enabled: computed(() => Boolean(userId)),
+    queryKey: computed(() => queryKeys.user.profile(resolvedUserId.value)),
+    queryFn: () => fetchProfile(resolvedUserId.value),
+    enabled: computed(() => Boolean(resolvedUserId.value)),
     staleTime: 1000 * 60 * 5, // 5分钟内数据保持新鲜（用户资料变化较少）
     gcTime: 1000 * 60 * 30, // 30分钟后从内存中清除
     refetchOnMount: false, // 挂载时不自动重新获取（除非缓存不存在）
@@ -152,11 +154,13 @@ export function useProfile(userId: string) {
 /**
  * 获取用户联系方式
  */
-export function useContacts(userId: string) {
+export function useContacts(userId: MaybeRefOrGetter<string>) {
+  const resolvedUserId = computed(() => toValue(userId))
+
   return useQuery({
-    queryKey: queryKeys.user.contacts(userId),
-    queryFn: () => fetchContacts(userId),
-    enabled: computed(() => Boolean(userId)),
+    queryKey: computed(() => queryKeys.user.contacts(resolvedUserId.value)),
+    queryFn: () => fetchContacts(resolvedUserId.value),
+    enabled: computed(() => Boolean(resolvedUserId.value)),
     staleTime: 1000 * 60 * 5, // 5分钟内数据保持新鲜
     gcTime: 1000 * 60 * 30, // 30分钟后从内存中清除
     refetchOnMount: false,
@@ -174,11 +178,13 @@ export function useContacts(userId: string) {
 /**
  * 获取用户注册记录
  */
-export function useRegistrations(userId: string) {
+export function useRegistrations(userId: MaybeRefOrGetter<string>) {
+  const resolvedUserId = computed(() => toValue(userId))
+
   return useQuery({
-    queryKey: queryKeys.user.registrations(userId),
-    queryFn: () => fetchRegistrations(userId),
-    enabled: computed(() => Boolean(userId)),
+    queryKey: computed(() => queryKeys.user.registrations(resolvedUserId.value)),
+    queryFn: () => fetchRegistrations(resolvedUserId.value),
+    enabled: computed(() => Boolean(resolvedUserId.value)),
     staleTime: 1000 * 30, // 30秒内数据保持新鲜（注册状态可能变化）
     gcTime: 1000 * 60 * 15, // 15分钟后从内存中清除
     refetchOnMount: false,
@@ -420,9 +426,9 @@ export function useCurrentUserData() {
   const store = useAppStore()
   const userId = computed(() => store.user?.id || '')
   
-  const profile = useProfile(userId.value)
-  const contacts = useContacts(userId.value)
-  const registrations = useRegistrations(userId.value)
+  const profile = useProfile(userId)
+  const contacts = useContacts(userId)
+  const registrations = useRegistrations(userId)
 
   return {
     profile,
@@ -449,7 +455,7 @@ export function useCurrentUserData() {
 /**
  * 获取用户基本信息（资料 + 联系方式）
  */
-export function useUserInfo(userId: string) {
+export function useUserInfo(userId: MaybeRefOrGetter<string>) {
   const profile = useProfile(userId)
   const contacts = useContacts(userId)
 

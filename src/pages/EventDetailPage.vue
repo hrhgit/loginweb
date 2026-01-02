@@ -71,6 +71,7 @@ type DetailTab = 'intro' | 'registration' | 'form' | 'team' | 'showcase'
 const props = defineProps<{ tab: DetailTab }>()
 
 const eventId = computed(() => String(route.params.id ?? ''))
+const userId = computed(() => store.user?.id || '')
 
 // Use Vue Query for event data
 const eventQuery = useEvent(eventId.value)
@@ -185,7 +186,7 @@ const sendTeamInviteMutation = useSendTeamInvite()
 const judgePermissionsQuery = useJudgePermissions(eventId.value, store.user?.id || '')
 
 // Registration form data hook - 直接调用，使用 enabled 控制执行
-const registrationDataQuery = useRegistrationData(eventId.value, store.user?.id || '')
+const registrationDataQuery = useRegistrationData(eventId, userId)
 const updateRegistrationFormMutation = useUpdateRegistrationForm()
 
 // Replace original computed properties with Vue Query data

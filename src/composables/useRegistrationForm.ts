@@ -1,4 +1,4 @@
-import { computed, watch } from 'vue'
+import { computed, watch, toValue, type MaybeRefOrGetter } from 'vue'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
 import { supabase } from '../lib/supabase'
 import { queryKeys } from '../lib/vueQuery'
@@ -112,13 +112,20 @@ const updateRegistrationForm = async (params: {
 /**
  * 使用报名表数据的 Vue Query hook
  */
-export function useRegistrationForm(eventId: string, userId: string) {
+export function useRegistrationForm(eventId: MaybeRefOrGetter<string>, userId: MaybeRefOrGetter<string>) {
+  const resolvedEventId = computed(() => toValue(eventId))
+  const resolvedUserId = computed(() => toValue(userId))
+
   return useQuery({
-    queryKey: queryKeys.registrations.form(eventId, userId),
-    queryFn: () => fetchRegistrationForm(eventId, userId),
+    queryKey: computed(() => queryKeys.registrations.form(resolvedEventId.value, resolvedUserId.value)),
+    queryFn: () => fetchRegistrationForm(resolvedEventId.value, resolvedUserId.value),
     enabled: computed(() => {
-      const enabled = Boolean(eventId && userId)
-      console.log('[useRegistrationForm] Query enabled:', { eventId, userId, enabled })
+      const enabled = Boolean(resolvedEventId.value && resolvedUserId.value)
+      console.log('[useRegistrationForm] Query enabled:', { 
+        eventId: resolvedEventId.value, 
+        userId: resolvedUserId.value, 
+        enabled 
+      })
       return enabled
     }),
     
@@ -149,8 +156,8 @@ export function useRegistrationForm(eventId: string, userId: string) {
     // 添加调试日志
     onSuccess: (data) => {
       console.log('[useRegistrationForm] Query success:', { 
-        eventId, 
-        userId, 
+        eventId: resolvedEventId.value, 
+        userId: resolvedUserId.value, 
         dataKeys: Object.keys(data || {}),
         data 
       })
@@ -158,8 +165,8 @@ export function useRegistrationForm(eventId: string, userId: string) {
     
     onError: (error) => {
       console.error('[useRegistrationForm] Query error:', { 
-        eventId, 
-        userId, 
+        eventId: resolvedEventId.value, 
+        userId: resolvedUserId.value, 
         error: error?.message,
         fullError: error 
       })
@@ -170,11 +177,13 @@ export function useRegistrationForm(eventId: string, userId: string) {
 /**
  * 使用报名人数的 Vue Query hook
  */
-export function useRegistrationCount(eventId: string) {
+export function useRegistrationCount(eventId: MaybeRefOrGetter<string>) {
+  const resolvedEventId = computed(() => toValue(eventId))
+
   return useQuery({
-    queryKey: queryKeys.registrations.count(eventId),
-    queryFn: () => fetchRegistrationCount(eventId),
-    enabled: computed(() => Boolean(eventId)),
+    queryKey: computed(() => queryKeys.registrations.count(resolvedEventId.value)),
+    queryFn: () => fetchRegistrationCount(resolvedEventId.value),
+    enabled: computed(() => Boolean(resolvedEventId.value)),
     
     // 缓存策略
     staleTime: 1000 * 30,              // 30秒后数据过期
@@ -234,15 +243,17 @@ export function useUpdateRegistrationForm() {
 /**
  * 组合函数：获取用户的报名表数据和报名人数
  */
-export function useRegistrationData(eventId: string, userId: string) {
+export function useRegistrationData(eventId: MaybeRefOrGetter<string>, userId: MaybeRefOrGetter<string>) {
   const formQuery = useRegistrationForm(eventId, userId)
   const countQuery = useRegistrationCount(eventId)
+  const resolvedEventId = computed(() => toValue(eventId))
+  const resolvedUserId = computed(() => toValue(userId))
   
   // 添加调试日志
   const debugInfo = computed(() => ({
-    eventId,
-    userId,
-    formEnabled: Boolean(eventId && userId),
+    eventId: resolvedEventId.value,
+    userId: resolvedUserId.value,
+    formEnabled: Boolean(resolvedEventId.value && resolvedUserId.value),
     formLoading: formQuery.isLoading.value,
     formError: formQuery.error.value?.message,
     formData: formQuery.data.value,
@@ -277,7 +288,10 @@ export function useRegistrationData(eventId: string, userId: string) {
     
     // 刷新所有数据
     refetchAll: () => {
-      console.log('[useRegistrationData] Refetching all data:', { eventId, userId })
+      console.log('[useRegistrationData] Refetching all data:', { 
+        eventId: resolvedEventId.value, 
+        userId: resolvedUserId.value 
+      })
       formQuery.refetch()
       countQuery.refetch()
     },
