@@ -203,7 +203,20 @@ const router = createRouter({
       }
     },
   ],
-  scrollBehavior() {
+  scrollBehavior(to, from, savedPosition) {
+    // 如果是同一个活动详情页面的不同页签，保持当前滚动位置
+    if (to.name?.toString().startsWith('event-detail-') && 
+        from.name?.toString().startsWith('event-detail-') &&
+        to.params.id === from.params.id) {
+      return false // 保持当前滚动位置
+    }
+    
+    // 如果有保存的滚动位置（浏览器前进/后退），使用保存的位置
+    if (savedPosition) {
+      return savedPosition
+    }
+    
+    // 其他情况滚动到顶部
     return { top: 0 }
   },
 })
