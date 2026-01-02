@@ -1,4 +1,4 @@
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
 import { supabase } from '../lib/supabase'
 import { queryKeys } from '../lib/vueQuery'
@@ -116,7 +116,11 @@ export function useRegistrationForm(eventId: string, userId: string) {
   return useQuery({
     queryKey: queryKeys.registrations.form(eventId, userId),
     queryFn: () => fetchRegistrationForm(eventId, userId),
-    enabled: computed(() => Boolean(eventId && userId)),
+    enabled: computed(() => {
+      const enabled = Boolean(eventId && userId)
+      console.log('[useRegistrationForm] Query enabled:', { eventId, userId, enabled })
+      return enabled
+    }),
     
     // 缓存策略 - 遵循项目规范
     staleTime: 1000 * 30,              // 30秒后数据过期
@@ -132,8 +136,34 @@ export function useRegistrationForm(eventId: string, userId: string) {
       const isNetworkError = error?.message?.includes('网络') || 
                             error?.message?.includes('fetch') ||
                             error?.code === 'NETWORK_ERROR'
-      return isNetworkError && failureCount < 3
+      const shouldRetry = isNetworkError && failureCount < 3
+      console.log('[useRegistrationForm] Retry decision:', { 
+        failureCount, 
+        isNetworkError, 
+        shouldRetry,
+        error: error?.message 
+      })
+      return shouldRetry
     },
+    
+    // 添加调试日志
+    onSuccess: (data) => {
+      console.log('[useRegistrationForm] Query success:', { 
+        eventId, 
+        userId, 
+        dataKeys: Object.keys(data || {}),
+        data 
+      })
+    },
+    
+    onError: (error) => {
+      console.error('[useRegistrationForm] Query error:', { 
+        eventId, 
+        userId, 
+        error: error?.message,
+        fullError: error 
+      })
+    }
   })
 }
 
@@ -208,6 +238,26 @@ export function useRegistrationData(eventId: string, userId: string) {
   const formQuery = useRegistrationForm(eventId, userId)
   const countQuery = useRegistrationCount(eventId)
   
+  // 添加调试日志
+  const debugInfo = computed(() => ({
+    eventId,
+    userId,
+    formEnabled: Boolean(eventId && userId),
+    formLoading: formQuery.isLoading.value,
+    formError: formQuery.error.value?.message,
+    formData: formQuery.data.value,
+    countLoading: countQuery.isLoading.value,
+    countError: countQuery.error.value?.message,
+    countData: countQuery.data.value
+  }))
+  
+  // 在开发环境下输出调试信息
+  if (import.meta.env.DEV) {
+    watch(debugInfo, (info) => {
+      console.log('[useRegistrationData] State update:', info)
+    }, { deep: true, immediate: true })
+  }
+  
   return {
     // 报名表数据
     formData: formQuery.data,
@@ -227,8 +277,12 @@ export function useRegistrationData(eventId: string, userId: string) {
     
     // 刷新所有数据
     refetchAll: () => {
+      console.log('[useRegistrationData] Refetching all data:', { eventId, userId })
       formQuery.refetch()
       countQuery.refetch()
-    }
+    },
+    
+    // 调试信息（仅开发环境）
+    ...(import.meta.env.DEV ? { debugInfo } : {})
   }
 }

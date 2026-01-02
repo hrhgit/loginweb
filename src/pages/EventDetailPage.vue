@@ -27,6 +27,15 @@ import { useTeamData, useJoinTeamRequest, useSaveTeamSeeker, useDeleteTeamSeeker
 import { useSubmissionData } from '../composables/useSubmissions'
 import { useJudgePermissions } from '../composables/useJudges'
 import { useRegistrationData, useUpdateRegistrationForm } from '../composables/useRegistrationForm'
+import { 
+  collectRegistrationFormDebugInfo, 
+  logRegistrationFormDebug,
+  setupRegistrationFormDebugTools 
+} from '../utils/registrationFormDebug'
+import { 
+  diagnoseAndFixRegistrationForm,
+  setupRegistrationFormFixTools 
+} from '../utils/registrationFormFixes'
 // Lazy load heavy components for better performance
 const MyTeamsTabContent = defineAsyncComponent(() => import('../components/MyTeamsTabContent.vue'))
 const SubmissionCard = defineAsyncComponent(() => import('../components/showcase/SubmissionCard.vue'))
@@ -841,6 +850,24 @@ const restoreFormSnapshot = () => {
 const openRegistrationForm = () => {
   resetRegistrationForm()
 
+  // 调试：收集并输出报名表单状态信息
+  if (import.meta.env.DEV) {
+    const debugInfo = collectRegistrationFormDebugInfo({
+      eventId: eventId.value,
+      userId: store.user?.id || '',
+      event: event.value,
+      user: store.user,
+      registrationQuestions: registrationQuestions.value,
+      registrationAnswers: registrationAnswers.value,
+      registrationDataQuery,
+      hasRegistrationForm: hasRegistrationForm.value,
+      isRegistered: isRegistered.value,
+      registrationModalOpen: registrationModalOpen.value
+    })
+    
+    logRegistrationFormDebug(debugInfo)
+  }
+
   // Auto-fill form based on linked profile fields
   if (store.user) {
     visibleRegistrationQuestions.value.forEach((q) => {
@@ -1126,6 +1153,24 @@ const handleRegistrationClick = async () => {
   }
   
   if (hasRegistrationForm.value) {
+    // 在开发环境下自动诊断报名表单问题
+    if (import.meta.env.DEV) {
+      const diagnosisResult = diagnoseAndFixRegistrationForm({
+        eventId: eventId.value,
+        userId: store.user.id,
+        event: event.value,
+        registrationQuestions: registrationQuestions.value,
+        registrationDataQuery,
+        hasRegistrationForm: hasRegistrationForm.value
+      })
+      
+      // 如果发现问题并尝试修复，等待一下再打开表单
+      if (diagnosisResult.autoFixed) {
+        console.log('⏳ 等待修复完成...')
+        await new Promise(resolve => setTimeout(resolve, 1000))
+      }
+    }
+    
     openRegistrationForm()
     return
   }
@@ -1230,6 +1275,12 @@ const saveFormEdit = async () => {
 }
 
 onMounted(async () => {
+  // 在开发环境下设置调试工具
+  if (import.meta.env.DEV) {
+    setupRegistrationFormDebugTools()
+    setupRegistrationFormFixTools()
+  }
+  
   // 先初始化基础数据，避免闪烁
   await store.refreshUser()
   

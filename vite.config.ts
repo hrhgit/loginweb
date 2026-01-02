@@ -15,31 +15,31 @@ export default defineConfig({
     minify: 'esbuild',
     rollupOptions: {
       output: {
-        // Simplified chunk naming strategy for better compatibility
+        // More stable chunk naming to prevent 404 errors
         chunkFileNames: (chunkInfo) => {
           // Handle vendor chunks with consistent naming
           if (chunkInfo.name?.includes('vendor')) {
             return 'assets/vendors/[name]-[hash].js'
           }
           
-          // Use default naming for all other chunks to avoid path issues
-          return 'assets/chunks/[name]-[hash].js'
+          // Use shorter, more stable hashes for chunks
+          return 'assets/chunks/[name]-[hash:8].js'
         },
         
-        // Predictable entry file naming
-        entryFileNames: 'assets/[name]-[hash].js',
+        // Predictable entry file naming with shorter hash
+        entryFileNames: 'assets/[name]-[hash:8].js',
         
         // Asset file naming (CSS, images, etc.)
         assetFileNames: (assetInfo) => {
           if (assetInfo.name?.endsWith('.css')) {
-            return 'assets/styles/[name]-[hash][extname]'
+            return 'assets/styles/[name]-[hash:8][extname]'
           }
-          return 'assets/[name]-[hash][extname]'
+          return 'assets/[name]-[hash:8][extname]'
         },
         
-        // Simplified manual chunks for better compatibility
+        // Optimized manual chunks for better caching and loading
         manualChunks: (id) => {
-          // Vendor chunks
+          // Vendor chunks - group related dependencies
           if (id.includes('node_modules')) {
             if (id.includes('vue') || id.includes('vue-router')) {
               return 'vue-vendor'
@@ -60,6 +60,16 @@ export default defineConfig({
             return 'vendor'
           }
           
+          // Group large components together to reduce chunk fragmentation
+          if (id.includes('VirtualCardGrid') || id.includes('components/showcase')) {
+            return 'ui-components'
+          }
+          
+          // Group page components
+          if (id.includes('pages/')) {
+            return 'pages'
+          }
+          
           // Let Vite handle other chunks automatically
           return undefined
         }
@@ -71,7 +81,10 @@ export default defineConfig({
     chunkSizeWarningLimit: 1000,
     
     // Enable CSS code splitting
-    cssCodeSplit: true
+    cssCodeSplit: true,
+    
+    // Ensure consistent builds
+    emptyOutDir: true
   },
   server: {
     port: 5173,
