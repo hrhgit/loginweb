@@ -627,14 +627,13 @@ const handleNotificationClick = async (notification: any) => {
 
 onMounted(async () => {
   try {
-    // Load basic user and events data
+    // Load basic user data
     await Promise.all([
       store.refreshUser(),
-      store.ensureEventsLoaded(),
       store.ensureRegistrationsLoaded()
     ])
     
-    // Vue Query will automatically load profile and contacts data
+    // Vue Query will automatically load profile, contacts, and events data
     // when the user ID is available
     
     // 异步加载团队信息（不阻塞主要内容显示）

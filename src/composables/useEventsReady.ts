@@ -1,13 +1,20 @@
 import { onMounted } from 'vue'
+import { useEvents } from './useEvents'
+import { useAppStore } from '../store/appStore'
 
-type EventsReadyStore = {
-  ensureEventsLoaded: () => Promise<void> | void
-  ensureRegistrationsLoaded: () => Promise<void> | void
-}
-
-export const useEventsReady = (store: EventsReadyStore) => {
+/**
+ * Composable to ensure events and registrations are loaded on component mount
+ * Updated to work with Vue Query composables
+ */
+export const useEventsReady = () => {
+  const store = useAppStore()
+  
   onMounted(async () => {
-    await store.ensureEventsLoaded()
+    // Vue Query composables will automatically handle events loading
+    // We just need to ensure registrations are loaded from the store
     await store.ensureRegistrationsLoaded()
   })
+  
+  // Return the events composables for use in components
+  return useEvents(store.user?.id || null, store.isAdmin)
 }

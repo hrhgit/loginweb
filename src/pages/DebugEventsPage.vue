@@ -23,13 +23,18 @@
       </div>
 
       <div class="debug-events">
-        <h3>活动列表 ({{ store.events.length }})</h3>
-        <div v-if="store.events.length === 0" class="empty-state">
+        <h3>活动列表 ({{ eventsData.length }})</h3>
+        <div v-if="eventsLoading" class="loading-state">
+          <p>加载中...</p>
+        </div>
+        <div v-else-if="eventsError" class="error-state">
+          <p class="error">错误: {{ eventsError.message }}</p>
+        </div>
+        <div v-else-if="eventsData.length === 0" class="empty-state">
           <p>没有活动数据</p>
-          <p v-if="store.eventsError" class="error">错误: {{ store.eventsError }}</p>
         </div>
         <div v-else class="events-list">
-          <div v-for="event in store.events" :key="event.id" class="event-item">
+          <div v-for="event in eventsData" :key="event.id" class="event-item">
             <strong>{{ event.title }}</strong>
             <span class="status">{{ event.status }}</span>
             <span class="created-by">{{ event.created_by }}</span>
@@ -41,21 +46,85 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { useAppStore } from '../store/appStore'
+import { useEvents } from '../composables/useEvents'
+import { useQueryClient } from '@tanstack/vue-query'
+import { queryKeys } from '../lib/vueQuery'
 
 const store = useAppStore()
+const queryClient = useQueryClient()
 const loading = ref(false)
 const debugInfo = ref<any>({})
 
+// Use Vue Query composables for events data
+const { publicEvents, myEvents, allEvents } = useEvents(store.user?.id || null, store.isAdmin)
+
+// Computed properties for debugging
+const eventsData = computed(() => {
+  if (store.isAdmin) {
+    return allEvents.data.value || []
+  }
+  return publicEvents.data.value || []
+})
+
+const eventsLoading = computed(() => {
+  if (store.isAdmin) {
+    return allEvents.isLoading.value
+  }
+  return publicEvents.isLoading.value
+})
+
+const eventsError = computed(() => {
+  if (store.isAdmin) {
+    return allEvents.error.value
+  }
+  return publicEvents.error.value
+})
+
 const debugState = () => {
-  debugInfo.value = store.debugEventsState()
+  debugInfo.value = {
+    // User state
+    user: store.user,
+    isAdmin: store.isAdmin,
+    isAuthed: store.isAuthed,
+    
+    // Events state from Vue Query
+    eventsCount: eventsData.value.length,
+    eventsLoading: eventsLoading.value,
+    eventsError: eventsError.value?.message || null,
+    
+    // Cache information
+    queryCache: queryClient.getQueryCache().getAll().map(query => ({
+      queryKey: query.queryKey,
+      state: query.state.status,
+      dataUpdatedAt: query.state.dataUpdatedAt,
+      errorUpdatedAt: query.state.errorUpdatedAt
+    })),
+    
+    // Network state
+    networkState: store.networkState,
+    isOnline: store.isOnline,
+    
+    timestamp: new Date().toISOString()
+  }
 }
 
 const forceReload = async () => {
   loading.value = true
   try {
-    await store.forceReloadEvents()
+    // Invalidate and refetch all events queries
+    await queryClient.invalidateQueries({
+      queryKey: queryKeys.events.all
+    })
+    
+    // Force refetch
+    if (store.isAdmin) {
+      await allEvents.refetch()
+    } else {
+      await publicEvents.refetch()
+    }
+    
     debugState()
   } catch (error) {
     console.error('Force reload failed:', error)
@@ -65,20 +134,27 @@ const forceReload = async () => {
 }
 
 const clearCache = () => {
-  // 清除状态缓存
+  // Clear Vue Query cache
+  queryClient.clear()
+  
+  // Clear any remaining state cache
   if (store.stateCache) {
     store.stateCache.clear()
   }
-  // 重置状态
-  store.eventsLoaded = false
-  store.eventsError = ''
+  
   debugState()
 }
 
 const backgroundRefresh = async () => {
   loading.value = true
   try {
-    await store.refreshEventsInBackground()
+    // Trigger background refetch without invalidating cache
+    if (store.isAdmin) {
+      await allEvents.refetch()
+    } else {
+      await publicEvents.refetch()
+    }
+    
     debugState()
   } catch (error) {
     console.error('Background refresh failed:', error)
@@ -88,14 +164,28 @@ const backgroundRefresh = async () => {
 }
 
 const resetPageState = () => {
-  store.resetPageLoadState()
+  // Reset Vue Query cache for events
+  queryClient.resetQueries({
+    queryKey: queryKeys.events.all
+  })
+  
   debugState()
 }
 
 const ensureLoaded = async () => {
   loading.value = true
   try {
-    await store.ensureEventsLoaded()
+    // Ensure events are loaded using Vue Query
+    if (store.isAdmin) {
+      if (!allEvents.data.value) {
+        await allEvents.refetch()
+      }
+    } else {
+      if (!publicEvents.data.value) {
+        await publicEvents.refetch()
+      }
+    }
+    
     debugState()
   } catch (error) {
     console.error('Ensure loaded failed:', error)

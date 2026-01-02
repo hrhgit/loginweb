@@ -8,6 +8,7 @@ import { useAppStore } from '../store/appStore'
 import { generateCoverUrl, generateSubmissionUrl } from '../utils/imageUrlGenerator'
 
 import { useSubmissions } from '../composables/useSubmissions'
+import { useEvent } from '../composables/useEvents'
 
 const route = useRoute()
 const router = useRouter()
@@ -16,6 +17,7 @@ const store = useAppStore()
 const eventId = computed(() => String(route.params.id ?? route.params.eventId ?? ''))
 const submissionId = computed(() => String(route.params.submissionId ?? ''))
 const { data: submissions } = useSubmissions(eventId.value)
+const { data: event } = useEvent(eventId.value)
 const isEditMode = computed(() => Boolean(submissionId.value))
 const eventPath = computed(() => `/events/${eventId.value}`)
 const submitting = ref(false)
@@ -699,7 +701,6 @@ const closeSubmitModal = () => {
 
 onMounted(async () => {
   await store.refreshUser()
-  await store.ensureEventsLoaded()
   
   if (isEditMode.value) {
     // 编辑模式：先加载现有作品数据
