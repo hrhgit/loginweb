@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, watch } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
-import { useMyEvents } from '../composables/useEvents'
+import { useMyEventsWithRegistrationCount } from '../composables/useEventsWithRegistrationCount'
 import { Settings, Edit, Undo2, UserPlus, Plus } from 'lucide-vue-next'
 import { useAppStore } from '../store/appStore'
 import EventCard from '../components/events/EventCard.vue'
@@ -17,8 +17,8 @@ const store = useAppStore()
 const router = useRouter()
 const eventSummary = (description: string | null) => getEventSummaryText(description)
 
-// Use Vue Query for user's events data
-const myEventsQuery = useMyEvents(store.user?.id || '')
+// Use Vue Query for user's events data with registration counts
+const myEventsQuery = useMyEventsWithRegistrationCount(store.user?.id || '')
 const myEvents = computed(() => myEventsQuery.data.value || [])
 const canManage = computed(() => store.isAdmin)
 const revertBusyId = ref<string | null>(null)
@@ -169,7 +169,7 @@ const handleCloseInviteModal = () => {
           </template>
           <template #meta>
             <span class="meta-item">地点：{{ locationLabel(event.location) }}</span>
-            <span class="meta-item">报名人数：点击后台管理查看</span>
+            <span class="meta-item">已报名：{{ event.registration_count || 0 }} 人</span>
           </template>
           <template #actions>
             <template v-if="store.isDemoEvent(event)">

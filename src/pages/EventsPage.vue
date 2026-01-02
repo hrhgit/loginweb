@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { RouterLink, useRouter } from 'vue-router'
 import { RefreshCw, Plus, MapPin, Users } from 'lucide-vue-next'
-import { usePublicEvents } from '../composables/useEvents'
+import { usePublicEventsWithRegistrationCount } from '../composables/useEventsWithRegistrationCount'
 import { useAppStore } from '../store/appStore'
 import EventCard from '../components/events/EventCard.vue'
 import NetworkStatusIndicator from '../components/feedback/NetworkStatusIndicator.vue'
@@ -14,8 +14,8 @@ const store = useAppStore()
 const router = useRouter()
 const eventSummary = (description: string | null) => getEventSummaryText(description)
 
-// Use Vue Query for events data
-const publicEvents = usePublicEvents()
+// Use Vue Query for events data with registration counts
+const publicEvents = usePublicEventsWithRegistrationCount()
 
 // Network-aware features
 const isLoading = computed(() => 
@@ -169,7 +169,7 @@ const handleNetworkRetry = () => {
           </template>
           <template #meta>
             <span class="meta-item"><MapPin :size="16" /> {{ locationLabel(event.location) }}</span>
-            <span class="meta-item"><Users :size="16" /> 点击查看详情</span>
+            <span class="meta-item"><Users :size="16" /> {{ event.registration_count || 0 }} 人已报名</span>
           </template>
           <template #actions>
             <template v-if="store.isDemoEvent(event)">

@@ -58,17 +58,19 @@ const fetchRegistrationForm = async (eventId: string, userId: string): Promise<R
 }
 
 /**
- * 获取活动的报名人数
+ * 获取活动的报名人数 - 使用数据库函数优化性能
  */
 const fetchRegistrationCount = async (eventId: string): Promise<number> => {
   if (!eventId) return 0
 
-  const { count, error } = await supabase
-    .from('registrations')
-    .select('id', { count: 'exact', head: true })
-    .eq('event_id', eventId)
+  console.log('[useRegistrationForm] fetchRegistrationCount: Fetching count for event', { eventId })
+
+  // 使用数据库函数获取报名人数，性能更优
+  const { data, error } = await supabase
+    .rpc('get_event_registration_count', { event_uuid: eventId })
 
   if (error) {
+    console.error('[useRegistrationForm] fetchRegistrationCount: Database error', error)
     eventErrorHandler.handleError(error, { 
       operation: 'fetchRegistrationCount',
       additionalData: { eventId }
@@ -76,7 +78,10 @@ const fetchRegistrationCount = async (eventId: string): Promise<number> => {
     throw error
   }
 
-  return count ?? 0
+  const count = data ?? 0
+  console.log('[useRegistrationForm] fetchRegistrationCount: Count fetched', { eventId, count })
+
+  return count
 }
 
 /**

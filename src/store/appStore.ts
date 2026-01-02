@@ -994,6 +994,28 @@ const submitRegistration = async (event: DisplayEvent, formResponse: Record<stri
       await cacheManager.invalidate(`registrations_${user.value.id}`)
     }
     
+    // 清除相关的 Vue Query 缓存
+    const { getQueryClient } = await import('../lib/vueQuery')
+    const queryClient = getQueryClient()
+    
+    // 清除报名人数缓存
+    queryClient.invalidateQueries({
+      queryKey: ['registrations', 'count', event.id]
+    })
+    
+    // 清除带报名人数的活动列表缓存
+    queryClient.invalidateQueries({
+      queryKey: ['events', 'public', 'with-registration-count']
+    })
+    queryClient.invalidateQueries({
+      queryKey: ['events', 'all', 'with-registration-count']
+    })
+    if (user.value) {
+      queryClient.invalidateQueries({
+        queryKey: ['events', 'my', user.value.id, 'with-registration-count']
+      })
+    }
+    
     // Check if this was a new registration (created recently) or existing one
     const isNewRegistration = new Date(row.created_at).getTime() > (Date.now() - 5000) // Within last 5 seconds
     

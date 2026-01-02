@@ -3,9 +3,10 @@ import { RouterLink } from 'vue-router'
 import { Clock } from 'lucide-vue-next'
 import type { DisplayEvent } from '../../store/models'
 import { statusClass, statusLabel } from '../../utils/eventFormat'
+import type { EventWithRegistrationCount } from '../../composables/useEventsWithRegistrationCount'
 
 const props = defineProps<{
-  event: DisplayEvent
+  event: DisplayEvent | EventWithRegistrationCount
   timeLabel: string
   summary: string
 }>()
