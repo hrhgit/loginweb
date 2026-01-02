@@ -3,8 +3,7 @@
  * 根据缓存管理规范，在用户登录后清除相关缓存并重新获取数据
  */
 
-import { useQueryClient } from '@tanstack/vue-query'
-import { queryKeys } from '../lib/vueQuery'
+import { getQueryClient, queryKeys } from '../lib/vueQuery'
 import { useAppStore } from '../store/appStore'
 import { handleSuccessWithBanner, authErrorHandler } from '../store/enhancedErrorHandling'
 
@@ -12,7 +11,7 @@ import { handleSuccessWithBanner, authErrorHandler } from '../store/enhancedErro
  * 登录后刷新内容的组合函数
  */
 export function useAuthRefresh() {
-  const queryClient = useQueryClient()
+  const queryClient = getQueryClient()
   const store = useAppStore()
 
   /**
