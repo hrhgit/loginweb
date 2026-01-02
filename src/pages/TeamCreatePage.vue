@@ -10,7 +10,7 @@ import {
 
 import { useEvent } from '../composables/useEvents'
 import { useCurrentUserData } from '../composables/useUsers'
-import { useTeams } from '../composables/useTeams'
+import { useTeams, useCreateTeam, useUpdateTeam } from '../composables/useTeams'
 
 const store = useAppStore()
 const route = useRoute()
@@ -21,6 +21,8 @@ const teamId = computed(() => String(route.params.teamId ?? ''))
 const { data: event } = useEvent(eventId.value)
 const { contacts } = useCurrentUserData()
 const { data: teams } = useTeams(eventId.value)
+const createTeamMutation = useCreateTeam()
+const updateTeamMutation = useUpdateTeam()
 const isEdit = computed(() => Boolean(route.params.teamId))
 const editingTeam = computed(() =>
   teams.value?.find((team) => team.id === teamId.value) ?? null
@@ -195,26 +197,39 @@ const submit = async () => {
     needs: [...teamNeeds.value],
     extra: teamExtra.value.trim(),
   }
-  const result = isEdit.value
-    ? await store.updateTeam(eventId.value, teamId.value, payload)
-    : await store.createTeam(eventId.value, payload)
-  busy.value = false
 
-  if (result.error) {
-    error.value = result.error
-    return
+  try {
+    if (isEdit.value) {
+      await updateTeamMutation.mutateAsync({
+        teamId: teamId.value,
+        eventId: eventId.value,
+        teamData: payload
+      })
+      handleSuccessWithBanner('队伍已更新', store.setBanner, { 
+        operation: 'updateTeam',
+        component: 'team' 
+      })
+    } else {
+      await createTeamMutation.mutateAsync({
+        eventId: eventId.value,
+        teamData: payload
+      })
+      handleSuccessWithBanner('队伍已创建', store.setBanner, { 
+        operation: 'createTeam',
+        component: 'team' 
+      })
+    }
+    
+    // Allow navigation after successful submission
+    allowNavigation.value = true
+    // Clear dirty state by updating saved snapshot
+    savedSnapshot.value = serializeFormState()
+    await router.push(`/events/${eventId.value}/team`)
+  } catch (submitError: any) {
+    error.value = submitError.message || (isEdit.value ? '更新队伍失败' : '创建队伍失败')
+  } finally {
+    busy.value = false
   }
-
-  handleSuccessWithBanner(isEdit.value ? '队伍已更新' : '队伍已创建', store.setBanner, { 
-    operation: isEdit.value ? 'updateTeam' : 'createTeam',
-    component: 'team' 
-  })
-  
-  // Allow navigation after successful submission
-  allowNavigation.value = true
-  // Clear dirty state by updating saved snapshot
-  savedSnapshot.value = serializeFormState()
-  await router.push(`/events/${eventId.value}/team`)
 }
 
 // Navigation guard to prevent losing unsaved changes
