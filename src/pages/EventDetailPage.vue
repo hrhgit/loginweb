@@ -1334,11 +1334,11 @@ watch(
 
 // Watch for registration form data changes to apply to form
 watch(
-  () => registrationDataQuery.formData.value,
-  (formData) => {
+  [() => registrationDataQuery.formData.value, () => isRegistered.value],
+  ([formData, registered]) => {
     console.log('[EventDetailPage] Form data changed:', { 
       hasFormData: !!formData, 
-      isRegistered: isRegistered.value,
+      isRegistered: registered,
       formDataKeys: formData ? Object.keys(formData) : [],
       eventId: eventId.value,
       userId: store.user?.id,
@@ -1346,7 +1346,7 @@ watch(
       formError: registrationDataQuery.formError.value?.message
     })
     
-    if (formData && isRegistered.value && Object.keys(formData).length > 0) {
+    if (formData && registered && Object.keys(formData).length > 0) {
       console.log('[EventDetailPage] Applying form response:', formData)
       applyFormResponse(formData)
     }
