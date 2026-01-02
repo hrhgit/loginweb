@@ -39,7 +39,7 @@ export default defineConfig({
         
         // Optimized manual chunks for better caching and loading
         manualChunks: (id) => {
-          // Vendor chunks - group related dependencies
+          // Only handle vendor chunks to avoid circular dependencies
           if (id.includes('node_modules')) {
             if (id.includes('vue') || id.includes('vue-router')) {
               return 'vue-vendor'
@@ -60,17 +60,8 @@ export default defineConfig({
             return 'vendor'
           }
           
-          // Group large components together to reduce chunk fragmentation
-          if (id.includes('VirtualCardGrid') || id.includes('components/showcase')) {
-            return 'ui-components'
-          }
-          
-          // Group page components
-          if (id.includes('pages/')) {
-            return 'pages'
-          }
-          
-          // Let Vite handle other chunks automatically
+          // Let Vite handle all application code chunks automatically
+          // This prevents circular dependency issues
           return undefined
         }
       }

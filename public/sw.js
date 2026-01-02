@@ -5,9 +5,9 @@
  * for the event management platform.
  */
 
-const CACHE_NAME = 'event-platform-v2'
-const STATIC_CACHE = 'static-v2'
-const DYNAMIC_CACHE = 'dynamic-v2'
+const CACHE_NAME = 'event-platform-v3'
+const STATIC_CACHE = 'static-v3'
+const DYNAMIC_CACHE = 'dynamic-v3'
 
 // Essential assets to cache for offline functionality
 // Only include assets that definitely exist in production

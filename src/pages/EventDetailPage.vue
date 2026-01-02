@@ -36,10 +36,10 @@ import {
   diagnoseAndFixRegistrationForm,
   setupRegistrationFormFixTools 
 } from '../utils/registrationFormFixes'
-// Lazy load heavy components for better performance
-const MyTeamsTabContent = defineAsyncComponent(() => import('../components/MyTeamsTabContent.vue'))
-const SubmissionCard = defineAsyncComponent(() => import('../components/showcase/SubmissionCard.vue'))
-const VirtualCardGrid = defineAsyncComponent(() => import('../components/VirtualCardGrid.vue'))
+// Import components synchronously to avoid circular dependency issues
+import MyTeamsTabContent from '../components/MyTeamsTabContent.vue'
+import SubmissionCard from '../components/showcase/SubmissionCard.vue'
+import VirtualCardGrid from '../components/VirtualCardGrid.vue'
 import {
   teamSizeLabel,
   formatTimeRange,

@@ -1,6 +1,7 @@
 import { computed, proxyRefs, ref } from 'vue'
 import type { Subscription, User } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
+import { getQueryClient } from '../lib/vueQuery'
 import { buildEventDescription, createDefaultEventDetails } from '../utils/eventDetails'
 import { getLocalizedAuthError } from '../utils/authErrorMessages'
 import { validateUsername, checkUsernameExists, getUserEmailByUsername, isEmailFormat } from '../utils/authHelpers'
@@ -995,7 +996,6 @@ const submitRegistration = async (event: DisplayEvent, formResponse: Record<stri
     }
     
     // 清除相关的 Vue Query 缓存
-    const { getQueryClient } = await import('../lib/vueQuery')
     const queryClient = getQueryClient()
     
     // 清除报名人数缓存
