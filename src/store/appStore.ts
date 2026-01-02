@@ -251,6 +251,26 @@ const displayName = computed(() => {
 
 const isDemoEvent = (event: DisplayEvent) => Boolean(event.is_demo)
 
+const POST_LOGIN_RELOAD_KEY = 'post_login_reload'
+
+const shouldForceReloadAfterLogin = () => {
+  try {
+    if (window.sessionStorage.getItem(POST_LOGIN_RELOAD_KEY)) return false
+    window.sessionStorage.setItem(POST_LOGIN_RELOAD_KEY, Date.now().toString())
+    return true
+  } catch {
+    return false
+  }
+}
+
+const clearPostLoginReloadFlag = () => {
+  try {
+    window.sessionStorage.removeItem(POST_LOGIN_RELOAD_KEY)
+  } catch {
+    // Ignore storage errors (private mode, blocked storage, etc.)
+  }
+}
+
 let bannerTimeout: number | undefined
 const setBanner = (type: 'info' | 'error', text: string) => {
   bannerInfo.value = ''
@@ -682,6 +702,8 @@ const handleSignOut = async () => {
   
   // 清除状态缓存
   stateCache.clear()
+
+  clearPostLoginReloadFlag()
   
   user.value = null
   myRegistrationByEventId.value = {}
@@ -1158,6 +1180,7 @@ const init = async () => {
 
   const { data: listener } = supabase.auth.onAuthStateChange(async (event, session) => {
     if (!session) {
+      clearPostLoginReloadFlag()
       user.value = null
       notifications.value = []
       notificationsLoaded.value = false
@@ -1183,6 +1206,12 @@ const init = async () => {
     
     // 登录成功后刷新内容
     if (event === 'SIGNED_IN') {
+      if (shouldForceReloadAfterLogin()) {
+        console.log('Forcing one-time reload after login')
+        setTimeout(() => window.location.reload(), 50)
+        return
+      }
+
       await refreshContentAfterLogin()
     }
   })
