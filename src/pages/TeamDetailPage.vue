@@ -10,8 +10,6 @@ import {
 } from '../store/enhancedErrorHandling'
 import { generateAvatarUrl } from '../utils/imageUrlGenerator'
 
-import { useEvent } from '../composables/useEvents'
-import { useCurrentUserData } from '../composables/useUsers'
 import { useTeams, useTeamMembers } from '../composables/useTeams'
 
 const store = useAppStore()
@@ -21,10 +19,8 @@ const router = useRouter()
 const eventId = computed(() => String(route.params.id ?? ''))
 const teamId = computed(() => String(route.params.teamId ?? ''))
 
-const { data: event } = useEvent(eventId.value)
-const { profile } = useCurrentUserData()
 const { teams } = useTeams(eventId.value)
-const { data: teamMembers } = useTeamMembers(teamId.value)
+const teamMembersQuery = useTeamMembers(teamId.value)
 const loading = ref(false)
 const error = ref('')
 
@@ -90,7 +86,7 @@ const ROLE_MAP: Record<string, string> = {
 
 const members = computed(() => {
   // 使用 Vue Query 的队伍成员数据
-  const list = teamMembers.value || []
+  const list = teamMembersQuery.data.value || []
   if (!list.length) return []
   return list.map((member) => {
     let name = member.profile?.username
@@ -100,7 +96,7 @@ const members = computed(() => {
     if (!name) {
       name = `队员${member.user_id.slice(0, 4)}`
     }
-    const avatar = generateAvatarUrl(member.profile?.avatar_url)
+    const avatar = generateAvatarUrl(member.profile?.avatar_url || null)
     const roles = sortRoleLabels(member.profile?.roles ?? []).map((role) => ROLE_MAP[role] || role)
     return {
       id: member.user_id,
@@ -509,14 +505,14 @@ watch(
         </header>
         
         <!-- 加载状态 -->
-        <div v-if="teamMembers.isLoading" class="loading">
+        <div v-if="teamMembersQuery.isLoading.value" class="loading">
           <p class="muted">加载队伍成员中...</p>
         </div>
         
         <!-- 错误状态 -->
-        <div v-else-if="teamMembers.error" class="error">
-          <p class="alert error">{{ teamMembers.error?.message || '加载队伍成员失败' }}</p>
-          <button class="btn btn--ghost" @click="teamMembers.refetch()">重试</button>
+        <div v-else-if="teamMembersQuery.error.value" class="error">
+          <p class="alert error">{{ teamMembersQuery.error.value?.message || '加载队伍成员失败' }}</p>
+          <button class="btn btn--ghost" @click="teamMembersQuery.refetch()">重试</button>
         </div>
         
         <!-- 成功状态 -->

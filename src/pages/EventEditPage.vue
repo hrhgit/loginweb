@@ -75,24 +75,6 @@ const event = computed(() => {
   
   return null
 })
-
-// 加载状态：只有在没有任何数据时才显示加载
-const eventLoading = computed(() => {
-  // 如果有路由数据，不显示加载状态
-  if (routeEvent.value) return false
-  
-  // 否则使用查询的加载状态
-  return eventQuery.isLoading.value
-})
-
-// 错误状态：只有在没有路由数据且查询出错时才显示
-const eventError = computed(() => {
-  // 如果有路由数据，不显示错误
-  if (routeEvent.value) return null
-  
-  // 否则使用查询的错误状态
-  return eventQuery.error.value
-})
 const loading = ref(false)
 const loadError = ref('')
 const saveBusy = ref(false)
@@ -125,7 +107,7 @@ const allowNavigation = ref(false)
 const isDemo = computed(() => (event.value ? store.isDemoEvent(event.value) : false))
 const canEdit = computed(() => {
   if (!event.value || !store.user || isDemo.value) return false
-  return store.isAdmin && event.value.created_by === store.user.id
+  return store.isAdmin && event.value.created_by === store.user?.id
 })
 const isPreview = computed(() => {
   const view = Array.isArray(route.query.view) ? route.query.view[0] : route.query.view
@@ -746,7 +728,7 @@ watch(event, (newEvent) => {
     if (store.isDemoEvent(newEvent)) {
       loadError.value = '演示活动不支持编辑'
       return
-    } else if (!store.isAdmin || newEvent.created_by !== store.user.id) {
+    } else if (!store.isAdmin || newEvent.created_by !== store.user?.id) {
       loadError.value = '没有权限编辑此活动'
       return
     }
@@ -819,7 +801,7 @@ const handleSave = async (nextStatus: EventStatus) => {
     return false
   } else {
     // Update local event object after successful save
-    event.value = { ...event.value, ...updates }
+    Object.assign(event.value, updates)
     syncSavedSnapshot()
     store.setBanner('info', nextStatus === 'published' ? '活动进行中！' : '草稿已保存！')
   }
@@ -860,7 +842,9 @@ const handleRevertToDraft = async () => {
   if (error) {
     store.setBanner('error', error)
   } else {
-    event.value = { ...event.value, status: 'draft' }
+    if (event.value) {
+      Object.assign(event.value, { status: 'draft' })
+    }
     syncSavedSnapshot()
     store.setBanner('info', '已退回草稿（仅你可见，可在“我发起的活动”中继续编辑）')
   }
@@ -903,14 +887,11 @@ onMounted(async () => {
   window.addEventListener('beforeunload', handleBeforeUnload)
   document.addEventListener('click', closeLinkMenu)
   
-  // 初始化表单和加载数据
+  // 初始化表单
   applyDetailsToForm(createDefaultEventDetails())
-  await loadEvent(eventId.value)
 })
 
-watch(eventId, async (id) => {
-  await loadEvent(id)
-})
+// Remove the watch for eventId since Vue Query handles this automatically
 
 const handleBeforeUnload = (event: BeforeUnloadEvent) => {
   if (!isDirty.value) return

@@ -19,13 +19,13 @@ const router = useRouter()
 const eventId = computed(() => String(route.params.id ?? ''))
 const teamId = computed(() => String(route.params.teamId ?? ''))
 const { data: event } = useEvent(eventId.value)
-const { contacts } = useCurrentUserData()
-const { data: teams } = useTeams(eventId.value)
+const { contacts: contactsQuery } = useCurrentUserData()
+const { teams } = useTeams(eventId.value)
 const createTeamMutation = useCreateTeam()
 const updateTeamMutation = useUpdateTeam()
 const isEdit = computed(() => Boolean(route.params.teamId))
 const editingTeam = computed(() =>
-  teams.value?.find((team) => team.id === teamId.value) ?? null
+  teams.value?.find((team: any) => team.id === teamId.value) ?? null
 )
 
 const busy = ref(false)
@@ -64,14 +64,14 @@ const syncSavedSnapshot = () => {
 
 const syncLeaderQq = () => {
   if (leaderQq.value.trim()) return
-  const qq = store.contacts?.qq?.trim()
+  const qq = contactsQuery.data.value?.qq?.trim()
   if (qq) {
     leaderQq.value = sanitizeDigits(qq)
   }
 }
 
 watch(
-  () => store.contacts?.qq,
+  () => contactsQuery.data.value?.qq,
   () => {
     syncLeaderQq()
   },

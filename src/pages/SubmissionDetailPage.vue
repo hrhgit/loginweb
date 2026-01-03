@@ -16,7 +16,7 @@
         <button 
           v-if="!error.includes('权限') && !error.includes('不存在')"
           class="btn btn--primary" 
-          @click="refetchSubmissions"
+          @click="() => refetchSubmissions()"
         >
           重试
         </button>
@@ -33,14 +33,16 @@
         <button 
           class="btn btn--ghost btn--icon-text" 
           @click="handleBack"
-          aria-label="返回作品列表"
+          :aria-label="backButtonText"
         >
           <ArrowLeft :size="18" />
-          <span>返回列表</span>
+          <span>{{ backButtonText }}</span>
         </button>
         
         <div class="breadcrumb">
           <span class="breadcrumb-item">{{ eventTitle }}</span>
+          <ChevronRight :size="14" class="breadcrumb-separator" />
+          <span class="breadcrumb-item">{{ breadcrumbText }}</span>
           <ChevronRight :size="14" class="breadcrumb-separator" />
           <span class="breadcrumb-item active">{{ submission.project_name }}</span>
         </div>
@@ -217,7 +219,6 @@ import {
 import { supabase } from '../lib/supabase'
 import { useAppStore } from '../store/appStore'
 import { truncateTeamIntro } from '../utils/textUtils'
-import type { SubmissionWithTeam } from '../store/models'
 import { generateCoverUrl } from '../utils/imageUrlGenerator'
 
 import { useSubmissionData } from '../composables/useSubmissions'
@@ -267,6 +268,17 @@ const passwordCopied = ref(false)
 // Enhanced computed properties
 const eventTitle = computed(() => {
   return event.value?.title?.trim() || '活动详情'
+})
+
+// 根据来源决定返回按钮的文本和面包屑
+const backButtonText = computed(() => {
+  const from = route.query.from as string
+  return from === 'judge-workspace' ? '返回评委工作台' : '返回列表'
+})
+
+const breadcrumbText = computed(() => {
+  const from = route.query.from as string
+  return from === 'judge-workspace' ? '评委工作台' : '作品展示'
 })
 
 // Team Data Computation
@@ -450,7 +462,21 @@ const getFileExtension = (path: string) => {
 }
 
 const handleBack = () => {
-  router.push(`/events/${eventId.value}/showcase`)
+  // 检查来源参数，决定返回到哪里
+  const from = route.query.from as string
+  
+  if (from === 'judge-workspace') {
+    // 从评委工作台来的，返回评委工作台
+    router.push({
+      name: 'judge-workspace',
+      params: {
+        eventId: eventId.value
+      }
+    })
+  } else {
+    // 默认返回作品展示页面
+    router.push(`/events/${eventId.value}/showcase`)
+  }
 }
 
 // Image handling

@@ -216,6 +216,16 @@ export function useSubmissions(eventId: string, initialPage = 1, initialLimit = 
     queryKey: computed(() => queryKeys.submissions.list(eventId, { page: page.value, limit: limit.value })),
     queryFn: () => fetchSubmissions(eventId, page.value, limit.value),
     staleTime: 30 * 1000,
+    gcTime: 1000 * 60 * 15,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: true,
+    retry: (failureCount, error) => {
+      const isNetworkError = error?.message?.includes('网络') || 
+                            error?.message?.includes('fetch') ||
+                            error?.code === 'NETWORK_ERROR'
+      return isNetworkError && failureCount < 3
+    },
     enabled: computed(() => Boolean(eventId)),
     placeholderData: (previousData) => previousData, // 保持旧数据平滑过渡
   })
@@ -439,17 +449,22 @@ export function useDeleteSubmission() {
 }
 
 // 便捷的组合函数
-export function useSubmissionData(eventId: string) {
-  const submissions = useSubmissions(eventId)
+export function useSubmissionData(eventId: string, initialPage = 1, initialLimit = 18) {
+  const submissions = useSubmissions(eventId, initialPage, initialLimit)
 
   return {
     submissions,
     isLoading: submissions.isLoading,
     error: submissions.error,
     refetch: submissions.refetch,
+    // 分页相关
+    page: submissions.page,
+    limit: submissions.limit,
+    total: submissions.total,
+    totalPages: submissions.totalPages,
     // 按队伍分组的作品
     submissionsByTeam: computed(() => {
-      const data = submissions.data.value || []
+      const data = submissions.submissions.value || []
       const grouped: Record<string, SubmissionWithTeam[]> = {}
       
       data.forEach(submission => {

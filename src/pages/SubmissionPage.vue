@@ -8,7 +8,7 @@ import { useAppStore } from '../store/appStore'
 import { generateCoverUrl, generateSubmissionUrl } from '../utils/imageUrlGenerator'
 
 import { useSubmissions } from '../composables/useSubmissions'
-import { useEvent } from '../composables/useEvents'
+import type { SubmissionWithTeam } from '../store/models'
 
 const route = useRoute()
 const router = useRouter()
@@ -16,8 +16,7 @@ const store = useAppStore()
 
 const eventId = computed(() => String(route.params.id ?? route.params.eventId ?? ''))
 const submissionId = computed(() => String(route.params.submissionId ?? ''))
-const { data: submissions } = useSubmissions(eventId.value)
-const { data: event } = useEvent(eventId.value)
+const submissionsQuery = useSubmissions(eventId.value)
 const isEditMode = computed(() => Boolean(submissionId.value))
 const eventPath = computed(() => `/events/${eventId.value}`)
 const submitting = ref(false)
@@ -226,7 +225,7 @@ const loadExistingSubmission = async () => {
   if (!isEditMode.value || !submissionId.value) return
   
   // Submissions are now loaded via Vue Query composables
-  const cachedSubmission = submissions.value?.find(s => s.id === submissionId.value)
+  const cachedSubmission = submissionsQuery.submissions.value?.find((s: SubmissionWithTeam) => s.id === submissionId.value)
   
   if (cachedSubmission) {
     // 有缓存数据时直接使用，不显示加载状态
@@ -249,8 +248,8 @@ const loadExistingSubmission = async () => {
   
   try {
     // Submissions are now loaded via Vue Query composables
-    const submissionsList = submissions.value || []
-    const submission = submissionsList.find(s => s.id === submissionId.value)
+    const submissionsList = submissionsQuery.submissions.value || []
+    const submission = submissionsList.find((s: SubmissionWithTeam) => s.id === submissionId.value)
     
     if (!submission) {
       loadSubmissionError.value = '未找到要编辑的作品'
@@ -651,31 +650,35 @@ const submit = async () => {
       (submissionPayload as any).id = originalSubmission.value.id
     }
 
-    const { error: dbError } = await withTimeout(
-      supabase
-        .from('submissions')
-        .upsert(submissionPayload, { onConflict: isEditMode.value ? 'id' : 'event_id,team_id' }),
+    const upsertResult = await withTimeout(
+      Promise.resolve(
+        supabase
+          .from('submissions')
+          .upsert(submissionPayload, { onConflict: isEditMode.value ? 'id' : 'event_id,team_id' })
+      ),
       SUBMIT_REQUEST_TIMEOUT_MS,
       '提交保存'
     )
 
-    if (dbError) {
-      throw new Error(dbError.message)
+    if (upsertResult.error) {
+      throw new Error(upsertResult.error.message)
     }
 
     // 验证提交是否真正成功 - 从数据库重新查询确认
-    const { data: verifyData, error: verifyError } = await withTimeout(
-      supabase
-        .from('submissions')
-        .select('id, project_name, created_at')
-        .eq('event_id', eventId.value)
-        .eq('team_id', teamId.value)
-        .single(),
+    const verificationResult = await withTimeout(
+      Promise.resolve(
+        supabase
+          .from('submissions')
+          .select('id, project_name, created_at')
+          .eq('event_id', eventId.value)
+          .eq('team_id', teamId.value)
+          .single()
+      ),
       SUBMIT_REQUEST_TIMEOUT_MS,
       '提交验证'
     )
 
-    if (verifyError || !verifyData) {
+    if (verificationResult.error || !verificationResult.data) {
       throw new Error('提交验证失败，请重试')
     }
 

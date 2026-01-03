@@ -4,11 +4,9 @@ import { RouterLink, useRouter } from 'vue-router'
 import { useMyEventsWithRegistrationCount } from '../composables/useEventsWithRegistrationCount'
 import { Settings, Edit, Undo2, UserPlus, Plus } from 'lucide-vue-next'
 import { useAppStore } from '../store/appStore'
-import { supabase } from '../lib/supabase'
 import EventCard from '../components/events/EventCard.vue'
 import UserSearchModal from '../components/modals/UserSearchModal.vue'
 import {
-  teamSizeLabel,
   formatDateRange,
   locationLabel,
 } from '../utils/eventFormat'
@@ -63,11 +61,6 @@ watch(() => store.user, (newUser, oldUser) => {
   if (isInitializing.value) {
     isInitializing.value = false
   }
-  
-  // 用户状态变化后检查查询状态
-  setTimeout(() => {
-    logQueryStatus()
-  }, 100)
 }, { immediate: true })
 
 // 监听查询数据变化

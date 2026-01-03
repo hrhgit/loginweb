@@ -81,7 +81,52 @@
             @click="handleSubmissionClick(submission)"
             @double-click="handleSubmissionDoubleClick(submission)"
             @title-click="handleSubmissionTitleClick(submission)"
-          />
+          >
+            <template #actions>
+              <span class="submission-hint">点击查看详情</span>
+            </template>
+          </SubmissionCard>
+        </div>
+      </div>
+
+      <!-- 分页控件 -->
+      <div v-if="totalPages > 1" class="pagination">
+        <div class="pagination-info">
+          <span class="pagination-text">
+            第 {{ currentPage }} 页，共 {{ totalPages }} 页 ({{ totalSubmissions }} 个作品)
+          </span>
+        </div>
+        <div class="pagination-controls">
+          <button 
+            class="btn btn--ghost btn--compact"
+            :disabled="currentPage <= 1"
+            @click="goToPreviousPage"
+          >
+            上一页
+          </button>
+          
+          <!-- 页码按钮 -->
+          <div class="page-numbers">
+            <template v-for="page in getPageNumbers()" :key="page">
+              <button
+                v-if="page !== '...'"
+                class="page-btn"
+                :class="{ 'page-btn--active': page === currentPage }"
+                @click="goToPage(page as number)"
+              >
+                {{ page }}
+              </button>
+              <span v-else class="page-ellipsis">...</span>
+            </template>
+          </div>
+          
+          <button 
+            class="btn btn--ghost btn--compact"
+            :disabled="currentPage >= totalPages"
+            @click="goToNextPage"
+          >
+            下一页
+          </button>
         </div>
       </div>
 
@@ -146,6 +191,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { Download, Loader2, AlertCircle, FileText, CheckCircle, X } from 'lucide-vue-next'
+import { useRouter } from 'vue-router'
 import { useAppStore } from '../../store/appStore'
 import { useEvent } from '../../composables/useEvents'
 import { useSubmissionData } from '../../composables/useSubmissions'
@@ -166,10 +212,11 @@ interface Props {
 const props = defineProps<Props>()
 
 const store = useAppStore()
+const router = useRouter()
 
 // Vue Query hooks
 const eventQuery = useEvent(props.eventId)
-const submissionsQuery = useSubmissionData(props.eventId)
+const submissionsQuery = useSubmissionData(props.eventId, 1, 12) // 每页12个作品
 
 // State
 const downloadProcessing = ref(false)
@@ -180,9 +227,14 @@ const selectedSubmissions = ref<string[]>([])
 
 // Computed properties
 const event = computed(() => eventQuery.data.value)
-const displayedSubmissions = computed(() => submissionsQuery.submissions.data.value || [])
+const displayedSubmissions = computed(() => submissionsQuery.submissions.submissions.value || [])
 const loading = computed(() => submissionsQuery.submissions.isLoading.value)
 const error = computed(() => submissionsQuery.submissions.error.value?.message || '')
+
+// 分页相关
+const currentPage = computed(() => submissionsQuery.page.value)
+const totalPages = computed(() => submissionsQuery.totalPages.value)
+const totalSubmissions = computed(() => submissionsQuery.total.value)
 
 const isAllSelected = computed(() => {
   return displayedSubmissions.value.length > 0 && 
@@ -210,6 +262,69 @@ const loadSubmissions = async () => {
   }
 }
 
+// 分页方法
+const goToPage = (page: number) => {
+  if (page >= 1 && page <= totalPages.value) {
+    submissionsQuery.page.value = page
+    // 清空选择
+    selectedSubmissions.value = []
+  }
+}
+
+const goToPreviousPage = () => {
+  if (currentPage.value > 1) {
+    goToPage(currentPage.value - 1)
+  }
+}
+
+const goToNextPage = () => {
+  if (currentPage.value < totalPages.value) {
+    goToPage(currentPage.value + 1)
+  }
+}
+
+// 生成页码数组（智能省略）
+const getPageNumbers = (): (number | string)[] => {
+  const current = currentPage.value
+  const total = totalPages.value
+  const pages: (number | string)[] = []
+  
+  if (total <= 7) {
+    // 总页数少于等于7页，显示所有页码
+    for (let i = 1; i <= total; i++) {
+      pages.push(i)
+    }
+  } else {
+    // 总页数大于7页，智能省略
+    pages.push(1)
+    
+    if (current <= 4) {
+      // 当前页在前面
+      for (let i = 2; i <= 5; i++) {
+        pages.push(i)
+      }
+      pages.push('...')
+      pages.push(total)
+    } else if (current >= total - 3) {
+      // 当前页在后面
+      pages.push('...')
+      for (let i = total - 4; i <= total; i++) {
+        pages.push(i)
+      }
+    } else {
+      // 当前页在中间
+      pages.push('...')
+      for (let i = current - 1; i <= current + 1; i++) {
+        pages.push(i)
+      }
+      pages.push('...')
+      pages.push(total)
+    }
+  }
+  
+  return pages
+}
+
 const toggleSelectAll = () => {
   if (isAllSelected.value) {
     selectedSubmissions.value = []
@@ -227,17 +342,27 @@ const toggleSubmissionSelection = (submissionId: string) => {
 }
 
 const handleSubmissionClick = (submission: SubmissionWithTeam) => {
-  // Reserved for future functionality
+  // 跳转到作品详情页面，添加来源标识
+  router.push({
+    name: 'submission-detail',
+    params: {
+      eventId: props.eventId,
+      submissionId: submission.id
+    },
+    query: {
+      from: 'judge-workspace' // 标识来源为评委工作台
+    }
+  })
 }
 
 const handleSubmissionDoubleClick = (submission: SubmissionWithTeam) => {
-  // Navigate to submission detail view on double-click
-  // This would be implemented when submission detail view is available
+  // 双击也跳转到作品详情页面
+  handleSubmissionClick(submission)
 }
 
 const handleSubmissionTitleClick = (submission: SubmissionWithTeam) => {
-  // Navigate to submission detail view on title click
-  // This would be implemented when submission detail view is available
+  // 点击标题跳转到作品详情页面
+  handleSubmissionClick(submission)
 }
 
 const downloadSelectedSubmissions = async () => {
@@ -516,6 +641,18 @@ onMounted(() => {
   opacity: 1;
 }
 
+/* 作品提示样式 */
+.submission-hint {
+  font-size: 0.75rem;
+  color: var(--muted);
+  opacity: 0;
+  transition: opacity 0.18s ease;
+}
+
+.submission-item:hover .submission-hint {
+  opacity: 1;
+}
+
 /* 下载进度 */
 .download-progress {
   padding: 1.5rem;
@@ -637,6 +774,84 @@ onMounted(() => {
   color: var(--ink);
 }
 
+/* 分页控件 */
+.pagination {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1.5rem;
+  background: var(--surface);
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  margin-top: 1rem;
+}
+
+.pagination-info {
+  display: flex;
+  justify-content: center;
+}
+
+.pagination-text {
+  font-size: 0.875rem;
+  color: var(--muted);
+}
+
+.pagination-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.page-numbers {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin: 0 1rem;
+}
+
+.page-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 0.875rem;
+  font-weight: 500;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.page-btn:hover {
+  background: var(--surface-muted);
+  border-color: var(--accent);
+}
+
+.page-btn--active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+
+.page-btn--active:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.page-ellipsis {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
 /* 响应式设计 */
 @media (max-width: 768px) {
   .judge-workspace {
@@ -670,6 +885,26 @@ onMounted(() => {
   .toolbar-left,
   .toolbar-right {
     width: 100%;
+  }
+
+  .pagination-controls {
+    flex-wrap: wrap;
+    gap: 0.25rem;
+  }
+
+  .page-numbers {
+    margin: 0 0.5rem;
+  }
+
+  .page-btn {
+    width: 32px;
+    height: 32px;
+    font-size: 0.75rem;
+  }
+
+  .page-ellipsis {
+    width: 32px;
+    height: 32px;
   }
 }
 

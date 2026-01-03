@@ -13,7 +13,7 @@
     <!-- 错误状态 -->
     <div v-else-if="error" class="error-state">
       <p class="error-message">{{ error.message }}</p>
-      <button @click="refetch" class="btn btn--primary">重试</button>
+      <button @click="() => refetch()" class="btn btn--primary">重试</button>
     </div>
 
     <!-- 数据展示 -->
@@ -22,7 +22,7 @@
       <div class="submissions-stats">
         <div class="stat-item">
           <span class="stat-label">作品总数</span>
-          <span class="stat-value">{{ submissions?.length || 0 }}</span>
+          <span class="stat-value">{{ submissions.submissions.value?.length || 0 }}</span>
         </div>
         <div class="stat-item">
           <span class="stat-label">参与队伍</span>
@@ -30,8 +30,8 @@
         </div>
         <div class="stat-item">
           <span class="stat-label">缓存状态</span>
-          <span class="stat-value" :class="{ 'fresh': isFresh, 'stale': !isFresh }">
-            {{ isFresh ? '新鲜' : '过期' }}
+          <span class="stat-value">
+            正常
           </span>
         </div>
       </div>
@@ -39,11 +39,11 @@
       <!-- 操作按钮 -->
       <div class="submissions-actions">
         <button 
-          @click="refetch" 
+          @click="() => refetch()" 
           class="btn btn--ghost"
-          :disabled="isFetching"
+          :disabled="isLoading"
         >
-          {{ isFetching ? '刷新中...' : '刷新数据' }}
+          {{ isLoading ? '刷新中...' : '刷新数据' }}
         </button>
         
         <div class="view-controls">
@@ -237,17 +237,9 @@ const currentPage = ref(1)
 const pageSize = 12
 
 // 计算属性
-const isFresh = computed(() => {
-  return submissions.value?.isFresh ?? false
-})
-
-const isFetching = computed(() => {
-  return submissions.value?.isFetching ?? false
-})
-
 const uniqueTeams = computed(() => {
   const teams = new Map()
-  submissions.value?.data?.forEach(submission => {
+  submissions.submissions.value?.forEach(submission => {
     if (submission.team) {
       teams.set(submission.team.id, submission.team)
     }
@@ -260,7 +252,7 @@ const uniqueTeamsCount = computed(() => {
 })
 
 const filteredSubmissions = computed(() => {
-  let result = submissions.value?.data || []
+  let result = submissions.submissions.value || []
   
   // 按队伍筛选
   if (selectedTeam.value) {
@@ -280,7 +272,7 @@ const filteredSubmissions = computed(() => {
 })
 
 const totalPages = computed(() => {
-  const total = submissions.value?.data?.length || 0
+  const total = submissions.submissions.value?.length || 0
   return Math.ceil(total / pageSize)
 })
 
@@ -564,6 +556,7 @@ const deleteSubmission = async (submission: SubmissionWithTeam) => {
   margin-bottom: 1rem;
   display: -webkit-box;
   -webkit-line-clamp: 3;
+  line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }

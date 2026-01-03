@@ -18,7 +18,7 @@
       <select v-model="selectedEventId" class="field__input">
         <option value="">请选择活动</option>
         <option 
-          v-for="event in store.publicEvents" 
+          v-for="event in publicEvents" 
           :key="event.id"
           :value="event.id"
         >
@@ -203,11 +203,15 @@ const {
 import { ref, computed, onMounted } from 'vue'
 import { useQueryClient } from '@tanstack/vue-query'
 import { useAppStore } from '../store/appStore'
+import { usePublicEvents } from '../composables/useEvents'
 import TeamsWithVueQuery from '../components/teams/TeamsWithVueQuery.vue'
 import SubmissionsWithVueQuery from '../components/submissions/SubmissionsWithVueQuery.vue'
 
 const store = useAppStore()
 const queryClient = useQueryClient()
+
+// Use Vue Query composable for events
+const { data: publicEvents } = usePublicEvents()
 
 // 组件状态
 const selectedEventId = ref('')
@@ -254,8 +258,8 @@ onMounted(async () => {
   // No need to manually load events
   
   // 如果有活动，默认选择第一个
-  if (store.publicEvents.length > 0) {
-    selectedEventId.value = store.publicEvents[0].id
+  if (publicEvents.value && publicEvents.value.length > 0) {
+    selectedEventId.value = publicEvents.value[0].id
   }
 })
 </script>

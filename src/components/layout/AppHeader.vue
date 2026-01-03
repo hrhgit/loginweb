@@ -1,17 +1,31 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, Home, LogOut, Activity } from 'lucide-vue-next'
+import { ArrowLeft, Home, LogOut } from 'lucide-vue-next'
 import { useAppStore } from '../../store/appStore'
+import { useCurrentUserData } from '../../composables/useUsers'
 import { generateAvatarUrl } from '../../utils/imageUrlGenerator'
 
 const store = useAppStore()
 const route = useRoute()
 const router = useRouter()
 
+// 使用 Vue Query 获取用户数据
+const { profile } = useCurrentUserData()
+
 // Generate avatar URL with cache busting
 const avatarUrl = computed(() => {
-  return generateAvatarUrl(store.profile?.avatar_url)
+  // 优先使用乐观头像，然后是 profile 数据中的头像
+  const avatarPath = store.optimisticAvatarUrl || profile.data.value?.avatar_url || null
+  return generateAvatarUrl(avatarPath)
+})
+
+// 获取显示名称 - 优先使用 profile 中的 username，否则使用 user_metadata 中的 full_name
+const displayName = computed(() => {
+  const profileUsername = profile.data.value?.username
+  if (profileUsername) return profileUsername
+  
+  return store.displayName
 })
 
 const handleBack = () => {
@@ -58,10 +72,10 @@ const handleBack = () => {
                 class="user-pill__avatar"
               />
               <div v-else class="user-pill__avatar-placeholder">
-                {{ store.displayName.charAt(0).toUpperCase() }}
+                {{ displayName.charAt(0).toUpperCase() }}
               </div>
             </div>
-            <p class="user-pill__name">{{ store.displayName }}</p>
+            <p class="user-pill__name">{{ displayName }}</p>
             <span v-if="store.hasAnyNotification" class="user-pill__dot"></span>
           </RouterLink>
           <span v-if="store.isAdmin" class="pill-badge">admin</span>

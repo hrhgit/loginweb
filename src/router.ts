@@ -2,7 +2,6 @@ import { createRouter, createWebHistory, type RouteLocationNormalized } from 'vu
 import { useAppStore } from './store/appStore'
 import { 
   createRouteComponentLoader, 
-  wrapDynamicImport,
   type ModuleLoadOptions 
 } from './utils/moduleLoadingUtils'
 import { RouterEnhancer, type RouterEnhancementOptions } from './utils/enhancedRouter'
@@ -58,15 +57,6 @@ const router = createRouter({
       component: createRouteComponentLoader(
         () => import('./pages/MyEventsPage.vue'),
         '/pages/MyEventsPage.vue',
-        defaultModuleLoadOptions
-      )
-    },
-    { 
-      path: '/debug/events', 
-      name: 'debug-events', 
-      component: createRouteComponentLoader(
-        () => import('./pages/DebugEventsPage.vue'),
-        '/pages/DebugEventsPage.vue',
         defaultModuleLoadOptions
       )
     },

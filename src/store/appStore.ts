@@ -53,6 +53,7 @@ type NotificationItem = {
 }
 
 const user = ref<User | null>(stateCache.get('user') || null)
+const optimisticAvatarUrl = ref<string>('')
 const bannerInfo = ref('')
 const bannerError = ref('')
 
@@ -305,6 +306,10 @@ const clearBanners = () => {
   bannerError.value = ''
 }
 
+const setOptimisticAvatar = (avatarUrl: string) => {
+  optimisticAvatarUrl.value = avatarUrl
+}
+
 const notificationStorageKey = () => {
   if (!user.value) return ''
   return `notifications:${user.value.id}`
@@ -534,7 +539,7 @@ const loadMyTeamsForEvent = async (eventId: string) => {
         const team = normalizeTeamRelation(
           (row as { teams?: { id?: string; event_id?: string | null; name?: string | null; created_at?: string | null } | null }).teams
         )
-        if (!team?.id || team.event_id !== eventId || leaderIds.has(team.id)) return null
+        if (!team || !team.id || team.event_id !== eventId || leaderIds.has(team.id)) return null
         return {
           teamId: team.id,
           teamName: team.name ?? 'Untitled team',
@@ -545,11 +550,11 @@ const loadMyTeamsForEvent = async (eventId: string) => {
           createdAt: (row as { joined_at?: string }).joined_at || team.created_at || '',
         }
       })
-      .filter((item): item is MyTeamEntry => Boolean(item))
+      .filter((item): item is { teamId: string; teamName: string; role: 'member'; memberCount: number; status: 'active'; eventId: string; createdAt: string } => Boolean(item))
 
     const teamIds = [...leaderList, ...memberList].map((team) => team.teamId)
     const memberCounts = await fetchTeamMemberCounts(teamIds)
-    const attachMemberCount = (team: MyTeamEntry): MyTeamEntry => ({
+    const attachMemberCount = (team: { teamId: string; teamName: string; role: 'leader' | 'member'; memberCount: number; status: 'active'; eventId: string; createdAt: string }): MyTeamEntry => ({
       ...team,
       memberCount: Math.max(1, memberCounts[team.teamId] ?? 0),
     })
@@ -2101,6 +2106,7 @@ const dispose = () => {
 
 const store = proxyRefs({
   user,
+  optimisticAvatarUrl,
   notifications,
   unreadNotifications,
   pendingRequestsCount,
@@ -2136,6 +2142,7 @@ const store = proxyRefs({
   isDemoEvent,
   setBanner,
   clearBanners,
+  setOptimisticAvatar,
   refreshUser,
   loadNotifications,
   setVueQueryNotificationMutations,
