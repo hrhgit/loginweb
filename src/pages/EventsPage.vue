@@ -6,9 +6,9 @@ import { useAppStore } from '../store/appStore'
 import EventCard from '../components/events/EventCard.vue'
 import NetworkStatusIndicator from '../components/feedback/NetworkStatusIndicator.vue'
 import LoadingStateIndicator from '../components/feedback/LoadingStateIndicator.vue'
-import { teamSizeLabel, formatDateRange, locationLabel } from '../utils/eventFormat'
+import { formatDateRange, locationLabel } from '../utils/eventFormat'
 import { getEventSummaryText } from '../utils/eventDetails'
-import { computed, ref } from 'vue'
+import { computed, ref, watchEffect } from 'vue'
 
 const store = useAppStore()
 const router = useRouter()
@@ -16,6 +16,17 @@ const eventSummary = (description: string | null) => getEventSummaryText(descrip
 
 // Use Vue Query for events data with registration counts
 const publicEvents = usePublicEventsWithRegistrationCount()
+
+// 添加调试信息
+watchEffect(() => {
+  console.log('[EventsPage] Vue Query State:', {
+    isLoading: publicEvents.isLoading.value,
+    isSuccess: publicEvents.isSuccess.value,
+    isError: publicEvents.isError.value,
+    dataLength: publicEvents.data.value?.length || 0,
+    error: publicEvents.error.value?.message
+  })
+})
 
 // Network-aware features
 const isLoading = computed(() => 
@@ -40,6 +51,14 @@ const shouldShowLoading = computed(() => {
   
   // 只有在真正加载中且没有数据时才显示加载状态
   return publicEvents.isLoading.value
+})
+
+// 检查是否已经获取过数据（用于骨架屏显示逻辑）
+const hasDataBeenFetched = computed(() => {
+  // 如果有数据或者查询已经完成过（成功或失败），说明已经获取过
+  return (publicEvents.data.value && publicEvents.data.value.length > 0) || 
+         publicEvents.isSuccess.value || 
+         publicEvents.isError.value
 })
 
 const shouldIgnoreCardNav = (event: MouseEvent) => {
@@ -130,7 +149,7 @@ const handleNetworkRetry = () => {
     />
 
     <!-- 骨架屏加载状态 - 作为备用 -->
-    <section v-else-if="isLoading && !store.eventsLoaded" class="skeleton-grid" aria-label="loading">
+    <section v-else-if="isLoading && !hasDataBeenFetched" class="skeleton-grid" aria-label="loading">
       <div v-for="n in 6" :key="n" class="skeleton-card"></div>
     </section>
 

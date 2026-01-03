@@ -45,19 +45,25 @@ const fetchEventsWithRegistrationCount = async (): Promise<EventWithRegistration
  * 获取公开活动及其报名人数
  */
 const fetchPublicEventsWithRegistrationCount = async (): Promise<EventWithRegistrationCount[]> => {
-  console.log('[useEventsWithRegistrationCount] fetchPublicEventsWithRegistrationCount: Fetching public events')
+  console.log('[useEventsWithRegistrationCount] fetchPublicEventsWithRegistrationCount: Starting fetch')
 
-  const allEvents = await fetchEventsWithRegistrationCount()
-  
-  // 过滤出公开的活动（非草稿状态）
-  const publicEvents = allEvents.filter(event => event.status === 'published' || event.status === 'ended')
-  
-  console.log('[useEventsWithRegistrationCount] fetchPublicEventsWithRegistrationCount: Public events filtered', { 
-    totalCount: allEvents.length,
-    publicCount: publicEvents.length
-  })
+  try {
+    const allEvents = await fetchEventsWithRegistrationCount()
+    
+    // 过滤出公开的活动（非草稿状态）
+    const publicEvents = allEvents.filter(event => event.status === 'published' || event.status === 'ended')
+    
+    console.log('[useEventsWithRegistrationCount] fetchPublicEventsWithRegistrationCount: Success', { 
+      totalCount: allEvents.length,
+      publicCount: publicEvents.length,
+      publicEvents: publicEvents.map(e => ({ id: e.id, title: e.title, status: e.status }))
+    })
 
-  return publicEvents
+    return publicEvents
+  } catch (error) {
+    console.error('[useEventsWithRegistrationCount] fetchPublicEventsWithRegistrationCount: Error', error)
+    throw error
+  }
 }
 
 /**
@@ -165,16 +171,16 @@ export function usePublicEventsWithRegistrationCount() {
     queryKey: [...queryKeys.events.public, 'with-registration-count'],
     queryFn: fetchPublicEventsWithRegistrationCount,
     
-    // 缓存策略
-    staleTime: 1000 * 30,
-    gcTime: 1000 * 60 * 15,
+    // 缓存策略 - 遵循项目规范
+    staleTime: 1000 * 30,              // 30秒后数据过期
+    gcTime: 1000 * 60 * 15,            // 15分钟后清理缓存
     
-    // 重新获取策略
-    refetchOnMount: false,
-    refetchOnWindowFocus: false,
-    refetchOnReconnect: true,
+    // 重新获取策略 - 遵循项目规范
+    refetchOnMount: false,             // 挂载时不自动重新获取
+    refetchOnWindowFocus: false,       // 窗口焦点时不自动重新获取
+    refetchOnReconnect: true,          // 网络重连时直接重新获取
     
-    // 重试策略
+    // 重试策略 - 遵循项目规范
     retry: (failureCount, error: any) => {
       const isNetworkError = error?.message?.includes('网络') || 
                             error?.message?.includes('fetch') ||

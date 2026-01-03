@@ -13,10 +13,10 @@ let queryClient: QueryClient | null = null
 const queryClientInstance = new QueryClient({
   defaultOptions: {
     queries: {
-      // 缓存时间：数据在内存中保持的时间 (优化配置)
-      gcTime: 1000 * 60 * 10, // 10分钟（减少缓存时间）
-      // 数据新鲜度：多久后数据被认为是过期的 (优化配置)
-      staleTime: 1000 * 20, // 20秒（减少到20秒以降低缓存压力）
+      // 缓存时间：数据在内存中保持的时间 (遵循缓存规范)
+      gcTime: 1000 * 60 * 15, // 15分钟（符合规范）
+      // 数据新鲜度：多久后数据被认为是过期的 (遵循缓存规范)
+      staleTime: 1000 * 30, // 30秒（符合规范）
       // 重试配置
       retry: (failureCount, error: any) => {
         // 网络错误重试3次，其他错误不重试
@@ -29,10 +29,10 @@ const queryClientInstance = new QueryClient({
       },
       // 重试延迟（指数退避，最大10秒）
       retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 10000),
-      // 优化的重新获取策略
-      refetchOnWindowFocus: false, // 禁用窗口焦点重新获取以减少不必要的请求
-      refetchOnReconnect: true,    // 网络重连时重新获取数据
-      refetchOnMount: false,       // 挂载时不自动重新获取（除非缓存不存在）
+      // 重新获取策略 (遵循缓存规范)
+      refetchOnWindowFocus: false, // 窗口焦点时不自动重新获取
+      refetchOnReconnect: true,    // 网络重连时直接重新获取
+      refetchOnMount: false,       // 挂载时不自动重新获取
       // 网络模式优化
       networkMode: 'online',
     },
