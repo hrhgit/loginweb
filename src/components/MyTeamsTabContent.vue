@@ -217,7 +217,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import { useAppStore } from '../store/appStore'
 import type { MyTeamEntry, MyTeamRequest, MyTeamInvite } from '../store/models'
@@ -278,20 +278,28 @@ const isPermissionError = (error: string) => {
 
 // Data loading function
 const loadTeamData = async () => {
-  if (props.isDemo || !store.user) return
-  
+  if (props.isDemo || !store.user || !props.eventId) {
+    loading.value = false
+    loadError.value = null
+    return
+  }
+
   loading.value = true
   loadError.value = null
-  
+
   try {
-    // Simulate loading team data - in real implementation this would call store methods
-    await new Promise(resolve => setTimeout(resolve, 500))
-    
-    // In real implementation, this would trigger data loading:
-    // await store.loadMyTeamsForEvent(props.eventId)
-    // await store.loadMyTeamRequestsForEvent(props.eventId)  
-    // await store.loadMyTeamInvitesForEvent(props.eventId)
-    
+    const results = await Promise.all([
+      store.loadMyTeamsForEvent(props.eventId),
+      store.loadMyTeamRequestsForEvent(props.eventId),
+      store.loadMyTeamInvitesForEvent(props.eventId),
+    ])
+
+    const firstError = results.find((result) => result?.error)
+    if (firstError?.error) {
+      loadError.value = firstError.error
+    } else {
+      retryCount.value = 0
+    }
   } catch (error) {
     loadError.value = (error as Error).message
     console.error('Failed to load team data:', error)
@@ -299,6 +307,17 @@ const loadTeamData = async () => {
     loading.value = false
   }
 }
+
+onMounted(() => {
+  void loadTeamData()
+})
+
+watch(
+  () => [props.eventId, props.isDemo, store.user?.id],
+  () => {
+    void loadTeamData()
+  },
+)
 
 const retryLoad = async () => {
   if (!canRetry.value) return

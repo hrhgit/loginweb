@@ -9,7 +9,8 @@ import {
   enhancedErrorHandler, 
   handleSuccessWithBanner,
   authErrorHandler,
-  eventErrorHandler
+  eventErrorHandler,
+  teamErrorHandler
 } from './enhancedErrorHandling'
 import { 
   networkManager, 
@@ -29,6 +30,9 @@ import type {
   TeamLobbyTeam,
   TeamSeeker,
   TeamMember,
+  MyTeamEntry,
+  MyTeamRequest,
+  MyTeamInvite,
 } from './models'
 
 export type { AuthView, DisplayEvent, Event, EventStatus } from './models'
@@ -136,6 +140,9 @@ const teamJoinRequestsByTeamId = ref<Record<string, TeamJoinRequestRecord[]>>({}
 const teamSeekersByEventId = ref<Record<string, TeamSeeker[]>>({})
 const myTeamInviteByTeamId = ref<Record<string, TeamInvite | null>>({})
 const myTeamRequestsByTeamId = ref<Record<string, TeamJoinRequest>>({}) // Store actual request records
+const myTeamsByEventId = ref<Record<string, MyTeamEntry[]>>({})
+const myTeamRequestsByEventId = ref<Record<string, MyTeamRequest[]>>({})
+const myTeamInvitesByEventId = ref<Record<string, MyTeamInvite[]>>({})
 
 // Submissions and judge data are now managed by Vue Query composables
 
@@ -432,6 +439,18 @@ const getMyTeamInvite = (teamId: string) => {
   return myTeamInviteByTeamId.value[teamId] ?? null
 }
 
+const getMyTeamsForEvent = (eventId: string) => {
+  return myTeamsByEventId.value[eventId] ?? []
+}
+
+const getMyTeamRequestsForEvent = (eventId: string) => {
+  return myTeamRequestsByEventId.value[eventId] ?? []
+}
+
+const getMyTeamInvitesForEvent = (eventId: string) => {
+  return myTeamInvitesByEventId.value[eventId] ?? []
+}
+
 const getTeamSeekersForEvent = (eventId: string) => {
   return teamSeekersByEventId.value[eventId] ?? []
 }
@@ -441,8 +460,761 @@ const getMyTeamSeeker = (eventId: string) => {
   return getTeamSeekersForEvent(eventId).find((item) => item.user_id === user.value?.id) ?? null
 }
 
+const normalizeInviteStatus = (status: string | null | undefined) => {
+  if (status === 'accepted') return 'accepted'
+  if (status === 'declined' || status === 'rejected') return 'rejected'
+  return 'pending'
+}
+
+const fetchTeamMemberCounts = async (teamIds: string[]) => {
+  if (teamIds.length === 0) return {}
+  const { data, error } = await supabase
+    .from('team_members')
+    .select('team_id')
+    .in('team_id', teamIds)
+  if (error) {
+    teamErrorHandler.handleError(error, { operation: 'fetchTeamMemberCounts' })
+    return {}
+  }
+  return (data ?? []).reduce<Record<string, number>>((acc, row) => {
+    const teamId = (row as { team_id?: string }).team_id
+    if (teamId) acc[teamId] = (acc[teamId] ?? 0) + 1
+    return acc
+  }, {})
+}
+
+const loadMyTeamsForEvent = async (eventId: string) => {
+  if (!eventId) return { data: [] as MyTeamEntry[], error: '' }
+  if (!user.value) {
+    myTeamsByEventId.value = { ...myTeamsByEventId.value, [eventId]: [] }
+    return { data: [] as MyTeamEntry[], error: '' }
+  }
+
+  try {
+    const userId = user.value.id
+    const [
+      { data: leaderTeams, error: leaderError },
+      { data: memberTeams, error: memberError },
+    ] = await Promise.all([
+      supabase
+        .from('teams')
+        .select('id,event_id,leader_id,name,created_at')
+        .eq('leader_id', userId)
+        .eq('event_id', eventId)
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('team_members')
+        .select('team_id,joined_at,teams(id,event_id,leader_id,name,created_at)')
+        .eq('user_id', userId)
+        .order('joined_at', { ascending: false }),
+    ])
+
+    if (leaderError) throw leaderError
+    if (memberError) throw memberError
+
+    const leaderList = (leaderTeams ?? []).map((row) => ({
+      teamId: row.id as string,
+      teamName: (row.name as string) ?? 'Untitled team',
+      role: 'leader' as const,
+      memberCount: 1,
+      status: 'active' as const,
+      eventId,
+      createdAt: row.created_at as string,
+    }))
+
+    const leaderIds = new Set(leaderList.map((team) => team.teamId))
+    const memberList = (memberTeams ?? [])
+      .map((row) => {
+        const team = (row as { teams?: { id?: string; event_id?: string | null; name?: string | null; created_at?: string | null } | null }).teams
+        if (!team?.id || team.event_id !== eventId || leaderIds.has(team.id)) return null
+        return {
+          teamId: team.id,
+          teamName: team.name ?? 'Untitled team',
+          role: 'member' as const,
+          memberCount: 1,
+          status: 'active' as const,
+          eventId,
+          createdAt: (row as { joined_at?: string }).joined_at || team.created_at || '',
+        }
+      })
+      .filter((item): item is MyTeamEntry => Boolean(item))
+
+    const teamIds = [...leaderList, ...memberList].map((team) => team.teamId)
+    const memberCounts = await fetchTeamMemberCounts(teamIds)
+    const attachMemberCount = (team: MyTeamEntry): MyTeamEntry => ({
+      ...team,
+      memberCount: Math.max(1, memberCounts[team.teamId] ?? 0),
+    })
+    const next = [...leaderList, ...memberList].map(attachMemberCount)
+
+    myTeamsByEventId.value = { ...myTeamsByEventId.value, [eventId]: next }
+
+    if (next.length > 0) {
+      const membership = { ...teamMembershipByTeamId.value }
+      for (const team of next) {
+        membership[team.teamId] = true
+      }
+      teamMembershipByTeamId.value = membership
+    }
+
+    return { data: next, error: '' }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to load teams'
+    teamErrorHandler.handleError(error, { operation: 'loadMyTeamsForEvent' })
+    myTeamsByEventId.value = { ...myTeamsByEventId.value, [eventId]: [] }
+    return { data: [] as MyTeamEntry[], error: message }
+  }
+}
+
+const loadMyTeamRequestsForEvent = async (eventId: string) => {
+  if (!eventId) return { data: [] as MyTeamRequest[], error: '' }
+  if (!user.value) {
+    myTeamRequestsByEventId.value = { ...myTeamRequestsByEventId.value, [eventId]: [] }
+    return { data: [] as MyTeamRequest[], error: '' }
+  }
+
+  try {
+    const userId = user.value.id
+    const { data, error } = await supabase
+      .from('team_join_requests')
+      .select('id,team_id,status,message,created_at,updated_at,teams(event_id,name)')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+
+    if (error) throw error
+
+    const next = (data ?? [])
+      .map((row) => {
+        const record = row as {
+          id: string
+          team_id: string
+          status: string
+          message?: string | null
+          created_at: string
+          updated_at?: string | null
+          teams?: { event_id?: string | null; name?: string | null } | null
+        }
+        if (record.teams?.event_id !== eventId) return null
+        if (record.status === 'cancelled') return null
+        return {
+          id: record.id,
+          teamId: record.team_id,
+          teamName: record.teams?.name ?? 'Untitled team',
+          status: (record.status as MyTeamRequest['status']) ?? 'pending',
+          message: record.message ?? null,
+          createdAt: record.created_at,
+        }
+      })
+      .filter((item): item is MyTeamRequest => Boolean(item))
+
+    myTeamRequestsByEventId.value = { ...myTeamRequestsByEventId.value, [eventId]: next }
+
+    if (data && data.length > 0) {
+      const requestStatus = { ...teamRequestStatusByTeamId.value }
+      const requestMap = { ...myTeamRequestsByTeamId.value }
+      for (const row of data as any[]) {
+        if (!row?.team_id) continue
+        if (row.teams?.event_id !== eventId) continue
+        requestStatus[row.team_id] = row.status ?? 'pending'
+        requestMap[row.team_id] = {
+          id: row.id,
+          team_id: row.team_id,
+          user_id: userId,
+          status: row.status ?? 'pending',
+          message: row.message ?? null,
+          created_at: row.created_at,
+          updated_at: row.updated_at ?? null,
+        }
+      }
+      teamRequestStatusByTeamId.value = requestStatus
+      myTeamRequestsByTeamId.value = requestMap
+    }
+
+    return { data: next, error: '' }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to load requests'
+    teamErrorHandler.handleError(error, { operation: 'loadMyTeamRequestsForEvent' })
+    myTeamRequestsByEventId.value = { ...myTeamRequestsByEventId.value, [eventId]: [] }
+    return { data: [] as MyTeamRequest[], error: message }
+  }
+}
+
+const loadMyTeamInvitesForEvent = async (eventId: string) => {
+  if (!eventId) return { data: [] as MyTeamInvite[], error: '' }
+  if (!user.value) {
+    myTeamInvitesByEventId.value = { ...myTeamInvitesByEventId.value, [eventId]: [] }
+    return { data: [] as MyTeamInvite[], error: '' }
+  }
+
+  try {
+    const userId = user.value.id
+    const { data, error } = await supabase
+      .from('team_invites')
+      .select('id,team_id,status,message,created_at,updated_at,invited_by,teams(event_id,name)')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+
+    if (error) throw error
+
+    const inviterIds = new Set<string>()
+    for (const row of data ?? []) {
+      const invitedBy = (row as { invited_by?: string | null }).invited_by
+      if (invitedBy) inviterIds.add(invitedBy)
+    }
+
+    const inviterMap: Record<string, string> = {}
+    if (inviterIds.size > 0) {
+      const { data: inviterProfiles, error: inviterError } = await supabase
+        .from('profiles')
+        .select('id,username')
+        .in('id', Array.from(inviterIds))
+      if (inviterError) throw inviterError
+      for (const profile of inviterProfiles ?? []) {
+        const id = (profile as { id?: string }).id
+        const name = (profile as { username?: string | null }).username
+        if (id && name) inviterMap[id] = name
+      }
+    }
+
+    const next = (data ?? [])
+      .map((row) => {
+        const record = row as {
+          id: string
+          team_id: string
+          status: string
+          message?: string | null
+          invited_by?: string | null
+          created_at: string
+          updated_at?: string | null
+          teams?: { event_id?: string | null; name?: string | null } | null
+        }
+        if (record.teams?.event_id !== eventId) return null
+        return {
+          id: record.id,
+          teamId: record.team_id,
+          teamName: record.teams?.name ?? 'Untitled team',
+          invitedByName: record.invited_by ? inviterMap[record.invited_by] ?? null : null,
+          status: normalizeInviteStatus(record.status) as MyTeamInvite['status'],
+          message: record.message ?? null,
+          createdAt: record.created_at,
+        }
+      })
+      .filter((item): item is MyTeamInvite => Boolean(item))
+
+    myTeamInvitesByEventId.value = { ...myTeamInvitesByEventId.value, [eventId]: next }
+
+    if (data && data.length > 0) {
+      const inviteMap = { ...myTeamInviteByTeamId.value }
+      for (const row of data as any[]) {
+        if (!row?.team_id) continue
+        if (row.teams?.event_id !== eventId) continue
+        inviteMap[row.team_id] = {
+          id: row.id,
+          team_id: row.team_id,
+          user_id: userId,
+          invited_by: row.invited_by ?? null,
+          message: row.message ?? null,
+          status: row.status ?? 'pending',
+          created_at: row.created_at,
+          updated_at: row.updated_at ?? null,
+        }
+      }
+      myTeamInviteByTeamId.value = inviteMap
+    }
+
+    return { data: next, error: '' }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to load invites'
+    teamErrorHandler.handleError(error, { operation: 'loadMyTeamInvitesForEvent' })
+    myTeamInvitesByEventId.value = { ...myTeamInvitesByEventId.value, [eventId]: [] }
+    return { data: [] as MyTeamInvite[], error: message }
+  }
+}
+
 const isTeamMember = (teamId: string) => {
   return Boolean(teamMembershipByTeamId.value[teamId])
+}
+
+const loadMyTeamInvite = async (teamId: string) => {
+  if (!teamId) return { data: null as TeamInvite | null, error: '' }
+  if (!user.value) {
+    myTeamInviteByTeamId.value = { ...myTeamInviteByTeamId.value, [teamId]: null }
+    return { data: null as TeamInvite | null, error: '' }
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('team_invites')
+      .select('id,team_id,user_id,invited_by,message,status,created_at,updated_at')
+      .eq('team_id', teamId)
+      .eq('user_id', user.value.id)
+      .maybeSingle()
+
+    if (error) throw error
+
+    const invite = data
+      ? ({
+          id: data.id,
+          team_id: data.team_id,
+          user_id: data.user_id,
+          invited_by: data.invited_by ?? null,
+          message: data.message ?? null,
+          status: data.status ?? 'pending',
+          created_at: data.created_at,
+          updated_at: data.updated_at ?? null,
+        } as TeamInvite)
+      : null
+
+    myTeamInviteByTeamId.value = { ...myTeamInviteByTeamId.value, [teamId]: invite }
+    return { data: invite, error: '' }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to load invite'
+    teamErrorHandler.handleError(error, { operation: 'loadMyTeamInvite' })
+    return { data: null as TeamInvite | null, error: message }
+  }
+}
+
+const loadTeamJoinRequests = async (teamId: string) => {
+  if (!teamId) return { data: [] as TeamJoinRequestRecord[], error: '' }
+
+  try {
+    const { data, error } = await supabase
+      .from('team_join_requests')
+      .select('id,team_id,user_id,status,message,created_at,updated_at,profiles(id,username,avatar_url,roles)')
+      .eq('team_id', teamId)
+      .eq('status', 'pending')
+      .order('created_at', { ascending: true })
+
+    if (error) throw error
+
+    const next = (data ?? []).map((row) => ({
+      id: row.id,
+      team_id: row.team_id,
+      user_id: row.user_id,
+      status: row.status ?? 'pending',
+      message: row.message ?? null,
+      created_at: row.created_at,
+      updated_at: row.updated_at ?? null,
+      profile: row.profiles && !Array.isArray(row.profiles)
+        ? {
+            id: (row.profiles as any).id,
+            username: (row.profiles as any).username || null,
+            avatar_url: (row.profiles as any).avatar_url || null,
+            roles: Array.isArray((row.profiles as any).roles) ? (row.profiles as any).roles : null,
+          }
+        : null,
+    }))
+
+    teamJoinRequestsByTeamId.value = { ...teamJoinRequestsByTeamId.value, [teamId]: next }
+    return { data: next, error: '' }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to load requests'
+    teamErrorHandler.handleError(error, { operation: 'loadTeamJoinRequests' })
+    teamJoinRequestsByTeamId.value = { ...teamJoinRequestsByTeamId.value, [teamId]: [] }
+    return { data: [] as TeamJoinRequestRecord[], error: message }
+  }
+}
+
+const requestJoinTeam = async (teamId: string, message?: string) => {
+  if (!user.value) return { error: 'Not authenticated' }
+  if (!teamId) return { error: 'Missing team id' }
+
+  try {
+    const { data: existing, error: existingError } = await supabase
+      .from('team_join_requests')
+      .select('id,status,created_at,updated_at')
+      .eq('team_id', teamId)
+      .eq('user_id', user.value.id)
+      .maybeSingle()
+
+    if (existingError) throw existingError
+
+    let record: any = existing
+    if (!existing) {
+      const { data, error } = await supabase
+        .from('team_join_requests')
+        .insert({
+          team_id: teamId,
+          user_id: user.value.id,
+          status: 'pending',
+          message: message ?? null,
+        })
+        .select('id,team_id,user_id,status,message,created_at,updated_at')
+        .single()
+      if (error) throw error
+      record = data
+    } else if (existing.status !== 'pending') {
+      const { data, error } = await supabase
+        .from('team_join_requests')
+        .update({
+          status: 'pending',
+          message: message ?? null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', existing.id)
+        .select('id,team_id,user_id,status,message,created_at,updated_at')
+        .single()
+      if (error) throw error
+      record = data
+    }
+
+    if (record?.team_id) {
+      teamRequestStatusByTeamId.value = {
+        ...teamRequestStatusByTeamId.value,
+        [record.team_id]: record.status ?? 'pending',
+      }
+      myTeamRequestsByTeamId.value = {
+        ...myTeamRequestsByTeamId.value,
+        [record.team_id]: {
+          id: record.id,
+          team_id: record.team_id,
+          user_id: record.user_id,
+          status: record.status ?? 'pending',
+          message: record.message ?? null,
+          created_at: record.created_at,
+          updated_at: record.updated_at ?? null,
+        },
+      }
+
+      const { data: teamData } = await supabase
+        .from('teams')
+        .select('event_id,name')
+        .eq('id', record.team_id)
+        .maybeSingle()
+      const eventId = teamData?.event_id as string | undefined
+      if (eventId) {
+        const current = myTeamRequestsByEventId.value[eventId] ?? []
+        const nextEntry: MyTeamRequest = {
+          id: record.id,
+          teamId: record.team_id,
+          teamName: (teamData?.name as string) ?? 'Untitled team',
+          status: (record.status as MyTeamRequest['status']) ?? 'pending',
+          message: record.message ?? null,
+          createdAt: record.created_at,
+        }
+        const filtered = current.filter((item) => item.id !== record.id)
+        myTeamRequestsByEventId.value = {
+          ...myTeamRequestsByEventId.value,
+          [eventId]: [nextEntry, ...filtered],
+        }
+      }
+    }
+
+    return { error: '' }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Request failed'
+    teamErrorHandler.handleError(error, { operation: 'requestJoinTeam' })
+    return { error: message }
+  }
+}
+
+const cancelTeamJoinRequest = async (requestId: string) => {
+  if (!user.value) return { error: 'Not authenticated' }
+  if (!requestId) return { error: 'Missing request id' }
+
+  try {
+    const { data, error } = await supabase
+      .from('team_join_requests')
+      .update({
+        status: 'cancelled',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', requestId)
+      .eq('user_id', user.value.id)
+      .select('id,team_id,status,created_at,updated_at')
+      .single()
+
+    if (error) throw error
+
+    const teamId = data?.team_id as string | undefined
+    if (teamId) {
+      teamRequestStatusByTeamId.value = {
+        ...teamRequestStatusByTeamId.value,
+        [teamId]: data.status ?? 'cancelled',
+      }
+      if (myTeamRequestsByTeamId.value[teamId]) {
+        myTeamRequestsByTeamId.value = {
+          ...myTeamRequestsByTeamId.value,
+          [teamId]: {
+            ...myTeamRequestsByTeamId.value[teamId],
+            status: data.status ?? 'cancelled',
+            updated_at: data.updated_at ?? new Date().toISOString(),
+          },
+        }
+      }
+    }
+
+    const nextRequestsByEvent: Record<string, MyTeamRequest[]> = {}
+    for (const key of Object.keys(myTeamRequestsByEventId.value)) {
+      nextRequestsByEvent[key] = (myTeamRequestsByEventId.value[key] ?? []).filter(
+        (item) => item.id !== requestId,
+      )
+    }
+    myTeamRequestsByEventId.value = nextRequestsByEvent
+
+    return { error: '' }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Cancel failed'
+    teamErrorHandler.handleError(error, { operation: 'cancelTeamJoinRequest' })
+    return { error: message }
+  }
+}
+
+const acceptTeamInvite = async (inviteId: string, teamId: string) => {
+  if (!user.value) return { error: 'Not authenticated' }
+  if (!inviteId || !teamId) return { error: 'Missing invite info' }
+
+  try {
+    const { error: inviteError } = await supabase
+      .from('team_invites')
+      .update({
+        status: 'accepted',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', inviteId)
+      .eq('user_id', user.value.id)
+
+    if (inviteError) throw inviteError
+
+    const { error: memberError } = await supabase
+      .from('team_members')
+      .upsert({
+        team_id: teamId,
+        user_id: user.value.id,
+        joined_at: new Date().toISOString(),
+      }, { onConflict: 'team_id,user_id' })
+
+    if (memberError) throw memberError
+
+    teamMembershipByTeamId.value = { ...teamMembershipByTeamId.value, [teamId]: true }
+    myTeamInviteByTeamId.value = {
+      ...myTeamInviteByTeamId.value,
+      [teamId]: myTeamInviteByTeamId.value[teamId]
+        ? { ...myTeamInviteByTeamId.value[teamId]!, status: 'accepted', updated_at: new Date().toISOString() }
+        : {
+            id: inviteId,
+            team_id: teamId,
+            user_id: user.value.id,
+            invited_by: null,
+            message: null,
+            status: 'accepted',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          },
+    }
+
+    const nextInvitesByEvent: Record<string, MyTeamInvite[]> = {}
+    for (const key of Object.keys(myTeamInvitesByEventId.value)) {
+      nextInvitesByEvent[key] = (myTeamInvitesByEventId.value[key] ?? []).filter(
+        (item) => item.id !== inviteId,
+      )
+    }
+    myTeamInvitesByEventId.value = nextInvitesByEvent
+
+    return { error: '' }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Accept failed'
+    teamErrorHandler.handleError(error, { operation: 'acceptTeamInvite' })
+    return { error: message }
+  }
+}
+
+const rejectTeamInvite = async (inviteId: string, teamId: string) => {
+  if (!user.value) return { error: 'Not authenticated' }
+  if (!inviteId || !teamId) return { error: 'Missing invite info' }
+
+  try {
+    const { error: inviteError } = await supabase
+      .from('team_invites')
+      .update({
+        status: 'declined',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', inviteId)
+      .eq('user_id', user.value.id)
+
+    if (inviteError) throw inviteError
+
+    myTeamInviteByTeamId.value = {
+      ...myTeamInviteByTeamId.value,
+      [teamId]: myTeamInviteByTeamId.value[teamId]
+        ? { ...myTeamInviteByTeamId.value[teamId]!, status: 'declined', updated_at: new Date().toISOString() }
+        : {
+            id: inviteId,
+            team_id: teamId,
+            user_id: user.value.id,
+            invited_by: null,
+            message: null,
+            status: 'declined',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          },
+    }
+
+    const nextInvitesByEvent: Record<string, MyTeamInvite[]> = {}
+    for (const key of Object.keys(myTeamInvitesByEventId.value)) {
+      nextInvitesByEvent[key] = (myTeamInvitesByEventId.value[key] ?? []).filter(
+        (item) => item.id !== inviteId,
+      )
+    }
+    myTeamInvitesByEventId.value = nextInvitesByEvent
+
+    return { error: '' }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Reject failed'
+    teamErrorHandler.handleError(error, { operation: 'rejectTeamInvite' })
+    return { error: message }
+  }
+}
+
+const removeTeamMember = async (teamId: string, memberId: string) => {
+  if (!teamId || !memberId) return { error: 'Missing member info' }
+
+  const { error } = await supabase
+    .from('team_members')
+    .delete()
+    .eq('team_id', teamId)
+    .eq('user_id', memberId)
+
+  if (error) {
+    teamErrorHandler.handleError(error, { operation: 'removeTeamMember' })
+    return { error: error.message }
+  }
+
+  const currentMembers = teamMembersByTeamId.value[teamId] ?? []
+  teamMembersByTeamId.value = {
+    ...teamMembersByTeamId.value,
+    [teamId]: currentMembers.filter((member) => member.user_id !== memberId),
+  }
+
+  if (user.value?.id === memberId) {
+    teamMembershipByTeamId.value = { ...teamMembershipByTeamId.value, [teamId]: false }
+  }
+
+  return { error: '' }
+}
+
+const updateTeamJoinRequestStatus = async (requestId: string, status: 'approved' | 'rejected') => {
+  if (!requestId) return { error: 'Missing request id' }
+
+  try {
+    const { data, error } = await supabase
+      .from('team_join_requests')
+      .update({
+        status,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', requestId)
+      .select('team_id,user_id,status')
+      .single()
+
+    if (error) throw error
+
+    if (status === 'approved' && data?.team_id && data?.user_id) {
+      const { error: memberError } = await supabase
+        .from('team_members')
+        .upsert({
+          team_id: data.team_id,
+          user_id: data.user_id,
+          joined_at: new Date().toISOString(),
+        }, { onConflict: 'team_id,user_id' })
+      if (memberError) throw memberError
+    }
+
+    return { error: '' }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Update failed'
+    teamErrorHandler.handleError(error, { operation: 'updateTeamJoinRequestStatus' })
+    return { error: message }
+  }
+}
+
+const closeTeam = async (teamId: string) => {
+  if (!teamId) return { error: 'Missing team id' }
+
+  const { error } = await supabase
+    .from('teams')
+    .update({ is_closed: true, updated_at: new Date().toISOString() })
+    .eq('id', teamId)
+
+  if (error) {
+    teamErrorHandler.handleError(error, { operation: 'closeTeam' })
+    return { error: error.message }
+  }
+
+  return { error: '' }
+}
+
+const reopenTeam = async (teamId: string) => {
+  if (!teamId) return { error: 'Missing team id' }
+
+  const { error } = await supabase
+    .from('teams')
+    .update({ is_closed: false, updated_at: new Date().toISOString() })
+    .eq('id', teamId)
+
+  if (error) {
+    teamErrorHandler.handleError(error, { operation: 'reopenTeam' })
+    return { error: error.message }
+  }
+
+  return { error: '' }
+}
+
+const deleteTeam = async (eventId: string, teamId: string) => {
+  if (!teamId) return { error: 'Missing team id' }
+
+  const { error } = await supabase.from('teams').delete().eq('id', teamId)
+  if (error) {
+    teamErrorHandler.handleError(error, { operation: 'deleteTeam' })
+    return { error: error.message }
+  }
+
+  if (eventId) {
+    const currentTeams = myTeamsByEventId.value[eventId] ?? []
+    myTeamsByEventId.value = {
+      ...myTeamsByEventId.value,
+      [eventId]: currentTeams.filter((team) => team.teamId !== teamId),
+    }
+  }
+
+  const {
+    [teamId]: _removedMembers,
+    ...remainingMembers
+  } = teamMembersByTeamId.value
+  teamMembersByTeamId.value = remainingMembers
+
+  const {
+    [teamId]: _removedMembership,
+    ...remainingMembership
+  } = teamMembershipByTeamId.value
+  teamMembershipByTeamId.value = remainingMembership
+
+  const {
+    [teamId]: _removedRequestStatus,
+    ...remainingRequestStatus
+  } = teamRequestStatusByTeamId.value
+  teamRequestStatusByTeamId.value = remainingRequestStatus
+
+  const {
+    [teamId]: _removedRequests,
+    ...remainingRequests
+  } = teamJoinRequestsByTeamId.value
+  teamJoinRequestsByTeamId.value = remainingRequests
+
+  const {
+    [teamId]: _removedInvite,
+    ...remainingInvites
+  } = myTeamInviteByTeamId.value
+  myTeamInviteByTeamId.value = remainingInvites
+
+  const {
+    [teamId]: _removedMyRequest,
+    ...remainingMyRequests
+  } = myTeamRequestsByTeamId.value
+  myTeamRequestsByTeamId.value = remainingMyRequests
+
+  return { error: '' }
 }
 
 // Legacy team methods - these should be replaced with Vue Query composables
@@ -492,6 +1264,10 @@ const refreshUser = async () => {
     teamRequestStatusByTeamId.value = {}
     teamJoinRequestsByTeamId.value = {}
     myTeamInviteByTeamId.value = {}
+    myTeamRequestsByTeamId.value = {}
+    myTeamsByEventId.value = {}
+    myTeamRequestsByEventId.value = {}
+    myTeamInvitesByEventId.value = {}
     return
   }
 
@@ -583,6 +1359,10 @@ const openAuth = (view: AuthView) => {
   authModalOpen.value = true
   authError.value = ''
   authInfo.value = ''
+}
+
+const openAuthModal = (view: AuthView) => {
+  openAuth(view)
 }
 
 const closeAuth = () => {
@@ -1189,6 +1969,14 @@ const init = async () => {
       registrationsLoaded.value = false
       pendingRequestsCount.value = 0
       pendingInvitesCount.value = 0
+      teamMembershipByTeamId.value = {}
+      teamRequestStatusByTeamId.value = {}
+      teamJoinRequestsByTeamId.value = {}
+      myTeamInviteByTeamId.value = {}
+      myTeamRequestsByTeamId.value = {}
+      myTeamsByEventId.value = {}
+      myTeamRequestsByEventId.value = {}
+      myTeamInvitesByEventId.value = {}
       
       // Clear network-related state
       networkRetryCount.value = 0
@@ -1325,16 +2113,34 @@ const store = proxyRefs({
   getTeamsForEvent,
   getTeamSeekersForEvent,
   getMyTeamSeeker,
+  getMyTeamsForEvent,
+  getMyTeamRequestsForEvent,
+  getMyTeamInvitesForEvent,
   getTeamMembers,
   getTeamRequestStatus,
   getTeamJoinRequests,
   getMyTeamInvite,
   isTeamMember,
+  loadMyTeamsForEvent,
+  loadMyTeamRequestsForEvent,
+  loadMyTeamInvitesForEvent,
+  loadMyTeamInvite,
+  loadTeamJoinRequests,
+  requestJoinTeam,
+  cancelTeamJoinRequest,
+  acceptTeamInvite,
+  rejectTeamInvite,
+  removeTeamMember,
+  updateTeamJoinRequestStatus,
+  closeTeam,
+  reopenTeam,
+  deleteTeam,
   // Registration management
   loadMyRegistrations,
   ensureRegistrationsLoaded,
   // Authentication
   openAuth,
+  openAuthModal,
   closeAuth,
   submitAuth,
   handleSignOut,
