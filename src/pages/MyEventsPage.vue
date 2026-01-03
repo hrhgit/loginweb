@@ -31,22 +31,6 @@ const selectedEventId = ref<string | null>(null)
 // 添加初始化状态跟踪
 const isInitializing = ref(true)
 
-// 调试状态
-const debugInfo = ref({
-  storeUserId: '',
-  queryEnabled: false,
-  queryLoading: false,
-  queryError: null as any,
-  authSession: null as any,
-  authUser: null as any,
-  initStartTime: 0,
-  initEndTime: 0,
-  requestsMade: [] as string[]
-})
-
-// 开发环境检查
-const isDev = import.meta.env.DEV
-
 // 防止闪烁的加载状态管理
 const shouldShowLoading = computed(() => {
   // 如果已经有数据，即使在加载中也不显示加载状态（避免闪烁）
@@ -59,70 +43,11 @@ const shouldShowLoading = computed(() => {
   return myEventsQuery.isLoading.value || isInitializing.value
 })
 
-// 调试函数：检查认证状态
-const checkAuthStatus = async () => {
-  console.log('🔍 [MyEventsPage] Checking auth status...')
-  
-  try {
-    // 检查 session
-    const sessionResult = await supabase.auth.getSession()
-    debugInfo.value.authSession = sessionResult.data.session
-    console.log('📋 [MyEventsPage] Session:', sessionResult.data.session?.user?.id || 'No session')
-    
-    // 检查 user
-    const userResult = await supabase.auth.getUser()
-    debugInfo.value.authUser = userResult.data.user
-    console.log('👤 [MyEventsPage] User:', userResult.data.user?.id || 'No user')
-    
-    if (userResult.error) {
-      console.error('❌ [MyEventsPage] Auth error:', userResult.error)
-    }
-  } catch (error) {
-    console.error('💥 [MyEventsPage] Auth check failed:', error)
-  }
-}
-
-// 调试函数：监控 Vue Query 状态
-const logQueryStatus = () => {
-  debugInfo.value.storeUserId = store.user?.id || ''
-  debugInfo.value.queryEnabled = Boolean(store.user?.id)
-  debugInfo.value.queryLoading = myEventsQuery.isLoading.value
-  debugInfo.value.queryError = myEventsQuery.error.value
-  
-  console.log('🔄 [MyEventsPage] Query Status:', {
-    storeUserId: debugInfo.value.storeUserId,
-    queryEnabled: debugInfo.value.queryEnabled,
-    queryLoading: debugInfo.value.queryLoading,
-    queryError: debugInfo.value.queryError?.message,
-    hasData: myEvents.value.length > 0
-  })
-}
-
 onMounted(async () => {
-  console.log('🚀 [MyEventsPage] Component mounted')
-  debugInfo.value.initStartTime = Date.now()
-  
-  // 初始状态检查
-  console.log('📊 [MyEventsPage] Initial state:', {
-    storeUser: store.user?.id || 'No user',
-    isAuthed: store.isAuthed,
-    isAdmin: store.isAdmin
-  })
-  
-  // 检查认证状态
-  await checkAuthStatus()
-  
   // 确保 store 已经初始化
-  console.log('⏳ [MyEventsPage] Starting store.init()...')
   await store.init()
-  debugInfo.value.initEndTime = Date.now()
-  console.log(`✅ [MyEventsPage] Store.init() completed in ${debugInfo.value.initEndTime - debugInfo.value.initStartTime}ms`)
-  
-  // 初始化完成后再次检查状态
-  logQueryStatus()
   
   isInitializing.value = false
-  console.log('🏁 [MyEventsPage] Initialization complete')
 })
 
 // 暂时移除动态报名人数查询，避免 Vue Query 警告
@@ -145,19 +70,10 @@ watch(() => store.user, (newUser, oldUser) => {
   }, 100)
 }, { immediate: true })
 
-// 监听查询状态变化
-watch(() => myEventsQuery.isLoading.value, (loading) => {
-  console.log(`🔄 [MyEventsPage] Query loading changed: ${loading}`)
-  if (loading) {
-    debugInfo.value.requestsMade.push(`Query started at ${new Date().toISOString()}`)
-  }
-})
-
 // 监听查询数据变化
 watch(() => myEvents.value, (events) => {
-  console.log(`📊 [MyEventsPage] Events data changed: ${events.length} events`)
   if (events.length > 0) {
-    console.log('📋 [MyEventsPage] Events:', events.map(e => ({ id: e.id, title: e.title, status: e.status })))
+    console.log(`📊 [MyEventsPage] Loaded ${events.length} events`)
   }
 })
 
@@ -165,7 +81,6 @@ watch(() => myEvents.value, (events) => {
 watch(() => myEventsQuery.error.value, (error) => {
   if (error) {
     console.error('❌ [MyEventsPage] Query error:', error)
-    debugInfo.value.queryError = error
   }
 })
 
@@ -231,22 +146,6 @@ const handleEditClick = (event: any) => {
 
 <template>
   <main class="main">
-    <!-- 调试面板 - 开发环境显示 -->
-    <div v-if="isDev" style="position: fixed; top: 10px; right: 10px; background: rgba(0,0,0,0.8); color: white; padding: 10px; border-radius: 8px; font-size: 12px; max-width: 300px; z-index: 9999;">
-      <div><strong>🔍 调试信息</strong></div>
-      <div>Store User ID: {{ debugInfo.storeUserId || 'None' }}</div>
-      <div>Query Enabled: {{ debugInfo.queryEnabled ? '✅' : '❌' }}</div>
-      <div>Query Loading: {{ debugInfo.queryLoading ? '🔄' : '⏹️' }}</div>
-      <div>Query Error: {{ debugInfo.queryError?.message || 'None' }}</div>
-      <div>Auth Session: {{ debugInfo.authSession?.user?.id || 'None' }}</div>
-      <div>Auth User: {{ debugInfo.authUser?.id || 'None' }}</div>
-      <div>Init Time: {{ debugInfo.initEndTime - debugInfo.initStartTime }}ms</div>
-      <div>Events Count: {{ myEvents.length }}</div>
-      <div>Requests: {{ debugInfo.requestsMade.length }}</div>
-      <button @click="checkAuthStatus" style="margin-top: 5px; padding: 2px 6px; font-size: 10px;">重新检查认证</button>
-      <button @click="logQueryStatus" style="margin-top: 5px; padding: 2px 6px; font-size: 10px;">检查查询状态</button>
-    </div>
-
     <section class="page-head">
       <div>
         <h1>我发起的活动</h1>

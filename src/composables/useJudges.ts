@@ -225,18 +225,42 @@ export function useEventJudges(eventId: string) {
 /**
  * 搜索用户以添加为评委
  */
-export function useSearchUsersForJudge(query: Ref<string> | string, eventId: string) {
+export function useSearchUsersForJudge(query: Ref<string> | string, eventId: Ref<string> | string) {
   const queryValue = computed(() => {
     const q = unref(query)
     return typeof q === 'string' ? q : ''
   })
   
+  const eventIdValue = computed(() => {
+    const id = unref(eventId)
+    return typeof id === 'string' ? id : ''
+  })
+  
   return useQuery({
-    queryKey: computed(() => ['judges', 'search', eventId, queryValue.value]),
-    queryFn: () => searchUsersForJudge(queryValue.value, eventId),
-    enabled: computed(() => Boolean(queryValue.value.trim() && eventId)),
-    staleTime: 1000 * 60, // 1分钟内搜索结果保持新鲜
-    gcTime: 1000 * 60 * 5, // 5分钟后清除搜索结果
+    queryKey: computed(() => ['judges', 'search', eventIdValue.value, queryValue.value]),
+    queryFn: () => searchUsersForJudge(queryValue.value, eventIdValue.value),
+    enabled: computed(() => {
+      const hasQuery = queryValue.value.trim().length >= 2
+      const hasEventId = Boolean(eventIdValue.value)
+      return hasQuery && hasEventId
+    }),
+    
+    // 缓存策略 - 必须配置
+    staleTime: 1000 * 60,              // 1分钟内搜索结果保持新鲜
+    gcTime: 1000 * 60 * 5,             // 5分钟后清除搜索结果
+    
+    // 重新获取策略 - 必须配置
+    refetchOnMount: true,              // 挂载时自动获取（搜索需要立即执行）
+    refetchOnWindowFocus: false,       // 窗口焦点时不自动重新获取
+    refetchOnReconnect: true,          // 网络重连时直接重新获取
+    
+    // 重试策略 - 必须配置
+    retry: (failureCount, error) => {
+      const isNetworkError = error?.message?.includes('网络') || 
+                            error?.message?.includes('fetch') ||
+                            error?.code === 'NETWORK_ERROR'
+      return isNetworkError && failureCount < 3
+    },
   })
 }
 

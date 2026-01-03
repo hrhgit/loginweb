@@ -29,7 +29,7 @@ const retryCount = ref(0)
 const maxRetries = 3
 
 // Use Vue Query for search with reactive query
-const searchUsersQuery = useSearchUsersForJudge(searchQuery, props.eventId)
+const searchUsersQuery = useSearchUsersForJudge(searchQuery, computed(() => props.eventId))
 
 // Computed properties from Vue Query
 const searchResults = computed(() => searchUsersQuery.data.value || [])
@@ -85,6 +85,7 @@ const performSearch = async (isRetry = false) => {
   }
 
   try {
+    // 强制重新获取数据
     await searchUsersQuery.refetch()
     retryCount.value = 0
   } catch (error) {
@@ -107,6 +108,20 @@ const performSearch = async (isRetry = false) => {
     }
   }
 }
+
+// 监听搜索查询变化，自动触发搜索
+watch(searchQuery, (newQuery) => {
+  const query = newQuery.trim()
+  if (query.length >= 2) {
+    // 延迟搜索，避免频繁请求
+    clearTimeout(searchTimeout.value)
+    searchTimeout.value = setTimeout(() => {
+      performSearch(false)
+    }, 300) // 300ms 延迟
+  }
+}, { immediate: false })
+
+const searchTimeout = ref<number | null>(null)
 
 const retrySearch = () => {
   retryCount.value = 0
@@ -182,11 +197,20 @@ const displayName = (user: UserSearchResult) => {
                 :disabled="addJudgeMutation.isPending.value"
                 aria-describedby="search-hint"
                 autocomplete="off"
+                @keyup.enter="performSearch(false)"
               />
+              <button
+                class="btn btn--ghost btn--compact search-btn"
+                @click="performSearch(false)"
+                :disabled="searchQuery.trim().length < 2 || isSearching"
+                aria-label="搜索"
+              >
+                <Search :size="14" />
+              </button>
             </div>
           </div>
           
-          <p id="search-hint" class="search-hint">输入至少2个字符开始搜索</p>
+          <p id="search-hint" class="search-hint">输入至少2个字符，然后按回车或点击搜索按钮</p>
         </div>
 
         <div class="search-results" role="region" aria-live="polite" aria-label="搜索结果">
@@ -368,13 +392,20 @@ const displayName = (user: UserSearchResult) => {
 
 .search-input {
   width: 100%;
-  padding: 12px 12px 12px 40px;
+  padding: 12px 80px 12px 40px; /* 右侧留出按钮空间 */
   border: 1px solid var(--border);
   border-radius: 8px;
   font-size: 14px;
   background: var(--surface);
   color: var(--ink);
   transition: border-color 0.18s ease;
+}
+
+.search-btn {
+  position: absolute;
+  right: 8px;
+  padding: 6px 8px;
+  min-width: auto;
 }
 
 .search-input:focus {
