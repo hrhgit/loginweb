@@ -63,3 +63,10 @@ dist-ssr
 *.bz2
 *.xz
 *.Z
+batch-cleanup.js
+batch-registration.js
+batch-upload-covers.js
+delete.js
+fix-form-data.js
+seed.js
+users.json
