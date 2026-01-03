@@ -189,6 +189,7 @@ const deleteFile = async (bucket: string, path: string) => {
 
 const MAX_FILE_SIZE = 500 * 1024 * 1024 // 500MB
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string
+const SUBMIT_REQUEST_TIMEOUT_MS = 20000
 
 const isValidUrl = (value: string) => {
   try {
@@ -536,6 +537,21 @@ const uploadWithFallback = async (
   }
 }
 
+const withTimeout = async <T>(promise: Promise<T>, ms: number, label: string): Promise<T> => {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error(`${label}超时，请检查网络连接或是否被拦截`))
+    }, ms)
+  })
+
+  try {
+    return await Promise.race([promise, timeoutPromise])
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId)
+  }
+}
+
 const handleCancel = () => {
   if (isEditMode.value && originalSubmission.value) {
     // 编辑模式：返回作品详情页
@@ -635,21 +651,29 @@ const submit = async () => {
       (submissionPayload as any).id = originalSubmission.value.id
     }
 
-    const { error: dbError } = await supabase
-      .from('submissions')
-      .upsert(submissionPayload, { onConflict: isEditMode.value ? 'id' : 'event_id,team_id' })
+    const { error: dbError } = await withTimeout(
+      supabase
+        .from('submissions')
+        .upsert(submissionPayload, { onConflict: isEditMode.value ? 'id' : 'event_id,team_id' }),
+      SUBMIT_REQUEST_TIMEOUT_MS,
+      '提交保存'
+    )
 
     if (dbError) {
       throw new Error(dbError.message)
     }
 
     // 验证提交是否真正成功 - 从数据库重新查询确认
-    const { data: verifyData, error: verifyError } = await supabase
-      .from('submissions')
-      .select('id, project_name, created_at')
-      .eq('event_id', eventId.value)
-      .eq('team_id', teamId.value)
-      .single()
+    const { data: verifyData, error: verifyError } = await withTimeout(
+      supabase
+        .from('submissions')
+        .select('id, project_name, created_at')
+        .eq('event_id', eventId.value)
+        .eq('team_id', teamId.value)
+        .single(),
+      SUBMIT_REQUEST_TIMEOUT_MS,
+      '提交验证'
+    )
 
     if (verifyError || !verifyData) {
       throw new Error('提交验证失败，请重试')
