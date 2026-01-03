@@ -72,57 +72,15 @@ const fetchPublicEventsWithRegistrationCount = async (): Promise<EventWithRegist
 const fetchMyEventsWithRegistrationCount = async (userId: string): Promise<EventWithRegistrationCount[]> => {
   if (!userId) return []
 
-  console.log('[useEventsWithRegistrationCount] fetchMyEventsWithRegistrationCount: Fetching user events directly', { userId })
+  console.log('[useEventsWithRegistrationCount] fetchMyEventsWithRegistrationCount: Fetching user events via RPC', { userId })
 
   try {
-    // 1. 直接查询用户创建的活动
-    const { data: eventsData, error: eventsError } = await supabase
-      .from('events')
-      .select('*')
-      .eq('created_by', userId)
-      .order('created_at', { ascending: false })
+    const allEvents = await fetchEventsWithRegistrationCount()
+    const result = allEvents
+      .filter(event => event.created_by === userId)
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
 
-    if (eventsError) {
-      console.error('[useEventsWithRegistrationCount] fetchMyEventsWithRegistrationCount: Database error', eventsError)
-      eventErrorHandler.handleError(eventsError, { 
-        operation: 'fetchMyEventsWithRegistrationCount'
-      })
-      throw eventsError
-    }
-
-    const events = eventsData || []
-    if (events.length === 0) return []
-
-    // 2. 获取这些活动的报名人数
-    const eventIds = events.map(e => e.id)
-    
-    // 使用 rpc 获取指定活动的报名人数，或者如果 rpc 不支持参数，则手动聚合
-    // 由于 get_events_with_registration_counts 不支持过滤，我们使用直接聚合查询
-    // 注意：Supabase JS 客户端不直接支持 group by count，我们用 rpc 或者分批 count
-    // 这里为了性能，我们假设活动数量不会太多（个人发起的活动通常有限），我们尝试获取 registrations 表的摘要
-    
-    const counts: Record<string, number> = {}
-    
-    // 方案 A: 如果有 get_event_registration_counts_by_ids RPC (假设没有)
-    // 方案 B: 查询 registrations 表 (只查 id 和 event_id)
-    const { data: regsData, error: regsError } = await supabase
-      .from('registrations')
-      .select('event_id')
-      .in('event_id', eventIds)
-      
-    if (!regsError && regsData) {
-      regsData.forEach((reg: any) => {
-        counts[reg.event_id] = (counts[reg.event_id] || 0) + 1
-      })
-    }
-
-    // 3. 合并数据
-    const result = events.map((event: any) => ({
-      ...event,
-      registration_count: counts[event.id] || 0
-    })) as EventWithRegistrationCount[]
-    
-    console.log('[useEventsWithRegistrationCount] fetchMyEventsWithRegistrationCount: User events fetched', { 
+    console.log('[useEventsWithRegistrationCount] fetchMyEventsWithRegistrationCount: User events fetched', {
       userId,
       count: result.length
     })
