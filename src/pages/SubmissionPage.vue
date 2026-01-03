@@ -191,6 +191,14 @@ const MAX_FILE_SIZE = 500 * 1024 * 1024 // 500MB
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string
 const SUBMIT_REQUEST_TIMEOUT_MS = 20000
 
+const logSubmitDebug = (message: string, data?: Record<string, unknown>) => {
+  if (data) {
+    console.info(`[submission-submit] ${message}`, data)
+  } else {
+    console.info(`[submission-submit] ${message}`)
+  }
+}
+
 const isValidUrl = (value: string) => {
   try {
     const url = new URL(value)
@@ -564,12 +572,21 @@ const handleCancel = () => {
 }
 
 const submit = async () => {
+  logSubmitDebug('start', {
+    eventId: eventId.value,
+    submissionId: submissionId.value,
+    isEditMode: isEditMode.value,
+    userId: store.user?.id || null,
+    linkMode: linkMode.value,
+  })
+
   submitError.value = ''
   submitInfo.value = ''
   resetFieldErrors() // Clear previous error messages, but preserve dirty state
 
   // Note: Validation errors should not clear dirty state - only successful submission should
   if (!store.user) {
+    logSubmitDebug('blocked:no-user')
     store.openAuth('sign_in')
     store.authInfo = '请先登录后提交作品'
     return
@@ -615,8 +632,10 @@ const submit = async () => {
   showSubmitModal.value = true
   submitStatus.value = 'submitting'
   submitting.value = true
+  logSubmitDebug('modal-shown')
 
   try {
+    logSubmitDebug('validated')
     let coverPath = uploadedCoverPath.value || ''
     
     // 只有在上传了新封面时才使用已上传的路径
@@ -651,6 +670,16 @@ const submit = async () => {
       (submissionPayload as any).id = originalSubmission.value.id
     }
 
+    logSubmitDebug('upsert:begin', {
+      eventId: eventId.value,
+      teamId: teamId.value,
+      linkMode: linkMode.value,
+      hasCoverPath: Boolean(coverPath),
+      hasSubmissionUrl: Boolean(submissionUrl),
+      hasSubmissionPath: Boolean(submissionPath),
+      hasPassword: Boolean(submissionPassword.value?.trim()),
+    })
+
     const { error: dbError } = await withTimeout(
       supabase
         .from('submissions')
@@ -662,6 +691,8 @@ const submit = async () => {
     if (dbError) {
       throw new Error(dbError.message)
     }
+
+    logSubmitDebug('upsert:done')
 
     // 验证提交是否真正成功 - 从数据库重新查询确认
     const { data: verifyData, error: verifyError } = await withTimeout(
@@ -678,6 +709,8 @@ const submit = async () => {
     if (verifyError || !verifyData) {
       throw new Error('提交验证失败，请重试')
     }
+
+    logSubmitDebug('verify:done', { verifyId: verifyData.id })
 
     // 确认提交成功
     submitStatus.value = 'success'
@@ -702,9 +735,11 @@ const submit = async () => {
     }, 3000)
 
   } catch (err: any) {
+    logSubmitDebug('error', { message: err?.message || 'unknown' })
     submitStatus.value = 'error'
     submitError.value = err?.message || '提交失败'
   } finally {
+    logSubmitDebug('finally')
     submitting.value = false
   }
 }
