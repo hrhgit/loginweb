@@ -3,19 +3,55 @@
  * 提供智能缓存、后台更新、离线支持等功能
  */
 
-import { computed } from 'vue'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
+import { computed, ref, toValue, type MaybeRefOrGetter } from 'vue'
+import { useQueryClient } from '@tanstack/vue-query'
+import { useSafeMutation as useMutation, useSafeQuery as useQuery } from './useSafeQuery'
 import { supabase } from '../lib/supabase'
 import { queryKeys, createOptimizedQuery } from '../lib/vueQuery'
 import { useAppStore } from '../store/appStore'
 import { apiErrorHandler } from '../store/enhancedErrorHandling'
 import type { SubmissionWithTeam } from '../store/models'
 
-// 作品数据获取函数
-const fetchSubmissions = async (eventId: string): Promise<SubmissionWithTeam[]> => {
-  if (!eventId) return []
+type TeamRef = { id?: string; name?: string } | null | undefined
 
-  const { data, error } = await supabase
+const normalizeTeamRef = (value: unknown): TeamRef => {
+  if (Array.isArray(value)) return (value[0] as TeamRef) ?? null
+  if (value && typeof value === 'object') return value as TeamRef
+  return null
+}
+
+const mapSubmissionRow = (item: any): SubmissionWithTeam => {
+  const teamRef = normalizeTeamRef(item.teams)
+  const team = teamRef?.id ? { id: teamRef.id, name: teamRef.name || '' } : null
+
+  return {
+    id: item.id,
+    event_id: item.event_id,
+    team_id: item.team_id,
+    submitted_by: item.submitted_by,
+    project_name: item.project_name,
+    intro: item.intro,
+    cover_path: item.cover_path,
+    video_link: item.video_link,
+    link_mode: item.link_mode as 'link' | 'file',
+    submission_url: item.submission_url,
+    submission_storage_path: item.submission_storage_path,
+    submission_password: item.submission_password,
+    created_at: item.created_at,
+    updated_at: item.updated_at,
+    team
+  }
+}
+
+// 作品数据获取函数
+// 支持分页
+const fetchSubmissions = async (eventId: string, page = 1, limit = 18): Promise<{ submissions: SubmissionWithTeam[], total: number }> => {
+  if (!eventId) return { submissions: [], total: 0 }
+
+  const from = (page - 1) * limit
+  const to = from + limit - 1
+
+  const { data, count, error } = await supabase
     .from('submissions')
     .select(`
       id,
@@ -36,45 +72,19 @@ const fetchSubmissions = async (eventId: string): Promise<SubmissionWithTeam[]> 
         id,
         name
       )
-    `)
+    `, { count: 'exact' })
     .eq('event_id', eventId)
     .order('created_at', { ascending: false })
+    .range(from, to)
 
   if (error) {
     apiErrorHandler.handleError(error, { operation: 'fetchSubmissions' })
     throw error
   }
 
-  // 转换数据格式
-  return (data || []).map(item => {
-    // 处理队伍数据 - Supabase 的关联可能返回对象或数组
-    let teamData = null
-    if (item.teams) {
-      if (Array.isArray(item.teams) && item.teams.length > 0) {
-        teamData = { id: item.teams[0].id, name: item.teams[0].name }
-      } else if (typeof item.teams === 'object' && !Array.isArray(item.teams) && 'id' in item.teams) {
-        teamData = { id: (item.teams as any).id, name: (item.teams as any).name }
-      }
-    }
-    
-    return {
-      id: item.id,
-      event_id: item.event_id,
-      team_id: item.team_id,
-      submitted_by: item.submitted_by,
-      project_name: item.project_name,
-      intro: item.intro,
-      cover_path: item.cover_path,
-      video_link: item.video_link,
-      link_mode: item.link_mode as 'link' | 'file',
-      submission_url: item.submission_url,
-      submission_storage_path: item.submission_storage_path,
-      submission_password: item.submission_password,
-      created_at: item.created_at,
-      updated_at: item.updated_at,
-      team: teamData
-    }
-  })
+  const submissions = (data || []).map(mapSubmissionRow)
+
+  return { submissions, total: count || 0 }
 }
 
 const fetchSubmissionsByTeam = async (teamId: string): Promise<SubmissionWithTeam[]> => {
@@ -110,46 +120,129 @@ const fetchSubmissionsByTeam = async (teamId: string): Promise<SubmissionWithTea
     throw error
   }
 
-  return (data || []).map(item => ({
-    id: item.id,
-    event_id: item.event_id,
-    team_id: item.team_id,
-    submitted_by: item.submitted_by,
-    project_name: item.project_name,
-    intro: item.intro,
-    cover_path: item.cover_path,
-    video_link: item.video_link,
-    link_mode: item.link_mode as 'link' | 'file',
-    submission_url: item.submission_url,
-    submission_storage_path: item.submission_storage_path,
-    submission_password: item.submission_password,
-    created_at: item.created_at,
-    updated_at: item.updated_at,
-    team: item.teams ? {
-      id: (item.teams as any).id,
-      name: (item.teams as any).name
-    } : null
-  }))
+  return (data || []).map(mapSubmissionRow)
+}
+
+const fetchMyTeamIdsForEvent = async (eventId: string, userId: string): Promise<string[]> => {
+  if (!eventId || !userId) return []
+
+  const [
+    { data: leaderTeams, error: leaderError },
+    { data: memberTeams, error: memberError },
+  ] = await Promise.all([
+    supabase
+      .from('teams')
+      .select('id')
+      .eq('event_id', eventId)
+      .eq('leader_id', userId),
+    supabase
+      .from('team_members')
+      .select('team_id, teams!inner(event_id)')
+      .eq('user_id', userId)
+      .eq('teams.event_id', eventId),
+  ])
+
+  if (leaderError) {
+    apiErrorHandler.handleError(leaderError, { operation: 'fetchMyTeamIdsForEvent.leader' })
+    throw leaderError
+  }
+  if (memberError) {
+    apiErrorHandler.handleError(memberError, { operation: 'fetchMyTeamIdsForEvent.member' })
+    throw memberError
+  }
+
+  const teamIds = new Set<string>()
+  for (const row of leaderTeams ?? []) {
+    if ((row as { id?: string }).id) teamIds.add((row as { id: string }).id)
+  }
+  for (const row of memberTeams ?? []) {
+    if ((row as { team_id?: string }).team_id) teamIds.add((row as { team_id: string }).team_id)
+  }
+
+  return Array.from(teamIds)
+}
+
+const fetchMySubmissions = async (eventId: string, userId: string): Promise<SubmissionWithTeam[]> => {
+  if (!eventId || !userId) return []
+
+  const teamIds = await fetchMyTeamIdsForEvent(eventId, userId)
+  if (teamIds.length === 0) return []
+
+  const { data, error } = await supabase
+    .from('submissions')
+    .select(`
+      id,
+      event_id,
+      team_id,
+      submitted_by,
+      project_name,
+      intro,
+      cover_path,
+      video_link,
+      link_mode,
+      submission_url,
+      submission_storage_path,
+      submission_password,
+      created_at,
+      updated_at,
+      teams(
+        id,
+        name
+      )
+    `)
+    .eq('event_id', eventId)
+    .in('team_id', teamIds)
+    .order('created_at', { ascending: false })
+
+  if (error) {
+    apiErrorHandler.handleError(error, { operation: 'fetchMySubmissions' })
+    throw error
+  }
+
+  return (data || []).map(mapSubmissionRow)
 }
 
 // Vue Query Hooks
 
 /**
- * 获取活动的作品列表
+ * 获取活动的作品列表（支持分页）
  */
-export function useSubmissions(eventId: string) {
-  const queryConfig = createOptimizedQuery(
-    queryKeys.submissions.byEvent(eventId),
-    () => fetchSubmissions(eventId),
-    'standard' // 标准数据类型：30秒过期，15分钟垃圾回收
-  )
-  
+
+export function useSubmissions(eventId: string, initialPage = 1, initialLimit = 18) {
+  const page = ref(initialPage)
+  const limit = ref(initialLimit)
+
   const result = useQuery({
-    ...queryConfig,
+    queryKey: computed(() => queryKeys.submissions.list(eventId, { page: page.value, limit: limit.value })),
+    queryFn: () => fetchSubmissions(eventId, page.value, limit.value),
+    staleTime: 30 * 1000,
     enabled: computed(() => Boolean(eventId)),
+    placeholderData: (previousData) => previousData, // 保持旧数据平滑过渡
   })
   
-  return result
+  return {
+    ...result,
+    page,
+    limit,
+    submissions: computed(() => result.data.value?.submissions || []),
+    total: computed(() => result.data.value?.total || 0),
+    totalPages: computed(() => Math.ceil((result.data.value?.total || 0) / limit.value))
+  }
+}
+
+/**
+ * 获取用户在活动中的作品列表
+ */
+export function useMySubmissions(eventId: MaybeRefOrGetter<string>, userId: MaybeRefOrGetter<string>) {
+  const resolvedEventId = computed(() => toValue(eventId))
+  const resolvedUserId = computed(() => toValue(userId))
+
+  return useQuery({
+    queryKey: computed(() => queryKeys.submissions.byUser(resolvedEventId.value, resolvedUserId.value)),
+    queryFn: () => fetchMySubmissions(resolvedEventId.value, resolvedUserId.value),
+    enabled: computed(() => Boolean(resolvedEventId.value && resolvedUserId.value)),
+    staleTime: 30 * 1000,
+  })
 }
 
 /**
@@ -218,6 +311,11 @@ export function useCreateSubmission() {
       queryClient.invalidateQueries({
         queryKey: queryKeys.submissions.byTeam(variables.teamId)
       })
+      if (store.user?.id) {
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.submissions.byUser(variables.eventId, store.user.id)
+        })
+      }
       
       store.setBanner('info', '作品提交成功！')
     },
@@ -277,6 +375,11 @@ export function useUpdateSubmission() {
       queryClient.invalidateQueries({
         queryKey: queryKeys.submissions.byTeam(variables.teamId)
       })
+      if (store.user?.id) {
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.submissions.byUser(variables.eventId, store.user.id)
+        })
+      }
       
       store.setBanner('info', '作品信息已更新')
     },
@@ -321,6 +424,11 @@ export function useDeleteSubmission() {
       queryClient.invalidateQueries({
         queryKey: queryKeys.submissions.byTeam(data.teamId)
       })
+      if (store.user?.id) {
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.submissions.byUser(data.eventId, store.user.id)
+        })
+      }
       
       store.setBanner('info', '作品已删除')
     },

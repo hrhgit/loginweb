@@ -116,9 +116,9 @@ export const generateCoverUrl = (coverPath: string | null, options: Omit<ImageUr
   if (!coverPath) return ''
   
   return generateImageUrl(coverPath, {
+    preventCache: false, // Allow caching for covers since they have unique filenames
     ...options,
     type: 'cover',
-    preventCache: true // Always prevent caching for covers
   })
 }
 

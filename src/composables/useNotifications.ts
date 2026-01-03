@@ -4,7 +4,8 @@
  */
 
 import { computed } from 'vue'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
+import { useQueryClient } from '@tanstack/vue-query'
+import { useSafeMutation as useMutation, useSafeQuery as useQuery } from './useSafeQuery'
 import { queryKeys } from '../lib/vueQuery'
 import { useAppStore } from '../store/appStore'
 
@@ -63,6 +64,8 @@ export function useNotifications(userId: string) {
       // 本地存储操作通常不需要重试，但保持一致性
       const isNetworkError = error?.message?.includes('网络') || 
                             error?.message?.includes('fetch') ||
+                            error?.message?.includes('timeout') ||
+                            error?.message?.includes('??') ||
                             error?.code === 'NETWORK_ERROR'
       return isNetworkError && failureCount < 3
     },

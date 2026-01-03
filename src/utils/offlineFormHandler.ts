@@ -7,6 +7,8 @@
 
 import { ref, computed, watch } from 'vue'
 import { useOfflineManager, type OfflineIndicator } from './offlineManager'
+import { fetchWithTimeout } from './requestTimeout'
+import { TIMEOUT_REFRESH_MESSAGE } from './errorHandler'
 
 export interface FormSubmissionOptions {
   formId: string
@@ -152,12 +154,13 @@ export function useOfflineForm(options: FormSubmissionOptions) {
     isSubmitting.value = true
 
     try {
-      const response = await fetch(options.submissionUrl, {
+      const response = await fetchWithTimeout(options.submissionUrl, {
         method: options.method || 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(submitData)
+        body: JSON.stringify(submitData),
+        timeoutMessage: TIMEOUT_REFRESH_MESSAGE
       })
 
       if (!response.ok) {
@@ -295,12 +298,13 @@ export async function handleFormSubmission(
       }
     }
 
-    const response = await fetch(options.submissionUrl, {
+    const response = await fetchWithTimeout(options.submissionUrl, {
       method: options.method || 'POST',
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify(data)
+      body: JSON.stringify(data),
+      timeoutMessage: TIMEOUT_REFRESH_MESSAGE
     })
 
     if (!response.ok) {

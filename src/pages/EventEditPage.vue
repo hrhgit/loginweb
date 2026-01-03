@@ -50,7 +50,49 @@ const route = useRoute()
 const router = useRouter()
 
 const eventId = computed(() => String(route.params.id ?? ''))
-const { data: event, isLoading: eventLoading, error: eventError } = useEvent(eventId.value)
+
+// 优先使用路由传递的活动数据，避免不必要的查询
+const routeEvent = computed(() => {
+  // 从路由状态获取活动数据
+  const state = history.state as any
+  return state?.event || null
+})
+
+// 只有在没有路由数据时才查询
+const eventQuery = useEvent(eventId.value)
+
+// 合并数据源：优先使用路由数据，其次使用查询数据
+const event = computed(() => {
+  if (routeEvent.value) {
+    console.log('🚀 [EventEditPage] Using route event data:', routeEvent.value.id)
+    return routeEvent.value
+  }
+  
+  if (eventQuery.data.value) {
+    console.log('🔄 [EventEditPage] Using query event data:', eventQuery.data.value.id)
+    return eventQuery.data.value
+  }
+  
+  return null
+})
+
+// 加载状态：只有在没有任何数据时才显示加载
+const eventLoading = computed(() => {
+  // 如果有路由数据，不显示加载状态
+  if (routeEvent.value) return false
+  
+  // 否则使用查询的加载状态
+  return eventQuery.isLoading.value
+})
+
+// 错误状态：只有在没有路由数据且查询出错时才显示
+const eventError = computed(() => {
+  // 如果有路由数据，不显示错误
+  if (routeEvent.value) return null
+  
+  // 否则使用查询的错误状态
+  return eventQuery.error.value
+})
 const loading = ref(false)
 const loadError = ref('')
 const saveBusy = ref(false)
@@ -669,58 +711,6 @@ const validateAndScroll = (): boolean => {
   return isValid
 }
 
-// Event loading is now handled by Vue Query composables
-// Watch for event data changes and update form accordingly
-watch(event, (newEvent) => {
-  if (newEvent) {
-    // Check permissions and status
-    if (store.isDemoEvent(newEvent)) {
-      loadError.value = '演示活动不支持编辑'
-      return
-    } else if (!store.isAdmin || newEvent.created_by !== store.user.id) {
-      loadError.value = '没有权限编辑此活动'
-      return
-    }
-    
-    // Fill form data
-    populateFormData(newEvent)
-  }
-}, { immediate: true })
-
-// Watch for loading errors
-watch(eventError, (error) => {
-  if (error) {
-    loadError.value = error.message || '加载活动失败'
-  }
-})
-
-const loadEvent = async (id: string) => {
-  // This function is now handled by Vue Query composables
-  // Just ensure user is authenticated
-  if (!id) return
-  
-  loadError.value = ''
-  store.clearBanners()
-
-  await store.refreshUser()
-  if (!store.user) {
-    loadError.value = '请先登录后再编辑活动'
-    return
-  }
-
-  if (isDemo.value) {
-    loadError.value = '演示活动不支持编辑'
-  } else if (!store.isAdmin || !event.value || event.value.created_by !== store.user.id) {
-    loadError.value = '没有权限编辑此活动'
-  }
-
-  if (!loadError.value && event.value) {
-    populateFormData(event.value)
-  }
-
-  loading.value = false
-}
-
 // 提取表单数据填充逻辑
 const populateFormData = (eventData: AppEvent) => {
   summary.value = getEventSummary(eventData.description ?? null)
@@ -747,6 +737,24 @@ const populateFormData = (eventData: AppEvent) => {
   
   syncSavedSnapshot()
 }
+
+// Event loading is now handled by Vue Query composables
+// Watch for event data changes and update form accordingly
+watch(event, (newEvent) => {
+  if (newEvent) {
+    // Check permissions and status
+    if (store.isDemoEvent(newEvent)) {
+      loadError.value = '演示活动不支持编辑'
+      return
+    } else if (!store.isAdmin || newEvent.created_by !== store.user.id) {
+      loadError.value = '没有权限编辑此活动'
+      return
+    }
+    
+    // Fill form data
+    populateFormData(newEvent)
+  }
+}, { immediate: true })
 
 const handleSave = async (nextStatus: EventStatus) => {
   if (!event.value || !canEdit.value) return false

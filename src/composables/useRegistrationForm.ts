@@ -1,5 +1,6 @@
 import { computed, watch, toValue, type MaybeRefOrGetter } from 'vue'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
+import { useQueryClient } from '@tanstack/vue-query'
+import { useSafeMutation as useMutation, useSafeQuery as useQuery } from './useSafeQuery'
 import { supabase } from '../lib/supabase'
 import { queryKeys } from '../lib/vueQuery'
 import { 
@@ -142,6 +143,8 @@ export function useRegistrationForm(eventId: MaybeRefOrGetter<string>, userId: M
     retry: (failureCount, error: any) => {
       const isNetworkError = error?.message?.includes('网络') || 
                             error?.message?.includes('fetch') ||
+                            error?.message?.includes('timeout') ||
+                            error?.message?.includes('??') ||
                             error?.code === 'NETWORK_ERROR'
       const shouldRetry = isNetworkError && failureCount < 3
       console.log('[useRegistrationForm] Retry decision:', { 
@@ -198,6 +201,8 @@ export function useRegistrationCount(eventId: MaybeRefOrGetter<string>) {
     retry: (failureCount, error: any) => {
       const isNetworkError = error?.message?.includes('网络') || 
                             error?.message?.includes('fetch') ||
+                            error?.message?.includes('timeout') ||
+                            error?.message?.includes('??') ||
                             error?.code === 'NETWORK_ERROR'
       return isNetworkError && failureCount < 3
     },

@@ -4,6 +4,7 @@ import { RouterLink, useRouter } from 'vue-router'
 import { useMyEventsWithRegistrationCount } from '../composables/useEventsWithRegistrationCount'
 import { Settings, Edit, Undo2, UserPlus, Plus } from 'lucide-vue-next'
 import { useAppStore } from '../store/appStore'
+import { supabase } from '../lib/supabase'
 import EventCard from '../components/events/EventCard.vue'
 import UserSearchModal from '../components/modals/UserSearchModal.vue'
 import {
@@ -30,6 +31,22 @@ const selectedEventId = ref<string | null>(null)
 // 添加初始化状态跟踪
 const isInitializing = ref(true)
 
+// 调试状态
+const debugInfo = ref({
+  storeUserId: '',
+  queryEnabled: false,
+  queryLoading: false,
+  queryError: null as any,
+  authSession: null as any,
+  authUser: null as any,
+  initStartTime: 0,
+  initEndTime: 0,
+  requestsMade: [] as string[]
+})
+
+// 开发环境检查
+const isDev = import.meta.env.DEV
+
 // 防止闪烁的加载状态管理
 const shouldShowLoading = computed(() => {
   // 如果已经有数据，即使在加载中也不显示加载状态（避免闪烁）
@@ -42,21 +59,115 @@ const shouldShowLoading = computed(() => {
   return myEventsQuery.isLoading.value || isInitializing.value
 })
 
+// 调试函数：检查认证状态
+const checkAuthStatus = async () => {
+  console.log('🔍 [MyEventsPage] Checking auth status...')
+  
+  try {
+    // 检查 session
+    const sessionResult = await supabase.auth.getSession()
+    debugInfo.value.authSession = sessionResult.data.session
+    console.log('📋 [MyEventsPage] Session:', sessionResult.data.session?.user?.id || 'No session')
+    
+    // 检查 user
+    const userResult = await supabase.auth.getUser()
+    debugInfo.value.authUser = userResult.data.user
+    console.log('👤 [MyEventsPage] User:', userResult.data.user?.id || 'No user')
+    
+    if (userResult.error) {
+      console.error('❌ [MyEventsPage] Auth error:', userResult.error)
+    }
+  } catch (error) {
+    console.error('💥 [MyEventsPage] Auth check failed:', error)
+  }
+}
+
+// 调试函数：监控 Vue Query 状态
+const logQueryStatus = () => {
+  debugInfo.value.storeUserId = store.user?.id || ''
+  debugInfo.value.queryEnabled = Boolean(store.user?.id)
+  debugInfo.value.queryLoading = myEventsQuery.isLoading.value
+  debugInfo.value.queryError = myEventsQuery.error.value
+  
+  console.log('🔄 [MyEventsPage] Query Status:', {
+    storeUserId: debugInfo.value.storeUserId,
+    queryEnabled: debugInfo.value.queryEnabled,
+    queryLoading: debugInfo.value.queryLoading,
+    queryError: debugInfo.value.queryError?.message,
+    hasData: myEvents.value.length > 0
+  })
+}
+
 onMounted(async () => {
+  console.log('🚀 [MyEventsPage] Component mounted')
+  debugInfo.value.initStartTime = Date.now()
+  
+  // 初始状态检查
+  console.log('📊 [MyEventsPage] Initial state:', {
+    storeUser: store.user?.id || 'No user',
+    isAuthed: store.isAuthed,
+    isAdmin: store.isAdmin
+  })
+  
+  // 检查认证状态
+  await checkAuthStatus()
+  
   // 确保 store 已经初始化
+  console.log('⏳ [MyEventsPage] Starting store.init()...')
   await store.init()
+  debugInfo.value.initEndTime = Date.now()
+  console.log(`✅ [MyEventsPage] Store.init() completed in ${debugInfo.value.initEndTime - debugInfo.value.initStartTime}ms`)
+  
+  // 初始化完成后再次检查状态
+  logQueryStatus()
+  
   isInitializing.value = false
+  console.log('🏁 [MyEventsPage] Initialization complete')
 })
 
 // 暂时移除动态报名人数查询，避免 Vue Query 警告
 // 在我的活动页面，管理员可以点击进入后台管理查看详细的报名信息
 
 // 监听用户状态变化，如果用户登录状态发生变化也更新初始化状态
-watch(() => store.user, () => {
+watch(() => store.user, (newUser, oldUser) => {
+  console.log('👤 [MyEventsPage] User changed:', {
+    from: oldUser?.id || 'No user',
+    to: newUser?.id || 'No user'
+  })
+  
   if (isInitializing.value) {
     isInitializing.value = false
   }
+  
+  // 用户状态变化后检查查询状态
+  setTimeout(() => {
+    logQueryStatus()
+  }, 100)
 }, { immediate: true })
+
+// 监听查询状态变化
+watch(() => myEventsQuery.isLoading.value, (loading) => {
+  console.log(`🔄 [MyEventsPage] Query loading changed: ${loading}`)
+  if (loading) {
+    debugInfo.value.requestsMade.push(`Query started at ${new Date().toISOString()}`)
+  }
+})
+
+// 监听查询数据变化
+watch(() => myEvents.value, (events) => {
+  console.log(`📊 [MyEventsPage] Events data changed: ${events.length} events`)
+  if (events.length > 0) {
+    console.log('📋 [MyEventsPage] Events:', events.map(e => ({ id: e.id, title: e.title, status: e.status })))
+  }
+})
+
+// 监听查询错误
+watch(() => myEventsQuery.error.value, (error) => {
+  if (error) {
+    console.error('❌ [MyEventsPage] Query error:', error)
+    debugInfo.value.queryError = error
+  }
+})
 
 const shouldIgnoreCardNav = (event: MouseEvent) => {
   const target = event.target as HTMLElement | null
@@ -98,10 +209,44 @@ const handleCloseInviteModal = () => {
   inviteJudgeModalOpen.value = false
   selectedEventId.value = null
 }
+
+const handleAdminClick = (event: any) => {
+  console.log('🔗 [MyEventsPage] Navigating to admin with event data:', event.id)
+  // 通过路由状态传递活动数据，避免重新查询
+  router.push({
+    path: `/events/${event.id}/admin`,
+    state: { event }
+  })
+}
+
+const handleEditClick = (event: any) => {
+  console.log('✏️ [MyEventsPage] Navigating to edit with event data:', event.id)
+  // 通过路由状态传递活动数据，避免重新查询
+  router.push({
+    path: `/events/${event.id}/edit`,
+    state: { event }
+  })
+}
 </script>
 
 <template>
   <main class="main">
+    <!-- 调试面板 - 开发环境显示 -->
+    <div v-if="isDev" style="position: fixed; top: 10px; right: 10px; background: rgba(0,0,0,0.8); color: white; padding: 10px; border-radius: 8px; font-size: 12px; max-width: 300px; z-index: 9999;">
+      <div><strong>🔍 调试信息</strong></div>
+      <div>Store User ID: {{ debugInfo.storeUserId || 'None' }}</div>
+      <div>Query Enabled: {{ debugInfo.queryEnabled ? '✅' : '❌' }}</div>
+      <div>Query Loading: {{ debugInfo.queryLoading ? '🔄' : '⏹️' }}</div>
+      <div>Query Error: {{ debugInfo.queryError?.message || 'None' }}</div>
+      <div>Auth Session: {{ debugInfo.authSession?.user?.id || 'None' }}</div>
+      <div>Auth User: {{ debugInfo.authUser?.id || 'None' }}</div>
+      <div>Init Time: {{ debugInfo.initEndTime - debugInfo.initStartTime }}ms</div>
+      <div>Events Count: {{ myEvents.length }}</div>
+      <div>Requests: {{ debugInfo.requestsMade.length }}</div>
+      <button @click="checkAuthStatus" style="margin-top: 5px; padding: 2px 6px; font-size: 10px;">重新检查认证</button>
+      <button @click="logQueryStatus" style="margin-top: 5px; padding: 2px 6px; font-size: 10px;">检查查询状态</button>
+    </div>
+
     <section class="page-head">
       <div>
         <h1>我发起的活动</h1>
@@ -175,10 +320,10 @@ const handleCloseInviteModal = () => {
             <template v-if="store.isDemoEvent(event)">
               <button class="btn btn--ghost" type="button" disabled>仅展示</button>
             </template>
-            <RouterLink v-else-if="event.status === 'draft'" class="btn btn--ghost btn--icon-text" :to="`/events/${event.id}/edit`">
+            <button v-else-if="event.status === 'draft'" class="btn btn--ghost btn--icon-text" @click="handleEditClick(event)">
               <Edit :size="16" />
               编辑页面
-            </RouterLink>
+            </button>
             <template v-else-if="event.status === 'published'">
               <button
                 class="btn btn--ghost btn--icon-text"
@@ -188,17 +333,18 @@ const handleCloseInviteModal = () => {
                 <UserPlus :size="16" />
                 邀请评委
               </button>
-              <RouterLink 
+              <button
                 class="btn btn--ghost btn--icon-text"
-                :to="`/events/${event.id}/admin`"
+                type="button"
+                @click="handleAdminClick(event)"
               >
                 <Settings :size="16" />
                 后台管理
-              </RouterLink>
-              <RouterLink class="btn btn--success btn--icon-text" :to="`/events/${event.id}/edit`">
+              </button>
+              <button class="btn btn--success btn--icon-text" @click="handleEditClick(event)">
                 <Edit :size="16" />
                 编辑页面
-              </RouterLink>
+              </button>
               <button
                 class="btn btn--danger btn--icon-text"
                 type="button"

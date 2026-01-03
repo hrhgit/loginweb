@@ -86,7 +86,7 @@ export function wrapDynamicImport<T = any>(
         const loadError = error as Error
         
         // Handle timeout specifically
-        if (loadError.message.includes('timeout')) {
+        if (loadError.message.includes('timeout') || loadError.message.includes('超时')) {
           onTimeout?.()
         }
 
@@ -209,7 +209,7 @@ export function createModuleErrorComponent(
         maxRetries: options.maxRetries || 3,
         showDetails: options.showErrorDetails !== false,
         showNetworkStatus: true,
-        showTimeout: error.message?.includes('timeout') || false,
+        showTimeout: error.message?.includes('timeout') || error.message?.includes('超时') || false,
         onRetry: async () => {
           // Attempt to reload the current route
           const router = this.$router
@@ -302,7 +302,7 @@ function getErrorType(error: Error | LoadError): 'MIME_ERROR' | 'NETWORK_ERROR' 
     return 'NETWORK_ERROR'
   }
   
-  if (message.includes('timeout')) {
+  if (message.includes('timeout') || message.includes('超时')) {
     return 'TIMEOUT_ERROR'
   }
   

@@ -88,7 +88,7 @@
           </thead>
           <tbody class="table-body">
             <tr 
-              v-for="(row, index) in sortedRows" 
+              v-for="(row, index) in displayRows" 
               :key="row.userId"
               :class="[
                 'table-row',
@@ -152,7 +152,7 @@
     <div class="table-footer">
       <div class="footer-info">
         <span class="record-count">
-          显示 {{ Math.min(rows.length, displayLimit) }} / {{ totalRows }} 条记录
+          显示 {{ displayedRowCount }} / {{ totalRows }} 条记录
         </span>
       </div>
       <div class="footer-actions">
@@ -201,6 +201,8 @@ interface Props {
   rows: TableRow[]
   displayLimit?: number
   showStats?: boolean
+  page?: number
+  pageSize?: number
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -253,8 +255,31 @@ const sortedRows = computed(() => {
     })
   }
   
-  return sorted.slice(0, props.displayLimit)
+  return sorted
 })
+
+const hasPaging = computed(() => Number.isFinite(props.page) && Number.isFinite(props.pageSize))
+
+const normalizedPage = computed(() => {
+  const page = Number(props.page)
+  return Number.isFinite(page) && page > 0 ? page : 1
+})
+
+const normalizedPageSize = computed(() => {
+  const size = Number(props.pageSize ?? props.displayLimit)
+  return Number.isFinite(size) && size > 0 ? size : props.rows.length
+})
+
+const displayRows = computed(() => {
+  const size = normalizedPageSize.value
+  if (hasPaging.value) {
+    const start = (normalizedPage.value - 1) * size
+    return sortedRows.value.slice(start, start + size)
+  }
+  return sortedRows.value.slice(0, size)
+})
+
+const displayedRowCount = computed(() => displayRows.value.length)
 
 // 方法
 const handleSort = (columnKey: string) => {

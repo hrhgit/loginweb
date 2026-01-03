@@ -4,7 +4,8 @@
  */
 
 import { computed } from 'vue'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
+import { useQueryClient } from '@tanstack/vue-query'
+import { useSafeMutation as useMutation, useSafeQuery as useQuery } from './useSafeQuery'
 import { supabase } from '../lib/supabase'
 import { queryKeys, createOptimizedQuery } from '../lib/vueQuery'
 import { useAppStore } from '../store/appStore'

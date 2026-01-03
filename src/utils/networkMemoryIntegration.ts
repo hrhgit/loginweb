@@ -14,6 +14,8 @@ import {
   performNetworkCleanup
 } from './memoryManager'
 import { addNetworkStateListener } from './networkManager'
+import { fetchWithTimeout } from './requestTimeout'
+import { TIMEOUT_REFRESH_MESSAGE } from './errorHandler'
 
 /**
  * Initialize network memory management
@@ -130,7 +132,9 @@ export function createNetworkAwareComponent() {
         trackOperation(operationId, `GET ${url}`)
         
         try {
-          const response = await fetch(url)
+          const response = await fetchWithTimeout(url, {
+            timeoutMessage: TIMEOUT_REFRESH_MESSAGE
+          })
           const data = await response.json()
           completeOperation(operationId)
           return data

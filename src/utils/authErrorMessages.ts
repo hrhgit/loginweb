@@ -163,7 +163,7 @@ export function isNetworkError(error: any): boolean {
     ? error 
     : error.message || error.error_description || String(error)
     
-  return /network|connection|fetch|timeout|offline/i.test(message)
+  return /network|connection|fetch|timeout|offline|超时/i.test(message)
 }
 
 /**

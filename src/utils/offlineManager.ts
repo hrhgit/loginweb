@@ -180,6 +180,12 @@ export class OfflineManager {
   }
 
   private async registerServiceWorker(): Promise<void> {
+    // Only register service worker in production to avoid interference with HMR and dev server proxies
+    if (import.meta.env.DEV) {
+      console.log('Service Worker registration skipped in development mode')
+      return
+    }
+
     if ('serviceWorker' in navigator) {
       try {
         this.serviceWorkerRegistration = await navigator.serviceWorker.register('/sw.js')

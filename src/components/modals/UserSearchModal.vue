@@ -95,6 +95,7 @@ const performSearch = async (isRetry = false) => {
       errorMessage.includes('网络') || 
       errorMessage.includes('连接') ||
       errorMessage.includes('timeout') ||
+      errorMessage.includes('超时') ||
       errorMessage.includes('fetch')
     )) {
       retryCount.value++

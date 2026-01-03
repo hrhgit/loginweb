@@ -238,8 +238,7 @@ const { data: event } = useEvent(eventId.value)
 
 // Computed submission from Vue Query data
 const submission = computed(() => {
-  if (!submissions.data.value) return null
-  const submissionsList = submissions.data.value || []
+  const submissionsList = submissions.submissions.value || []
   return submissionsList.find(s => s.id === submissionId.value) || null
 })
 
@@ -273,8 +272,7 @@ const eventTitle = computed(() => {
 // Team Data Computation
 const teamDetails = computed(() => {
   if (!submission.value || !submission.value.team_id) return null
-  if (!teams.data.value) return null
-  const teamsData = teams.data.value || []
+  const teamsData = teams.teams.value || []
   return teamsData.find(t => t.id === submission.value?.team_id) || null
 })
 
@@ -559,9 +557,10 @@ onUnmounted(() => {
 
 <style scoped>
 .showcase-page {
-  max-width: 1100px;
+  width: 100%;
+  max-width: none;
   margin: 0;
-  padding: 2rem 1.5rem 6rem;
+  padding: 2rem clamp(16px, 3vw, 40px) 6rem;
   color: var(--ink);
 }
 

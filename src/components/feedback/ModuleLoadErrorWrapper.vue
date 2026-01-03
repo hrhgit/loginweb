@@ -124,7 +124,7 @@ const errorType = computed(() => {
   if (message.includes('fetch') || message.includes('network')) {
     return 'NETWORK_ERROR'
   }
-  if (message.includes('timeout')) {
+  if (message.includes('timeout') || message.includes('超时')) {
     return 'TIMEOUT_ERROR'
   }
   

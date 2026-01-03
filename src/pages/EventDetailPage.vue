@@ -18,13 +18,15 @@ import {
   Eye,
   Trash2,
   Send,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-vue-next'
 import { useEvent } from '../composables/useEvents'
 import { useCurrentUserData } from '../composables/useUsers'
 import { useAppStore } from '../store/appStore'
 // Vue Query hooks for data management
 import { useTeamData, useJoinTeamRequest, useSaveTeamSeeker, useDeleteTeamSeeker, useSendTeamInvite } from '../composables/useTeams'
-import { useSubmissionData } from '../composables/useSubmissions'
+import { useMySubmissions, useSubmissionData } from '../composables/useSubmissions'
 import { useJudgePermissions } from '../composables/useJudges'
 import { useRegistrationData, useUpdateRegistrationForm } from '../composables/useRegistrationForm'
 import { 
@@ -177,6 +179,7 @@ watch(registrationModalOpen, (open) => {
 // Vue Query data hooks - 直接调用，使用 enabled 控制执行
 const { teams, seekers } = useTeamData(eventId.value)
 const { submissions } = useSubmissionData(eventId.value)
+const mySubmissionsQuery = useMySubmissions(eventId, userId)
 const joinTeamMutation = useJoinTeamRequest()
 const saveTeamSeekerMutation = useSaveTeamSeeker()
 const deleteTeamSeekerMutation = useDeleteTeamSeeker()
@@ -190,9 +193,10 @@ const registrationDataQuery = useRegistrationData(eventId, userId)
 const updateRegistrationFormMutation = useUpdateRegistrationForm()
 
 // Replace original computed properties with Vue Query data
-const teamLobbyTeams = computed(() => teams.data.value || [])
-const teamSeekers = computed(() => seekers.data.value || [])
-const allSubmissions = computed(() => submissions.data.value || [])
+// 修复：使用 useTeams 和 useSubmissions 暴露的 computed 属性，而不是直接访问 data.value（因为现在是分页结构）
+const teamLobbyTeams = computed(() => teams.teams.value || [])
+const teamSeekers = computed(() => seekers.data.value || []) // seekers 还是普通数组
+const allSubmissions = computed(() => submissions.submissions.value || [])
 
 const detailTab = computed<DetailTab>(() => props.tab)
 const goTab = async (tab: DetailTab) => {
@@ -242,17 +246,91 @@ const myTeamsCount = computed(() => {
 
 type ShowcaseTab = 'all' | 'mine'
 const showcaseTab = ref<ShowcaseTab>('all')
-const mySubmissions = computed(() => {
-  if (!store.user) return []
-  return allSubmissions.value.filter(submission => 
-    submission.submitted_by === store.user?.id
-  )
-})
+const mySubmissions = computed(() => mySubmissionsQuery.data.value || [])
+
+const showcaseLoading = computed(() =>
+  showcaseTab.value === 'mine' ? mySubmissionsQuery.isLoading.value : submissions.isLoading.value
+)
+const showcaseError = computed(() =>
+  showcaseTab.value === 'mine' ? mySubmissionsQuery.error.value : submissions.error.value
+)
+const refetchShowcase = () => {
+  if (showcaseTab.value === 'mine') {
+    mySubmissionsQuery.refetch()
+  } else {
+    submissions.refetch()
+  }
+}
 
 // 当前显示的作品列表（根据标签页切换）
 const currentSubmissions = computed(() => {
   return showcaseTab.value === 'all' ? allSubmissions.value : mySubmissions.value
 })
+
+type PageItem = number | '...'
+
+const buildPageItems = (current: number, total: number): PageItem[] => {
+  if (total <= 1) return [1]
+  if (total <= 7) return Array.from({ length: total }, (_, idx) => idx + 1)
+
+  const pages = new Set<number>()
+  const addRange = (start: number, end: number) => {
+    for (let page = start; page <= end; page += 1) {
+      if (page >= 1 && page <= total) pages.add(page)
+    }
+  }
+
+  addRange(1, 3)
+  addRange(total - 1, total)
+
+  if (current <= 4) {
+    addRange(4, 5)
+  } else if (current >= total - 3) {
+    addRange(total - 4, total - 2)
+  } else {
+    addRange(current - 1, current + 1)
+  }
+
+  const sorted = Array.from(pages).sort((a, b) => a - b)
+  const items: PageItem[] = []
+  let prev = 0
+  for (const page of sorted) {
+    if (prev && page - prev > 1) items.push('...')
+    items.push(page)
+    prev = page
+  }
+  return items
+}
+
+const teamPageItems = computed(() => buildPageItems(teams.page.value, teams.totalPages.value))
+const submissionPageItems = computed(() => buildPageItems(submissions.page.value, submissions.totalPages.value))
+
+const teamJumpPage = ref('')
+const submissionJumpPage = ref('')
+
+const clampPage = (value: number, total: number) => Math.min(Math.max(value, 1), total)
+
+const applyTeamJump = () => {
+  const total = teams.totalPages.value
+  const raw = Number(teamJumpPage.value)
+  if (!Number.isFinite(raw) || raw < 1 || total <= 0) {
+    teamJumpPage.value = ''
+    return
+  }
+  teams.page.value = clampPage(Math.floor(raw), total)
+  teamJumpPage.value = ''
+}
+
+const applySubmissionJump = () => {
+  const total = submissions.totalPages.value
+  const raw = Number(submissionJumpPage.value)
+  if (!Number.isFinite(raw) || raw < 1 || total <= 0) {
+    submissionJumpPage.value = ''
+    return
+  }
+  submissions.page.value = clampPage(Math.floor(raw), total)
+  submissionJumpPage.value = ''
+}
 
 const canSubmit = computed(() => {
   if (!event.value || !store.user) return false
@@ -1751,7 +1829,8 @@ watch(isRegistered, async (value) => {
               :overscan="2"
               grid-class="team-grid"
               key-field="id"
-              :min-items-for-virtual="9"
+              :min-items-for-virtual="999"
+              :enabled="false"
             >
               <template #default="{ items }">
                 <article
@@ -1806,6 +1885,53 @@ watch(isRegistered, async (value) => {
                 </article>
               </template>
             </VirtualCardGrid>
+            
+            <!-- 分页控件 -->
+            <div v-if="teams.totalPages.value > 1" class="pagination-controls">
+              <button
+                class="btn btn--ghost btn--icon"
+                :disabled="teams.page.value <= 1"
+                @click="teams.page.value--"
+              >
+                <ChevronLeft :size="20" />
+              </button>
+              <div class="pagination-pages">
+                <template v-for="item in teamPageItems" :key="`team-page-${item}`">
+                  <span v-if="item === '...'" class="pagination-ellipsis">...</span>
+                  <button
+                    v-else
+                    class="btn btn--ghost btn--compact pagination-page"
+                    :class="{ active: item === teams.page.value }"
+                    type="button"
+                    @click="teams.page.value = item"
+                  >
+                    {{ item }}
+                  </button>
+                </template>
+              </div>
+              <button
+                class="btn btn--ghost btn--icon"
+                :disabled="teams.page.value >= teams.totalPages.value"
+                @click="teams.page.value++"
+              >
+                <ChevronRight :size="20" />
+              </button>
+              <span class="pagination-info">共 {{ teams.totalPages.value }} 页</span>
+              <div class="pagination-jump">
+                <span class="pagination-label">跳转</span>
+                <input
+                  v-model="teamJumpPage"
+                  class="pagination-input"
+                  type="number"
+                  :min="1"
+                  :max="teams.totalPages.value"
+                  placeholder="页码"
+                  @keyup.enter="applyTeamJump"
+                />
+                <button class="btn btn--ghost btn--compact" type="button" @click="applyTeamJump">确定</button>
+              </div>
+            </div>
+
             <div v-if="filteredTeamLobbyList.length === 0" class="team-empty">
               <p>无符合条件的队伍</p>
             </div>
@@ -1966,22 +2092,22 @@ watch(isRegistered, async (value) => {
           </div>
           
           <!-- 加载状态 -->
-          <div v-if="submissions.isLoading.value" class="showcase-loading">
+          <div v-if="showcaseLoading" class="showcase-loading">
             <div class="loading-spinner"></div>
             <p>加载作品中...</p>
           </div>
 
           <!-- 错误状态 -->
-          <div v-else-if="submissions.error.value" class="showcase-error">
-            <p>{{ submissions.error.value?.message }}</p>
-            <button class="btn btn--ghost" @click="submissions.refetch()">
+          <div v-else-if="showcaseError" class="showcase-error">
+            <p>{{ showcaseError?.message }}</p>
+            <button class="btn btn--ghost" @click="refetchShowcase">
               重新加载
             </button>
           </div>
 
           <!-- 空状态 -->
           <div v-else-if="currentSubmissions.length === 0" class="showcase-empty">
-            <div class="showcase-empty__icon">📋</div>
+            <div class="showcase-empty__icon">作品</div>
             <h3 class="showcase-empty__title">
               {{ showcaseTab === 'all' ? '暂无作品' : '你还没有提交作品' }}
             </h3>
@@ -2000,42 +2126,79 @@ watch(isRegistered, async (value) => {
             </RouterLink>
           </div>
 
-          <!-- 作品网格 - 使用虚拟滚动 -->
-          <VirtualCardGrid
-            v-else
-            :items="currentSubmissions"
-            :item-height="320"
-            :max-height="800"
-            :columns="3"
-            :gap="24"
-            :overscan="2"
-            grid-class="showcase-grid"
-            key-field="id"
-            :min-items-for-virtual="6"
-          >
-            <template #default="{ items }">
-              <SubmissionCard
-                v-for="submission in items"
-                :key="submission.id"
-                :submission="submission"
-                @click="handleSubmissionClick(submission)"
-                @double-click="handleSubmissionDoubleClick(submission)"
-                @title-click="handleSubmissionTitleClick(submission)"
+          <!-- 作品列表 -->
+          <div v-else>
+            <VirtualCardGrid
+              :items="currentSubmissions"
+              :item-height="280"
+              :max-height="800"
+              :columns="3"
+              :gap="20"
+              :overscan="2"
+              grid-class="showcase-grid"
+              key-field="id"
+              :min-items-for-virtual="999"
+              :enabled="false"
+            >
+              <template #default="{ items }">
+                <SubmissionCard
+                  v-for="submission in items"
+                  :key="submission.id"
+                  :submission="submission"
+                  @click="handleSubmissionClick"
+                  @double-click="handleSubmissionDoubleClick"
+                  @title-click="handleSubmissionTitleClick"
+                />
+              </template>
+            </VirtualCardGrid>
+
+            <!-- 分页控件 -->
+            <div v-if="showcaseTab === 'all' && submissions.totalPages.value > 1" class="pagination-controls">
+              <button
+                class="btn btn--ghost btn--icon"
+                :disabled="submissions.page.value <= 1"
+                @click="submissions.page.value--"
               >
-                <template #actions v-if="showcaseTab === 'mine'">
-                  <RouterLink 
-                    :to="`/events/${eventId}/submissions/${submission.id}/edit`" 
-                    class="btn btn--compact btn--ghost"
-                    @click.stop
+                <ChevronLeft :size="20" />
+              </button>
+              <div class="pagination-pages">
+                <template v-for="item in submissionPageItems" :key="`submission-page-${item}`">
+                  <span v-if="item === '...'" class="pagination-ellipsis">...</span>
+                  <button
+                    v-else
+                    class="btn btn--ghost btn--compact pagination-page"
+                    :class="{ active: item === submissions.page.value }"
+                    type="button"
+                    @click="submissions.page.value = item"
                   >
-                    <Edit :size="14" />
-                    编辑
-                  </RouterLink>
+                    {{ item }}
+                  </button>
                 </template>
-              </SubmissionCard>
-            </template>
-          </VirtualCardGrid>
-        </section>
+              </div>
+              <button
+                class="btn btn--ghost btn--icon"
+                :disabled="submissions.page.value >= submissions.totalPages.value"
+                @click="submissions.page.value++"
+              >
+                <ChevronRight :size="20" />
+              </button>
+              <span class="pagination-info">共 {{ submissions.totalPages.value }} 页</span>
+              <div class="pagination-jump">
+                <span class="pagination-label">跳转</span>
+                <input
+                  v-model="submissionJumpPage"
+                  class="pagination-input"
+                  type="number"
+                  :min="1"
+                  :max="submissions.totalPages.value"
+                  placeholder="页码"
+                  @keyup.enter="applySubmissionJump"
+                />
+                <button class="btn btn--ghost btn--compact" type="button" @click="applySubmissionJump">确定</button>
+              </div>
+            </div>
+          </div>
+</section>
 
           <section v-else-if="detailTab === 'form'" class="detail-section" role="tabpanel">
             <div class="detail-section__head">
@@ -2694,6 +2857,59 @@ watch(isRegistered, async (value) => {
   padding: 1.5rem;
   background: var(--surface-muted);
   border-radius: 12px;
+}
+
+.pagination-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-top: 1.5rem;
+}
+
+.pagination-pages {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.pagination-page {
+  min-width: 34px;
+  height: 32px;
+  justify-content: center;
+}
+
+.pagination-page.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.pagination-ellipsis {
+  padding: 0 0.35rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.pagination-jump {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.pagination-label {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.pagination-input {
+  width: 72px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--ink);
 }
 
 .pagination-info {

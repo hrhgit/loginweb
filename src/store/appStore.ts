@@ -214,6 +214,7 @@ const handleNetworkAwareOperation = async <T>(
       return message.includes('网络') || 
              message.includes('连接') || 
              message.includes('timeout') ||
+             message.includes('超时') ||
              message.includes('fetch') ||
              message.includes('NetworkError') ||
              error.code === 'NETWORK_ERROR'
@@ -466,6 +467,11 @@ const normalizeInviteStatus = (status: string | null | undefined) => {
   return 'pending'
 }
 
+const normalizeTeamRelation = <T>(value: T | T[] | null | undefined): T | null => {
+  if (Array.isArray(value)) return value[0] ?? null
+  return value ?? null
+}
+
 const fetchTeamMemberCounts = async (teamIds: string[]) => {
   if (teamIds.length === 0) return {}
   const { data, error } = await supabase
@@ -525,7 +531,9 @@ const loadMyTeamsForEvent = async (eventId: string) => {
     const leaderIds = new Set(leaderList.map((team) => team.teamId))
     const memberList = (memberTeams ?? [])
       .map((row) => {
-        const team = (row as { teams?: { id?: string; event_id?: string | null; name?: string | null; created_at?: string | null } | null }).teams
+        const team = normalizeTeamRelation(
+          (row as { teams?: { id?: string; event_id?: string | null; name?: string | null; created_at?: string | null } | null }).teams
+        )
         if (!team?.id || team.event_id !== eventId || leaderIds.has(team.id)) return null
         return {
           teamId: team.id,
@@ -594,12 +602,13 @@ const loadMyTeamRequestsForEvent = async (eventId: string) => {
           updated_at?: string | null
           teams?: { event_id?: string | null; name?: string | null } | null
         }
-        if (record.teams?.event_id !== eventId) return null
+        const team = normalizeTeamRelation(record.teams)
+        if (team?.event_id !== eventId) return null
         if (record.status === 'cancelled') return null
         return {
           id: record.id,
           teamId: record.team_id,
-          teamName: record.teams?.name ?? 'Untitled team',
+          teamName: team?.name ?? 'Untitled team',
           status: (record.status as MyTeamRequest['status']) ?? 'pending',
           message: record.message ?? null,
           createdAt: record.created_at,
@@ -614,7 +623,8 @@ const loadMyTeamRequestsForEvent = async (eventId: string) => {
       const requestMap = { ...myTeamRequestsByTeamId.value }
       for (const row of data as any[]) {
         if (!row?.team_id) continue
-        if (row.teams?.event_id !== eventId) continue
+        const team = normalizeTeamRelation(row.teams)
+        if (team?.event_id !== eventId) continue
         requestStatus[row.team_id] = row.status ?? 'pending'
         requestMap[row.team_id] = {
           id: row.id,
@@ -688,11 +698,12 @@ const loadMyTeamInvitesForEvent = async (eventId: string) => {
           updated_at?: string | null
           teams?: { event_id?: string | null; name?: string | null } | null
         }
-        if (record.teams?.event_id !== eventId) return null
+        const team = normalizeTeamRelation(record.teams)
+        if (team?.event_id !== eventId) return null
         return {
           id: record.id,
           teamId: record.team_id,
-          teamName: record.teams?.name ?? 'Untitled team',
+          teamName: team?.name ?? 'Untitled team',
           invitedByName: record.invited_by ? inviterMap[record.invited_by] ?? null : null,
           status: normalizeInviteStatus(record.status) as MyTeamInvite['status'],
           message: record.message ?? null,
@@ -707,7 +718,8 @@ const loadMyTeamInvitesForEvent = async (eventId: string) => {
       const inviteMap = { ...myTeamInviteByTeamId.value }
       for (const row of data as any[]) {
         if (!row?.team_id) continue
-        if (row.teams?.event_id !== eventId) continue
+        const team = normalizeTeamRelation(row.teams)
+        if (team?.event_id !== eventId) continue
         inviteMap[row.team_id] = {
           id: row.id,
           team_id: row.team_id,
@@ -1081,6 +1093,17 @@ const removeTeamMember = async (teamId: string, memberId: string) => {
     return { error: error.message }
   }
 
+  // 清除 Vue Query 缓存
+  const queryClient = getQueryClient()
+  queryClient.invalidateQueries({
+    queryKey: ['team_members', teamId]
+  })
+  
+  // 也清除队伍列表缓存，因为成员数量会变化
+  queryClient.invalidateQueries({
+    queryKey: ['teams']
+  })
+
   const currentMembers = teamMembersByTeamId.value[teamId] ?? []
   teamMembersByTeamId.value = {
     ...teamMembersByTeamId.value,
@@ -1119,6 +1142,17 @@ const updateTeamJoinRequestStatus = async (requestId: string, status: 'approved'
           joined_at: new Date().toISOString(),
         }, { onConflict: 'team_id,user_id' })
       if (memberError) throw memberError
+      
+      // 清除 Vue Query 缓存 - 新成员加入
+      const queryClient = getQueryClient()
+      queryClient.invalidateQueries({
+        queryKey: ['team_members', data.team_id]
+      })
+      
+      // 也清除队伍列表缓存，因为成员数量会变化
+      queryClient.invalidateQueries({
+        queryKey: ['teams']
+      })
     }
 
     return { error: '' }

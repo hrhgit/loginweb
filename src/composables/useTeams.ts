@@ -4,7 +4,8 @@
  */
 
 import { computed } from 'vue'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
+import { useQueryClient } from '@tanstack/vue-query'
+import { useSafeMutation as useMutation, useSafeQuery as useQuery } from './useSafeQuery'
 import { supabase } from '../lib/supabase'
 import { queryKeys, createOptimizedQuery } from '../lib/vueQuery'
 import { useAppStore } from '../store/appStore'
@@ -16,20 +17,24 @@ import type {
 } from '../store/models'
 
 // 队伍数据获取函数
-const fetchTeams = async (eventId: string): Promise<TeamLobbyTeam[]> => {
-  console.log('[useTeams] fetchTeams called with eventId:', eventId)
+// 支持分页：page 从 1 开始，limit 默认为 18
+const fetchTeams = async (eventId: string, page = 1, limit = 18): Promise<{ teams: TeamLobbyTeam[], total: number }> => {
+  console.log(`[useTeams] fetchTeams called with eventId: ${eventId}, page: ${page}, limit: ${limit}`)
   
   if (!eventId) {
-    console.log('[useTeams] fetchTeams: No eventId provided, returning empty array')
-    return []
+    return { teams: [], total: 0 }
   }
 
-  console.log('[useTeams] fetchTeams: Fetching teams from database...')
-  const { data, error } = await supabase
+  const from = (page - 1) * limit
+  const to = from + limit - 1
+
+  console.log('[useTeams] fetchTeams: Fetching teams page from database...')
+  const { data, count, error } = await supabase
     .from('teams')
-    .select('*')
+    .select('*', { count: 'exact' })
     .eq('event_id', eventId)
     .order('created_at', { ascending: false })
+    .range(from, to)
 
   if (error) {
     console.error('[useTeams] fetchTeams: Database error:', error)
@@ -37,13 +42,14 @@ const fetchTeams = async (eventId: string): Promise<TeamLobbyTeam[]> => {
     throw error
   }
 
-  console.log('[useTeams] fetchTeams: Teams fetched successfully, count:', data?.length || 0)
+  console.log(`[useTeams] fetchTeams: Fetched ${data?.length || 0} teams, total count: ${count}`)
 
-  // 获取队伍成员数量
-  const teamIds = data.map(team => team.id).filter(Boolean)
+  // 仅获取当前页队伍的成员数量
+  const teamIds = (data || []).map(team => team.id).filter(Boolean)
+  // 使用之前优化的批量查询（现在只查当前页的 18 个 ID，非常快）
   const memberCounts = await fetchTeamMemberCounts(teamIds)
 
-  return data.map(team => ({
+  const teams = (data || []).map(team => ({
     id: team.id,
     event_id: team.event_id,
     leader_id: team.leader_id,
@@ -56,26 +62,36 @@ const fetchTeams = async (eventId: string): Promise<TeamLobbyTeam[]> => {
     is_closed: Boolean(team.is_closed),
     created_at: team.created_at,
   }))
+
+  return { teams, total: count || 0 }
 }
 
+// 恢复为基于 ID 列表的查询，但增加了分批处理以防万一（虽然分页后 ID 很少，不分批也行，但保留逻辑更稳健）
 const fetchTeamMemberCounts = async (teamIds: string[]): Promise<Record<string, number>> => {
-  if (teamIds.length === 0) return {}
-
-  const { data, error } = await supabase
-    .from('team_members')
-    .select('team_id,user_id')
-    .in('team_id', teamIds)
-
-  if (error) {
-    console.warn('Failed to fetch team member counts:', error)
-    return {}
-  }
+  const uniqueIds = [...new Set(teamIds)]
+  if (uniqueIds.length === 0) return {}
 
   const counts: Record<string, number> = {}
-  for (const row of data || []) {
-    const teamId = row.team_id
-    if (teamId) {
-      counts[teamId] = (counts[teamId] || 0) + 1
+  const BATCH_SIZE = 50 
+
+  for (let i = 0; i < uniqueIds.length; i += BATCH_SIZE) {
+    const batch = uniqueIds.slice(i, i + BATCH_SIZE)
+    
+    const { data, error } = await supabase
+      .from('team_members')
+      .select('team_id')
+      .in('team_id', batch)
+
+    if (error) {
+      console.warn('[useTeams] Failed to fetch team member counts for batch:', error.message)
+      continue
+    }
+
+    for (const row of data || []) {
+      const teamId = row.team_id
+      if (teamId) {
+        counts[teamId] = (counts[teamId] || 0) + 1
+      }
     }
   }
 
@@ -145,21 +161,40 @@ const fetchTeamSeekers = async (eventId: string): Promise<TeamSeeker[]> => {
 // Vue Query Hooks
 
 /**
- * 获取活动的队伍列表
+ * 获取活动的队伍列表（支持分页）
  */
-export function useTeams(eventId: string) {
+import { ref, watch } from 'vue'
+
+export function useTeams(eventId: string, initialPage = 1, initialLimit = 18) {
+  const page = ref(initialPage)
+  const limit = ref(initialLimit)
+
+  // 这里的 queryKey 需要包含 page 和 limit，以便缓存不同页的数据
   const queryConfig = createOptimizedQuery(
-    queryKeys.teams.byEvent(eventId),
-    () => fetchTeams(eventId),
-    'standard' // 标准数据类型：30秒过期，15分钟垃圾回收
+    queryKeys.teams.list(eventId, { page: page.value, limit: limit.value }), // 注意：需要更新 queryKeys 定义以支持对象参数，或者这里手动构造 key
+    () => fetchTeams(eventId, page.value, limit.value),
+    'standard'
   )
   
+  // 实际上 createOptimizedQuery 可能不支持动态 key，我们直接用 useQuery
+  // 并且为了响应性，我们在 queryFn 中使用 .value
   const result = useQuery({
-    ...queryConfig,
+    queryKey: computed(() => ['teams', eventId, { page: page.value, limit: limit.value }]),
+    queryFn: () => fetchTeams(eventId, page.value, limit.value),
+    staleTime: 30 * 1000, // 30秒
     enabled: computed(() => Boolean(eventId)),
+    placeholderData: (previousData) => previousData, // 保持上一页数据直到新数据加载完成（平滑过渡）
   })
   
-  return result
+  return {
+    ...result,
+    page,
+    limit,
+    // 提取便捷属性
+    teams: computed(() => result.data.value?.teams || []),
+    total: computed(() => result.data.value?.total || 0),
+    totalPages: computed(() => Math.ceil((result.data.value?.total || 0) / limit.value))
+  }
 }
 
 /**

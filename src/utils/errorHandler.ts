@@ -18,6 +18,8 @@ export const ErrorType = {
   UNKNOWN: 'unknown'
 } as const
 
+export const TIMEOUT_REFRESH_MESSAGE = '请求超时，加载失败，请刷新页面'
+
 export type ErrorType = typeof ErrorType[keyof typeof ErrorType]
 
 export const MessageSeverity = {
@@ -401,7 +403,7 @@ export class MessageLocalizer {
     [ErrorType.NETWORK]: '网络连接失败，请检查网络后重试',
     [ErrorType.PERMISSION]: '权限不足，请联系管理员',
     [ErrorType.VALIDATION]: '输入信息有误，请检查后重试',
-    [ErrorType.TIMEOUT]: '操作超时，请稍后重试',
+    [ErrorType.TIMEOUT]: TIMEOUT_REFRESH_MESSAGE,
     [ErrorType.SERVER]: '服务器暂时不可用，请稍后重试',
     [ErrorType.CLIENT]: '页面出现错误，请刷新页面后重试',
     [ErrorType.UNKNOWN]: '操作失败，请稍后重试'
@@ -424,9 +426,9 @@ export class MessageLocalizer {
       '查看具体错误提示'
     ],
     [ErrorType.TIMEOUT]: [
+      '刷新页面重新加载',
       '检查网络连接速度',
-      '稍后重试',
-      '联系技术支持'
+      '稍后重试'
     ],
     [ErrorType.SERVER]: [
       '稍后重试',
@@ -537,7 +539,7 @@ export class MessageLocalizer {
         'upload': {
           [ErrorType.NETWORK]: '文件上传失败，请检查网络连接',
           [ErrorType.VALIDATION]: '文件格式不支持或文件过大',
-          [ErrorType.TIMEOUT]: '文件上传超时，请检查文件大小和网络速度'
+          [ErrorType.TIMEOUT]: '文件上传超时，加载失败，请刷新页面'
         },
         'save': {
           [ErrorType.NETWORK]: '保存失败，请检查网络连接后重试',

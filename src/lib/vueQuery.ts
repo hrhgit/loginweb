@@ -22,6 +22,8 @@ const queryClientInstance = new QueryClient({
         // 网络错误重试3次，其他错误不重试
         const isNetworkError = error?.message?.includes('网络') || 
                               error?.message?.includes('fetch') ||
+                              error?.message?.includes('timeout') ||
+                              error?.message?.includes('超时') ||
                               error?.code === 'NETWORK_ERROR'
         return isNetworkError && failureCount < 3
       },
@@ -39,6 +41,8 @@ const queryClientInstance = new QueryClient({
       retry: (failureCount, error: any) => {
         const isNetworkError = error?.message?.includes('网络') || 
                               error?.message?.includes('fetch') ||
+                              error?.message?.includes('timeout') ||
+                              error?.message?.includes('超时') ||
                               error?.code === 'NETWORK_ERROR'
         return isNetworkError && failureCount < 2 // 变更操作最多重试1次
       },
@@ -159,6 +163,8 @@ export function createOptimizedQuery<T>(
     retry: (failureCount: number, error: any) => {
       const isNetworkError = error?.message?.includes('网络') || 
                             error?.message?.includes('fetch') ||
+                            error?.message?.includes('timeout') ||
+                            error?.message?.includes('??') ||
                             error?.code === 'NETWORK_ERROR'
       return isNetworkError && failureCount < 3
     },
@@ -176,6 +182,7 @@ export const queryKeys = {
   teams: {
     all: ['teams'] as const,
     byEvent: (eventId: string) => ['teams', 'event', eventId] as const,
+    list: (eventId: string, params: { page: number, limit: number }) => ['teams', 'event', eventId, 'list', params] as const,
     members: (teamId: string) => ['teams', 'members', teamId] as const,
     requests: (teamId: string) => ['teams', 'requests', teamId] as const,
     seekers: (eventId: string) => ['teams', 'seekers', eventId] as const,
@@ -188,7 +195,9 @@ export const queryKeys = {
   submissions: {
     all: ['submissions'] as const,
     byEvent: (eventId: string) => ['submissions', 'event', eventId] as const,
+    list: (eventId: string, params: { page: number, limit: number }) => ['submissions', 'event', eventId, 'list', params] as const,
     byTeam: (teamId: string) => ['submissions', 'team', teamId] as const,
+    byUser: (eventId: string, userId: string) => ['submissions', 'user', userId, 'event', eventId] as const,
   },
   
   // 活动相关

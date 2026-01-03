@@ -4,7 +4,8 @@
  */
 
 import { computed, toValue, type MaybeRefOrGetter } from 'vue'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
+import { useQueryClient } from '@tanstack/vue-query'
+import { useSafeMutation as useMutation, useSafeQuery as useQuery } from './useSafeQuery'
 import { supabase } from '../lib/supabase'
 import { queryKeys } from '../lib/vueQuery'
 import { useAppStore } from '../store/appStore'
@@ -145,6 +146,8 @@ export function useProfile(userId: MaybeRefOrGetter<string>) {
       // 网络错误重试，其他错误不重试
       const isNetworkError = error?.message?.includes('网络') || 
                             error?.message?.includes('fetch') ||
+                            error?.message?.includes('timeout') ||
+                            error?.message?.includes('??') ||
                             error?.code === 'NETWORK_ERROR'
       return isNetworkError && failureCount < 3
     },
@@ -169,6 +172,8 @@ export function useContacts(userId: MaybeRefOrGetter<string>) {
     retry: (failureCount, error: any) => {
       const isNetworkError = error?.message?.includes('网络') || 
                             error?.message?.includes('fetch') ||
+                            error?.message?.includes('timeout') ||
+                            error?.message?.includes('??') ||
                             error?.code === 'NETWORK_ERROR'
       return isNetworkError && failureCount < 3
     },
@@ -193,6 +198,8 @@ export function useRegistrations(userId: MaybeRefOrGetter<string>) {
     retry: (failureCount, error: any) => {
       const isNetworkError = error?.message?.includes('网络') || 
                             error?.message?.includes('fetch') ||
+                            error?.message?.includes('timeout') ||
+                            error?.message?.includes('??') ||
                             error?.code === 'NETWORK_ERROR'
       return isNetworkError && failureCount < 3
     },

@@ -5,9 +5,10 @@
  */
 
 import { ref, computed, type Ref } from 'vue'
-import { errorHandler, type ErrorContext, type ErrorRecord } from './errorHandler'
+import { errorHandler, type ErrorContext, type ErrorRecord, TIMEOUT_REFRESH_MESSAGE } from './errorHandler'
 import { deploymentVerifier, type ErrorReport } from './deploymentVerifier'
 import { performanceMonitor } from './performanceMonitor'
+import { fetchWithTimeout } from './requestTimeout'
 
 // ============================================================================
 // 类型定义
@@ -490,12 +491,13 @@ export class ErrorReporter {
         }
       }
 
-      await fetch(this.config.reportingEndpoint, {
+      await fetchWithTimeout(this.config.reportingEndpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
+        timeoutMessage: TIMEOUT_REFRESH_MESSAGE
       })
     } catch (reportingError) {
       console.error('远程错误报告失败:', reportingError)

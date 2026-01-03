@@ -266,8 +266,8 @@ const getErrorMessage = (error: string) => {
   if (error.includes('network') || error.includes('fetch')) {
     return '网络连接失败，请检查网络设置'
   }
-  if (error.includes('timeout')) {
-    return '请求超时，请稍后重试'
+  if (error.includes('timeout') || error.includes('超时')) {
+    return '请求超时，加载失败，请刷新页面'
   }
   return '加载失败，请稍后重试'
 }

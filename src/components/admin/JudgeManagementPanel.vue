@@ -70,27 +70,30 @@
         <div class="list-body" role="table" aria-label="评委列表">
           <div 
             v-for="judge in judges" 
-            :key="judge.id" 
+            :key="judge.judge_id" 
             class="judge-item"
             role="row"
           >
             <div class="judge-info" role="cell">
-              <div class="judge-avatar" :aria-label="`${judge.profile.username || '未知用户'}的头像`">
+              <div class="judge-avatar" :aria-label="`${judge.judge_username || '未知用户'}的头像`">
                 <img 
-                  v-if="judge.profile.avatar_url" 
-                  :src="generateAvatarUrl(judge.profile.avatar_url)" 
-                  :alt="`${judge.profile.username || '用户'}头像`"
+                  v-if="judge.judge_avatar_url" 
+                  :src="generateAvatarUrl(judge.judge_avatar_url)" 
+                  :alt="`${judge.judge_username || '用户'}头像`"
                 />
                 <User v-else :size="20" aria-hidden="true" />
               </div>
               <div class="judge-details">
-                <h4>{{ judge.profile.username || '未知用户' }}</h4>
+                <h4>{{ judge.judge_username || '未知用户' }}</h4>
+                <div v-if="judge.judge_roles && judge.judge_roles.length > 0" class="judge-roles">
+                  <span v-for="role in judge.judge_roles" :key="role" class="role-tag">{{ role }}</span>
+                </div>
               </div>
             </div>
             
             <div class="judge-meta" role="cell">
               <span class="invite-time">
-                {{ formatDate(judge.created_at) }}
+                {{ formatDate(judge.invited_at) }}
               </span>
             </div>
             
@@ -100,7 +103,7 @@
                 @click="handleRemoveJudge(judge)"
                 @keydown="handleKeydown($event, judge)"
                 :disabled="removingJudgeId === 'removing'"
-                :aria-label="`移除评委 ${judge.profile.username || '未知用户'}`"
+                :aria-label="`移除评委 ${judge.judge_username || '未知用户'}`"
               >
                 <Trash2 v-if="removingJudgeId !== 'removing'" :size="16" aria-hidden="true" />
                 <Loader2 v-else class="spin" :size="16" aria-hidden="true" />
@@ -126,8 +129,9 @@ import {
   AlertCircle 
 } from 'lucide-vue-next'
 import { useAppStore } from '../../store/appStore'
-import { useEventJudges, useRemoveJudge } from '../../composables/useJudges'
-import type { JudgeWithProfile } from '../../store/models'
+import { useEventJudgesSimple } from '../../composables/useJudgesOptimized'
+import { useRemoveJudge } from '../../composables/useJudges'
+import type { JudgeSimple } from '../../composables/useJudgesOptimized'
 import { generateAvatarUrl } from '../../utils/imageUrlGenerator'
 
 interface Props {
@@ -143,14 +147,14 @@ const emit = defineEmits<Emits>()
 
 const store = useAppStore()
 
-// Vue Query hooks
-const judgesQuery = useEventJudges(props.eventId)
+// Vue Query hooks - 使用优化的评委查询函数
+const judgesQuery = useEventJudgesSimple(props.eventId)
 const removeJudgeMutation = useRemoveJudge()
 
 const retryCount = ref(0)
 const maxRetries = 3
 
-// Get judges from Vue Query
+// Get judges from Vue Query - 使用优化的数据结构
 const judges = computed(() => judgesQuery.data.value || [])
 const loading = computed(() => judgesQuery.isLoading.value)
 const error = computed(() => judgesQuery.error.value?.message || '')
@@ -174,6 +178,7 @@ const loadJudges = async (isRetry = false) => {
       errorMessage.includes('网络') || 
       errorMessage.includes('连接') ||
       errorMessage.includes('timeout') ||
+      errorMessage.includes('超时') ||
       errorMessage.includes('fetch')
     )) {
       retryCount.value++
@@ -189,15 +194,15 @@ const retryLoad = () => {
   loadJudges(false)
 }
 
-const handleRemoveJudge = async (judge: JudgeWithProfile) => {
-  if (!confirm(`确定要移除评委 "${judge.profile.username || '未知用户'}" 吗？`)) {
+const handleRemoveJudge = async (judge: JudgeSimple) => {
+  if (!confirm(`确定要移除评委 "${judge.judge_username || '未知用户'}" 吗？`)) {
     return
   }
   
   try {
     await removeJudgeMutation.mutateAsync({
       eventId: props.eventId,
-      userId: judge.user_id
+      userId: judge.judge_id
     })
   } catch (err: any) {
     // Error handling is done in the mutation
@@ -498,5 +503,24 @@ onMounted(() => {
     transition: none;
     animation: none;
   }
+}
+</style>
+
+<style scoped>
+.judge-roles {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+
+.role-tag {
+  display: inline-block;
+  padding: 2px 6px;
+  font-size: 11px;
+  border-radius: 4px;
+  background: var(--surface-muted);
+  color: var(--muted);
+  border: 1px solid var(--border);
 }
 </style>

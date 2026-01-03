@@ -468,7 +468,7 @@ export class EnhancedModuleLoader implements ModuleLoader {
 
     if (this.mimeHandler.isMimeError(error)) {
       errorType = 'MIME_ERROR'
-    } else if (error.message.includes('timeout')) {
+    } else if (error.message.includes('timeout') || error.message.includes('超时')) {
       errorType = 'TIMEOUT_ERROR'
     }
 

@@ -5,13 +5,18 @@
 
 import { computed, getCurrentInstance, ref } from 'vue'
 import { useQuery, useMutation, useQueryClient, type UseQueryOptions, type UseMutationOptions } from '@tanstack/vue-query'
+import { DEFAULT_REQUEST_TIMEOUT_MS, type TimeoutOptions, withTimeout } from '../utils/requestTimeout'
+import { TIMEOUT_REFRESH_MESSAGE } from '../utils/errorHandler'
+
+type SafeQueryOptions<TData, TError> = UseQueryOptions<TData, TError> & TimeoutOptions
+type SafeMutationOptions<TData, TError, TVariables> = UseMutationOptions<TData, TError, TVariables> & TimeoutOptions
 
 /**
  * 安全的 useQuery 包装器
  * 只在有效的 Vue 实例作用域中执行查询
  */
 export function useSafeQuery<TData = unknown, TError = Error>(
-  options: UseQueryOptions<TData, TError>
+  options: SafeQueryOptions<TData, TError>
 ) {
   const instance = getCurrentInstance()
   
@@ -28,14 +33,26 @@ export function useSafeQuery<TData = unknown, TError = Error>(
     }
   }
   
-  return useQuery(options)
+  const { timeoutMs, timeoutMessage, queryFn, ...rest } = options
+  const finalTimeoutMs = timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS
+  const finalTimeoutMessage = timeoutMessage ?? TIMEOUT_REFRESH_MESSAGE
+
+  const wrappedQueryFn = queryFn
+    ? (...args: any[]) =>
+        withTimeout(() => (queryFn as (...params: any[]) => Promise<TData>)(...args), finalTimeoutMs, finalTimeoutMessage)
+    : undefined
+
+  return useQuery({
+    ...rest,
+    queryFn: wrappedQueryFn
+  } as UseQueryOptions<TData, TError>)
 }
 
 /**
  * 安全的 useMutation 包装器
  */
 export function useSafeMutation<TData = unknown, TError = Error, TVariables = void>(
-  options: UseMutationOptions<TData, TError, TVariables>
+  options: SafeMutationOptions<TData, TError, TVariables>
 ) {
   const instance = getCurrentInstance()
   
@@ -52,7 +69,23 @@ export function useSafeMutation<TData = unknown, TError = Error, TVariables = vo
     }
   }
   
-  return useMutation(options)
+  const { timeoutMs, timeoutMessage, mutationFn, ...rest } = options
+  const finalTimeoutMs = timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS
+  const finalTimeoutMessage = timeoutMessage ?? TIMEOUT_REFRESH_MESSAGE
+
+  const wrappedMutationFn = mutationFn
+    ? (variables: TVariables) =>
+        withTimeout(
+          () => (mutationFn as (payload: TVariables) => Promise<TData>)(variables),
+          finalTimeoutMs,
+          finalTimeoutMessage
+        )
+    : undefined
+
+  return useMutation({
+    ...rest,
+    mutationFn: wrappedMutationFn
+  } as UseMutationOptions<TData, TError, TVariables>)
 }
 
 /**
@@ -81,7 +114,7 @@ export function useSafeQueryClient() {
  */
 export function useConditionalQuery<TData = unknown, TError = Error>(
   condition: () => boolean,
-  options: UseQueryOptions<TData, TError>
+  options: SafeQueryOptions<TData, TError>
 ) {
   const shouldExecute = computed(condition)
   

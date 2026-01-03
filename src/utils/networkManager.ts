@@ -9,6 +9,8 @@ import { ref, type Ref } from 'vue'
 import { registerNetworkCleanup, trackNetworkOperation, completeNetworkOperation, type NetworkMemoryStats } from './memoryManager'
 import { backgroundProcessor } from './backgroundProcessor'
 import { updateBatcher } from './updateBatcher'
+import { fetchWithTimeout } from './requestTimeout'
+import { TIMEOUT_REFRESH_MESSAGE } from './errorHandler'
 
 // Network State Types
 export interface NetworkState {
@@ -234,21 +236,17 @@ export class RequestQueue {
   }
 
   private async executeRequest(request: NetworkRequest): Promise<any> {
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 10000) // 10s timeout
-
     try {
-      const response = await fetch(request.url, {
+      const response = await fetchWithTimeout(request.url, {
         method: request.method,
         headers: {
           'Content-Type': 'application/json',
           ...request.data?.headers
         },
         body: request.data ? JSON.stringify(request.data) : undefined,
-        signal: controller.signal
+        timeoutMs: 10000,
+        timeoutMessage: TIMEOUT_REFRESH_MESSAGE
       })
-
-      clearTimeout(timeoutId)
 
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`)
@@ -256,7 +254,6 @@ export class RequestQueue {
 
       return await response.json()
     } catch (error) {
-      clearTimeout(timeoutId)
       throw error
     }
   }

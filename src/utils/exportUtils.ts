@@ -422,7 +422,7 @@ export const isRetryableError = (error: any): boolean => {
   }
   
   // Timeout errors are retryable
-  if (error.name === 'TimeoutError' || error.message?.includes('timeout')) {
+  if (error.name === 'TimeoutError' || error.message?.includes('timeout') || error.message?.includes('超时')) {
     return true
   }
   
