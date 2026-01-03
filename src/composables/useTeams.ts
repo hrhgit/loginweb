@@ -169,20 +169,28 @@ export function useTeams(eventId: string, initialPage = 1, initialLimit = 18) {
   const page = ref(initialPage)
   const limit = ref(initialLimit)
 
-  // 这里的 queryKey 需要包含 page 和 limit，以便缓存不同页的数据
-  const queryConfig = createOptimizedQuery(
-    queryKeys.teams.list(eventId, { page: page.value, limit: limit.value }), // 注意：需要更新 queryKeys 定义以支持对象参数，或者这里手动构造 key
-    () => fetchTeams(eventId, page.value, limit.value),
-    'standard'
-  )
-  
-  // 实际上 createOptimizedQuery 可能不支持动态 key，我们直接用 useQuery
-  // 并且为了响应性，我们在 queryFn 中使用 .value
   const result = useQuery({
     queryKey: computed(() => ['teams', eventId, { page: page.value, limit: limit.value }]),
     queryFn: () => fetchTeams(eventId, page.value, limit.value),
-    staleTime: 30 * 1000, // 30秒
     enabled: computed(() => Boolean(eventId)),
+    
+    // 缓存策略 - 必须配置
+    staleTime: 1000 * 30,              // 30秒后数据过期
+    gcTime: 1000 * 60 * 15,            // 15分钟后清理缓存
+    
+    // 重新获取策略 - 必须配置
+    refetchOnMount: true,              // 挂载时自动获取（首次打开界面需要数据）
+    refetchOnWindowFocus: false,       // 窗口焦点时不自动重新获取
+    refetchOnReconnect: true,          // 网络重连时直接重新获取
+    
+    // 重试策略 - 必须配置
+    retry: (failureCount, error) => {
+      const isNetworkError = error?.message?.includes('网络') || 
+                            error?.message?.includes('fetch') ||
+                            error?.code === 'NETWORK_ERROR'
+      return isNetworkError && failureCount < 3
+    },
+    
     placeholderData: (previousData) => previousData, // 保持上一页数据直到新数据加载完成（平滑过渡）
   })
   
@@ -201,15 +209,27 @@ export function useTeams(eventId: string, initialPage = 1, initialLimit = 18) {
  * 获取队伍成员列表
  */
 export function useTeamMembers(teamId: string) {
-  const queryConfig = createOptimizedQuery(
-    queryKeys.teams.members(teamId),
-    () => fetchTeamMembers(teamId),
-    'standard' // 标准数据类型
-  )
-  
   return useQuery({
-    ...queryConfig,
+    queryKey: queryKeys.teams.members(teamId),
+    queryFn: () => fetchTeamMembers(teamId),
     enabled: computed(() => Boolean(teamId)),
+    
+    // 缓存策略 - 必须配置
+    staleTime: 1000 * 30,              // 30秒后数据过期
+    gcTime: 1000 * 60 * 15,            // 15分钟后清理缓存
+    
+    // 重新获取策略 - 必须配置
+    refetchOnMount: true,              // 挂载时自动获取（首次打开界面需要数据）
+    refetchOnWindowFocus: false,       // 窗口焦点时不自动重新获取
+    refetchOnReconnect: true,          // 网络重连时直接重新获取
+    
+    // 重试策略 - 必须配置
+    retry: (failureCount, error) => {
+      const isNetworkError = error?.message?.includes('网络') || 
+                            error?.message?.includes('fetch') ||
+                            error?.code === 'NETWORK_ERROR'
+      return isNetworkError && failureCount < 3
+    },
   })
 }
 
